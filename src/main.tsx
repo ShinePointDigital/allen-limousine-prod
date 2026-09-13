@@ -13,7 +13,7 @@ import "./tracking-recovery.css";
 import "./pwa-gate.css";
 import "./bloom.css";
 
-const LEGACY_SERVICE_WORKER_RESET = "allen-sw-reset-2026-09-v2";
+const LEGACY_SERVICE_WORKER_RESET = "allen-sw-reset-2026-09-v3";
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", async () => {

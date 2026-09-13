@@ -13,6 +13,25 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/pwa-icon-192.png" />
     <meta name="description" content="Private chauffeur service in Chicago. Airport transfers, executive travel, and important evenings, arranged with absolute discretion." />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%230d0e0e'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-family='serif' font-style='italic' font-size='42' fill='%23d7bb85'%3EA%3C/text%3E%3C/svg%3E" />
+    <script>
+      (() => {
+        const resetKey = "allen-sw-reset-2026-09-v3";
+        if (!("serviceWorker" in navigator)) return;
+        try {
+          if (localStorage.getItem(resetKey) === "complete") return;
+          localStorage.setItem(resetKey, "complete");
+        } catch {
+          return;
+        }
+        Promise.all([
+          navigator.serviceWorker.getRegistrations()
+            .then(registrations => Promise.all(registrations.map(registration => registration.unregister()))),
+          "caches" in window
+            ? caches.keys().then(names => Promise.all(names.map(name => caches.delete(name))))
+            : Promise.resolve(),
+        ]).finally(() => window.location.reload());
+      })();
+    </script>
     <title>ALLAN Livery | Private Chauffeur Service</title>
   </head>
   <body>
