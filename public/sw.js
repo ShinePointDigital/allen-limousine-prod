@@ -1,4 +1,4 @@
-const CACHE = "allen-limo-shell-v2";
+const CACHE = "allen-limo-shell-v3";
 const SHELL = ["/", "/manifest.json", "/allen-limousine-logo.png", "/pwa-icon-192.png", "/pwa-icon-512.png", "/pwa-icon-maskable-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", event => {
@@ -29,20 +29,26 @@ self.addEventListener("fetch", event => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
-  event.respondWith(
-    (event.preloadResponse || fetch(request))
-      .then(response => {
-        if (response && response.ok && (response.type === "basic" || response.type === "default")) {
-          const copy = response.clone();
-          caches.open(CACHE).then(cache => cache.put(request, copy));
-        }
-        return response;
-      })
-      .catch(async () => {
-        const cached = await caches.match(request);
-        if (cached) return cached;
-        if (request.mode === "navigate") return caches.match("/");
-        throw new Error("Offline asset not cached.");
-      }),
-  );
+  event.respondWith((async () => {
+    try {
+      const preload = await event.preloadResponse;
+      const response = preload || await fetch(request);
+      if (response.ok && (response.type === "basic" || response.type === "default")) {
+        const copy = response.clone();
+        event.waitUntil(caches.open(CACHE).then(cache => cache.put(request, copy)));
+      }
+      return response;
+    } catch {
+      const cached = await caches.match(request);
+      if (cached) return cached;
+      if (request.mode === "navigate") {
+        const shell = await caches.match("/");
+        if (shell) return shell;
+      }
+      return new Response("Offline", {
+        status: 503,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+  })());
 });
