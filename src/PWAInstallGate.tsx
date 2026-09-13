@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowRight, Check, Download, Home, Share, Smartphone, X } from "lucide-react";
+import { ArrowRight, Check, Download, EllipsisVertical, Home, Share, Smartphone, X } from "lucide-react";
 
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
+type InstallPromptWindow = Window & { __allenInstallPrompt?: InstallPromptEvent };
+const deferredInstallPrompt = () => (window as InstallPromptWindow).__allenInstallPrompt || null;
 
 const isStandalone = () =>
   window.matchMedia("(display-mode: standalone)").matches ||
@@ -18,8 +20,9 @@ const isMobileDevice = () =>
 
 export default function PWAInstallGate({ children }: { children: ReactNode }) {
   const [continueInBrowser, setContinueInBrowser] = useState(() => sessionStorage.getItem("allan-browser-booking") === "true");
-  const [prompt, setPrompt] = useState<InstallPromptEvent | null>(null);
+  const [prompt, setPrompt] = useState<InstallPromptEvent | null>(deferredInstallPrompt);
   const [showIosGuide, setShowIosGuide] = useState(false);
+  const [showAndroidGuide, setShowAndroidGuide] = useState(false);
   const [installUnavailable, setInstallUnavailable] = useState(false);
   const ios = isAppleMobile();
   const mobile = isMobileDevice();
@@ -27,22 +30,39 @@ export default function PWAInstallGate({ children }: { children: ReactNode }) {
     if (!mobile) return;
     const handler = (event: Event) => {
       event.preventDefault();
-      setPrompt(event as InstallPromptEvent);
+      const installEvent = event as InstallPromptEvent;
+      (window as InstallPromptWindow).__allenInstallPrompt = installEvent;
+      setPrompt(installEvent);
     };
+    const promptReady = () => setPrompt(deferredInstallPrompt());
     window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+    window.addEventListener("allen-install-prompt-ready", promptReady);
+    promptReady();
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handler);
+      window.removeEventListener("allen-install-prompt-ready", promptReady);
+    };
   }, [mobile]);
   if (isStandalone() || !mobile || continueInBrowser) return children;
   const install = async () => {
     if (ios) { setShowIosGuide(true); return; }
-    if (!prompt) {
+    const availablePrompt = prompt || deferredInstallPrompt();
+    if (!availablePrompt) {
       setInstallUnavailable(true);
+      setShowAndroidGuide(true);
       return;
     }
-    await prompt.prompt();
-    const choice = await prompt.userChoice;
-    if (choice.outcome === "accepted") setContinueInBrowser(true);
-    setPrompt(null);
+    try {
+      await availablePrompt.prompt();
+      const choice = await availablePrompt.userChoice;
+      if (choice.outcome === "accepted") setContinueInBrowser(true);
+    } catch {
+      setInstallUnavailable(true);
+      setShowAndroidGuide(true);
+    } finally {
+      delete (window as InstallPromptWindow).__allenInstallPrompt;
+      setPrompt(null);
+    }
   };
   const continueBooking = () => {
     sessionStorage.setItem("allan-browser-booking", "true");
@@ -63,5 +83,6 @@ export default function PWAInstallGate({ children }: { children: ReactNode }) {
       <button className="install-browser-fallback" onClick={continueBooking}>Continue to Browser Booking</button>
     </section>
     {showIosGuide && <div className="pwa-guide-backdrop"><section className="pwa-guide"><button className="pwa-guide-close" onClick={() => setShowIosGuide(false)}><X /></button><p className="eyebrow brass">Install on iPhone</p><h2>Three taps to<br /><em>claim your offer.</em></h2><ol><li><i><Share /></i><span><b>1. Tap Share</b>Use the Share icon in Safari’s toolbar.</span></li><li><i><Home /></i><span><b>2. Add to Home Screen</b>Scroll down and choose “Add to Home Screen.”</span></li><li><i><Smartphone /></i><span><b>3. Launch the app</b>Open ALLAN from your new Home Screen icon.</span></li></ol><button className="solid-button" onClick={() => setShowIosGuide(false)}>Ready to install</button></section></div>}
+    {showAndroidGuide && <div className="pwa-guide-backdrop"><section className="pwa-guide"><button className="pwa-guide-close" onClick={() => setShowAndroidGuide(false)}><X /></button><p className="eyebrow brass">Install on Android</p><h2>Add Allen Limousine<br /><em>to your phone.</em></h2><ol><li><i><EllipsisVertical /></i><span><b>1. Open the Chrome menu</b>Tap the three dots in the top-right corner.</span></li><li><i><Download /></i><span><b>2. Choose Install app</b>You may see “Add to Home screen” instead.</span></li><li><i><Smartphone /></i><span><b>3. Confirm Install</b>Launch Allen Limousine from your Home Screen.</span></li></ol><button className="solid-button" onClick={() => setShowAndroidGuide(false)}>Got it</button></section></div>}
   </main>;
 }
