@@ -74,7 +74,7 @@ function Home() {
   return <main className={`public-page${pwaMode ? " pwa-launch" : ""}`}>
     <section className="hero">
       <video className="hero-video" autoPlay muted loop playsInline preload="metadata" poster={heroCadillac} aria-hidden="true">
-        <source src="/hero-cadillac-downtown-loop.mp4" type="video/mp4" />
+        <source src="/hero-cadillac-edge-to-edge.mp4" type="video/mp4" />
       </video>
       <div className="hero-image" />
       <PublicNav />
