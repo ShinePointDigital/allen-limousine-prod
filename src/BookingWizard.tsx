@@ -42,7 +42,11 @@ const detectAirport = (value: string): AirportCode | null => {
 };
 const request = async (url: string, options?: RequestInit) => {
   const response = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
-  const data = await response.json().catch(() => ({}));
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    throw new Error("The booking service returned an invalid response.");
+  }
+  const data = await response.json();
   if (!response.ok) throw new Error(data.error || "Something went wrong.");
   return data;
 };
@@ -147,7 +151,9 @@ export default function BookingWizard() {
     setAuthorizeCard(true);
   };
 
-  const detectedAirport = detectAirport(`${route.pickup} ${route.destination}`);
+  const pickup = typeof route.pickup === "string" ? route.pickup : "";
+  const destination = typeof route.destination === "string" ? route.destination : "";
+  const detectedAirport = detectAirport(`${pickup} ${destination}`);
   useEffect(() => {
     const riderProfile = {
       fullName: localStorage.getItem("rider_name") || "",
@@ -166,14 +172,14 @@ export default function BookingWizard() {
     if (detectedAirport && detectedAirport !== airport.code) setAirport({ code: detectedAirport, terminal: "", lane: "", flight: "" });
   }, [detectedAirport]);
   useEffect(() => {
-    if (route.pickup.trim().length < 3 || route.destination.trim().length < 3) { setFareState("idle"); setFares({}); return; }
+    if (pickup.trim().length < 3 || destination.trim().length < 3) { setFareState("idle"); setFares({}); return; }
     setFareState("loading");
     setFares({});
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
         const entries = await Promise.all(VEHICLES.map(async vehicle => {
-          const query = new URLSearchParams({ pickup: route.pickup, destination: route.destination, tier: vehicle.tier });
+          const query = new URLSearchParams({ pickup, destination, tier: vehicle.tier });
           if (points.pickup) { query.set("pickupLat", String(points.pickup.latitude)); query.set("pickupLon", String(points.pickup.longitude)); }
           if (points.destination) { query.set("destinationLat", String(points.destination.latitude)); query.set("destinationLon", String(points.destination.longitude)); }
           return [vehicle.tier, await request(`/api/fare/calculate?${query}`, { signal: controller.signal })] as const;
@@ -185,7 +191,7 @@ export default function BookingWizard() {
       }
     }, 450);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [route, points]);
+  }, [pickup, destination, points]);
 
   function useCurrentLocation() {
     if (!navigator.geolocation) { setLocationStatus("Location is unavailable. Enter your pickup manually."); return; }
@@ -194,6 +200,9 @@ export default function BookingWizard() {
       try {
         const point = { latitude: position.coords.latitude, longitude: position.coords.longitude };
         const result = await request(`/api/reverse-geocode?lat=${point.latitude}&lon=${point.longitude}`);
+        if (typeof result.address !== "string" || !result.address.trim()) {
+          throw new Error("Current location address was unavailable.");
+        }
         setRoute(current => ({ ...current, pickup: result.address }));
         setPoints(current => ({ ...current, pickup: point }));
         setLocationStatus("Current location added");
@@ -203,7 +212,7 @@ export default function BookingWizard() {
   const selectedFare = fares[tier];
   const promoDiscount = hasWelcomePromo(promoCode) && selectedFare ? Math.min(1500, selectedFare.fareCents) : 0;
   const finalFareCents = selectedFare ? selectedFare.fareCents - promoDiscount : 0;
-  const canContinueRoute = route.pickup.trim().length > 2 && route.destination.trim().length > 2 && (!detectedAirport || Boolean(airport.lane && airport.flight && (airport.code === "DAL" || airport.terminal)));
+  const canContinueRoute = pickup.trim().length > 2 && destination.trim().length > 2 && (!detectedAirport || Boolean(airport.lane && airport.flight && (airport.code === "DAL" || airport.terminal)));
   const next = () => { setError(""); setStep(current => Math.min(4, current + 1)); };
   const submit = async () => {
     if (!selectedFare) return;
@@ -329,9 +338,9 @@ export default function BookingWizard() {
       <main className="wizard-body">
         {step === 1 && <div className="wizard-step">
           {hasWelcomePromo(promoCode) && <div className="wizard-promo"><Check /><span><b>$15 first-ride credit applied</b><small>Promo WELCOME15 will be included with your booking.</small></span></div>}
-          <SmartLocation label="Pickup location" value={route.pickup} placeholder="Address, hotel, airport, or landmark" currentLocation={useCurrentLocation} onType={value => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: undefined })); }} onSelect={(value, point) => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: point })); }} />
+          <SmartLocation label="Pickup location" value={pickup} placeholder="Address, hotel, airport, or landmark" currentLocation={useCurrentLocation} onType={value => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: undefined })); }} onSelect={(value, point) => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: point })); }} />
           <small className="wizard-location-status">{locationStatus}</small>
-          <SmartLocation label="Drop-off location" value={route.destination} placeholder="Where should we take you?" onType={value => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: undefined })); }} onSelect={(value, point) => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: point })); }} />
+          <SmartLocation label="Drop-off location" value={destination} placeholder="Where should we take you?" onType={value => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: undefined })); }} onSelect={(value, point) => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: point })); }} />
           {detectedAirport && <div className="wizard-airport"><header><Plane /><div><b>{detectedAirport === "DFW" ? "Dallas Fort Worth International" : "Dallas Love Field"}</b><span>Flight-aware airport pickup</span></div></header>{detectedAirport === "DFW" && <label>Terminal<select required value={airport.terminal} onChange={event => setAirport(current => ({ ...current, terminal: event.target.value }))}><option value="">Select terminal</option>{DFW_TERMINALS.map(item => <option key={item}>{item}</option>)}</select></label>}<label>Pickup lane<select required value={airport.lane} onChange={event => setAirport(current => ({ ...current, lane: event.target.value }))}><option value="">Select pickup preference</option>{(detectedAirport === "DFW" ? DFW_LANES : DAL_LANES).map(item => <option key={item}>{item}</option>)}</select></label><label>Flight number<input required value={airport.flight} onChange={event => setAirport(current => ({ ...current, flight: event.target.value.toUpperCase() }))} placeholder="AA 1234" /></label></div>}
           {fareState === "error" && <p className="form-error">We couldn’t calculate this route. Select an address suggestion or add a more specific address.</p>}
           <button className="solid-button wizard-next" disabled={!canContinueRoute || fareState === "loading"} onClick={next}>{fareState === "loading" ? "Calculating route…" : <>See vehicles & fares <ArrowRight /></>}</button>
