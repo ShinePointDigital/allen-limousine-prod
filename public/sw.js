@@ -1,4 +1,4 @@
-const CACHE = "allen-limo-shell-v3";
+const CACHE = "allen-limo-shell-v4";
 const SHELL = ["/", "/manifest.json", "/allen-limousine-logo.png", "/pwa-icon-192.png", "/pwa-icon-512.png", "/pwa-icon-maskable-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", event => {
@@ -29,13 +29,21 @@ self.addEventListener("fetch", event => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+  if (request.headers.has("range")) {
+    event.respondWith(fetch(request));
+    return;
+  }
   event.respondWith((async () => {
     try {
       const preload = await event.preloadResponse;
       const response = preload || await fetch(request);
-      if (response.ok && (response.type === "basic" || response.type === "default")) {
+      if (response.ok && response.status !== 206 && (response.type === "basic" || response.type === "default")) {
         const copy = response.clone();
-        event.waitUntil(caches.open(CACHE).then(cache => cache.put(request, copy)));
+        event.waitUntil(
+          caches.open(CACHE)
+            .then(cache => cache.put(request, copy))
+            .catch(() => undefined),
+        );
       }
       return response;
     } catch {
