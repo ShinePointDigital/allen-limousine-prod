@@ -1,2 +1,3 @@
 - [Uncertain SMS outcomes](uncertain-sms-outcomes.md) — never clear a dispatch lock unless provider rejection or acceptance is confirmed.
 - [Customer tracking access](customer-tracking-access.md) — use expiring hashed capabilities separate from booking IDs; never fabricate operational details.
+- [PWA cache recovery](pwa-cache-recovery.md) — bypass Cache Storage for range/206 responses, and keep recovery code inline so it runs when bundles are blocked.
