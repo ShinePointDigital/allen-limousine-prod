@@ -1,0 +1,210 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AdminUser {
+  id               String            @id @default(cuid())
+  email            String            @unique
+  name             String
+  passwordHash     String
+  role             String            @default("SUPER_ADMIN")
+  active           Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  sessions         AdminSession[]
+  notes            InquiryNote[]
+  dispatchMessages DispatchMessage[]
+  reconciledMessages DispatchMessage[] @relation("DispatchReconciler")
+}
+
+model AdminSession {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Inquiry {
+  id            String              @id @default(cuid())
+  fullName      String
+  email         String
+  phone         String
+  serviceType   String
+  pickupAt      DateTime
+  pickup        String
+  destination   String
+  passengers    Int
+  notes         String?
+  airportCode       String?
+  airportTerminal   String?
+  flightNumber      String?
+  flightScheduledAt DateTime?
+  pickupPreference  String?
+  rateTier           String?
+  estimatedFareCents Int?
+  estimatedMiles     Float?
+  estimatedMinutes   Float?
+  rideTiming         String?
+  promoCode          String?
+  promoDiscountCents Int?
+  grossFareCents     Int?
+  bookingRequestId   String?             @unique
+  bookingRequestFingerprint String?
+  trackingTokenHash        String?             @unique
+  trackingExpiresAt        DateTime?
+  stripeCustomerId        String?
+  stripePaymentMethodId   String?
+  stripePaymentIntentId   String?
+  paymentStatus           String?
+  status        String              @default("NEW")
+  source        String              @default("website")
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  inquiryNotes  InquiryNote[]
+  ride          Ride?
+  notifications AdminNotification[]
+
+  @@index([status, createdAt])
+  @@index([email])
+  @@index([pickupAt])
+}
+
+model StripeSetupSession {
+  id            String    @id @default(cuid())
+  tokenHash     String    @unique
+  setupIntentId String    @unique
+  customerId    String
+  email         String
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([expiresAt])
+}
+
+model InquiryNote {
+  id        String    @id @default(cuid())
+  body      String
+  inquiryId String
+  authorId  String
+  createdAt DateTime  @default(now())
+  inquiry   Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  author    AdminUser @relation(fields: [authorId], references: [id])
+}
+
+model Service {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  eyebrow     String
+  description String
+  imageUrl    String
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active, sortOrder])
+}
+
+model Ride {
+  id               String            @id @default(cuid())
+  inquiryId        String            @unique
+  vehicleId        String?
+  status           String            @default("UNASSIGNED")
+  driverName       String?
+  driverPhone      String?
+  driverLatitude   Float?
+  driverLongitude  Float?
+  driverHeading    Float?
+  locationUpdatedAt DateTime?
+  quoteCents       Int               @default(0)
+  depositCents     Int               @default(0)
+  collectedCents   Int               @default(0)
+  expenseCents     Int               @default(0)
+  dispatchNotes    String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  inquiry          Inquiry           @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  vehicle          FleetVehicle?     @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  dispatchMessages DispatchMessage[]
+
+  @@index([status, updatedAt])
+  @@index([vehicleId, status])
+}
+
+model DispatchMessage {
+  id                String    @id @default(cuid())
+  rideId            String
+  adminId           String
+  toPhone           String
+  body              String
+  status            String    @default("SENT")
+  providerMessageId String?   @unique
+  providerStatus    String?
+  deliveryStatus    String?
+  errorMessage      String?
+  reconciledAt      DateTime?
+  reconciledById    String?
+  createdAt         DateTime  @default(now())
+  ride              Ride      @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  admin             AdminUser @relation(fields: [adminId], references: [id], onDelete: Restrict)
+  reconciledBy      AdminUser? @relation("DispatchReconciler", fields: [reconciledById], references: [id], onDelete: SetNull)
+
+  @@index([rideId, createdAt])
+  @@index([status, createdAt])
+}
+
+model AdminNotification {
+  id        String    @id @default(cuid())
+  type      String    @default("NEW_INQUIRY")
+  title     String
+  body      String
+  inquiryId String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  inquiry   Inquiry?  @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  @@index([readAt, createdAt])
+}
+
+model FleetVehicle {
+  id          String   @id @default(cuid())
+  name        String
+  category    String
+  description String
+  imageUrl    String
+  passengers  String
+  luggage     String
+  defaultDriverName  String?
+  defaultDriverPhone String?
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  rides       Ride[]
+
+  @@index([active, sortOrder])
+}
+
+model SiteContent {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  group     String   @default("general")
+  updatedAt DateTime @updatedAt
+}
+
+model SiteSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}

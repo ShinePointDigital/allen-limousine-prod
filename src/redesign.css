@@ -1,0 +1,91 @@
+/* Public-site visual revision */
+.public-page{background:#0d0e0e}
+.public-nav .nav-actions .outline-button{background:#c9a56a;border-color:#c9a56a;color:#0d0e0e}
+.hero{width:100vw;max-width:none;min-height:900px;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}
+.hero-image{background-image:linear-gradient(90deg,rgba(8,9,9,.88) 0%,rgba(8,9,9,.58) 42%,rgba(8,9,9,.16) 76%),linear-gradient(0deg,rgba(8,9,9,.84),transparent 52%),url("./assets/hero-cadillac-downtown-night.jpg");background-position:center 50%;filter:saturate(.7) contrast(1.05)}
+.hero-grid{grid-template-columns:1fr 80px;min-height:900px;padding-top:145px;padding-bottom:180px}
+.hero-copy{max-width:820px}
+.hero-copy h1{margin:28px 0 30px;font-size:clamp(78px,8.7vw,132px);line-height:.79}
+.hero-copy h1 em{display:inline;color:#d7bb85;font-weight:400}
+.hero-description{max-width:420px;font-size:13px}
+.hero-ctas{display:flex;gap:12px;margin-top:38px}
+.hero-ctas .solid-button,.hero-ctas .outline-button{min-height:48px;padding:0 21px}
+.hero-stats{display:grid;grid-template-columns:repeat(4,1fr) 1.2fr;gap:20px;bottom:0;left:0;right:0;padding:28px clamp(24px,7vw,120px);border-top:1px solid rgba(244,240,232,.18);background:rgba(9,10,10,.48);backdrop-filter:blur(8px)}
+.hero-stats>span{display:flex;flex-direction:column;gap:7px;border-right:1px solid rgba(244,240,232,.13);color:#969690;font-size:8px;letter-spacing:.17em}
+.hero-stats b{color:#f4f0e8;font-family:"Cormorant Garamond",serif;font-size:22px;font-weight:500;letter-spacing:-.01em;text-transform:none}
+.hero-stats .coordinate-bottom{align-items:flex-end;justify-content:center;border:0;color:#c9a56a;white-space:nowrap}
+.services-section{padding-top:120px;padding-bottom:120px;background:#ece8e1}
+.services-heading{align-items:start;margin-bottom:58px}
+.services-heading h2{margin-top:22px;color:#0d0e0e}
+.services-heading h2 em{color:#b18d55}
+.services-heading .section-aside{max-width:330px;margin-top:38px;color:#5d5b55;font-size:13px}
+.services-heading .section-aside p{margin:0}
+.services-booking-link{margin-top:24px;color:#a17f4d}
+.services-booking-link:hover{color:#76582f}
+.service-list{border-top:1px solid #c9c4ba}
+.service-row{display:grid;grid-template-columns:80px 1fr 55px;align-items:center;gap:20px;min-height:132px;border-bottom:1px solid #c9c4ba}
+.service-row .card-number{align-self:start;padding-top:28px;color:#a17f4d;font-size:10px;letter-spacing:.15em}
+.service-row-copy{display:grid;grid-template-columns:.9fr 1.1fr;align-items:center;gap:55px}
+.service-row h3{margin:0;font-family:"Cormorant Garamond",serif;font-size:43px;font-weight:500;letter-spacing:-.04em}
+.service-row p{max-width:410px;margin:0;color:#6b6861;font-size:11px;line-height:1.8}
+.service-badge{display:flex;align-items:center;justify-content:center;width:46px;height:46px;border:1px solid #c9a56a;border-radius:50%;color:#a17f4d;transition:transform .2s,background .2s}
+.service-badge:hover{transform:translate(3px,-3px);background:rgba(201,165,106,.12)}
+.service-badge svg{width:16px}
+.fleet-section{padding:0;background:#0d0e0e}
+.fleet-editorial{display:grid;padding-top:150px;padding-bottom:88px}
+.fleet-editorial>.fleet-header{display:grid;grid-template-columns:.72fr 1.28fr;gap:8vw}
+.fleet-header>div:first-child{padding-top:14px}
+.fleet-header h2{margin:22px 0 30px;font-size:clamp(58px,6.5vw,92px);grid-column:auto}
+.fleet-header h2 em{color:#d7bb85}
+.fleet-header>div:first-child>p:not(.eyebrow){max-width:315px;color:#a6a69f;font-size:12px;line-height:1.9}
+.fleet-tag{display:inline-flex;margin-top:55px;border:1px solid rgba(201,165,106,.55);padding:11px 14px;color:#c9a56a;font-size:8px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
+.fleet-booking-link{margin-top:22px;background:#c9a56a;border-color:#c9a56a;color:#0d0e0e}
+.fleet-booking-link:hover{background:#d7bb85;border-color:#d7bb85;color:#0d0e0e}
+.fleet-editorial .fleet-rail{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:3px;margin:0;background:#232522}
+.fleet-editorial .vehicle-card{min-height:315px;background:#1b1d1b}
+.fleet-editorial .vehicle-card:first-child{grid-row:span 2}
+.vehicle-card img{position:absolute;width:100%;height:100%;object-fit:cover;filter:saturate(.35) brightness(.62)}
+.vehicle-card:after{position:absolute;inset:0;background:linear-gradient(0deg,rgba(8,9,9,.9),transparent 60%);content:""}
+.fleet-editorial .vehicle-copy{z-index:1;padding:27px}
+.fleet-editorial .vehicle-copy h3{font-size:29px}
+.fleet-editorial .vehicle-copy>span{color:#b8b6af;font-size:9px;letter-spacing:.08em;text-transform:uppercase}
+.fleet-editorial .vehicle-index{z-index:1}
+.standard-section{padding-top:155px;padding-bottom:155px;background:#ece8e1}
+.standard-layout{padding:0;gap:clamp(50px,10vw,145px)}
+.standard-photo{position:relative}
+.standard-photo img{display:block;width:100%;height:630px;object-fit:cover;filter:saturate(.35) contrast(.95)}
+.standard-photo p{display:flex;flex-direction:column;gap:5px;margin:0;padding:18px 0;color:#747068;font-size:10px;line-height:1.5}
+.standard-photo b{color:#a17f4d;font-size:9px;letter-spacing:.16em;text-transform:uppercase}
+.standard-copy h2{font-size:clamp(58px,6.2vw,91px)}
+.standard-copy h2 em{display:block;color:#b18d55}
+.standard-copy>p:not(.eyebrow){font-size:12px}
+.standard-list{gap:0;margin-top:40px}
+.standard-list span{padding:15px 0;border-bottom:1px solid #d0cbc1;color:#4e4c47;font-size:9px}
+.reservation-section{padding-top:92px;padding-bottom:145px;background:#0d0e0e}
+.reservation-layout{grid-template-columns:.85fr 1.15fr;padding:70px 0 0;gap:clamp(45px,10vw,150px)}
+.reservation-intro h2{font-size:clamp(62px,6.7vw,96px);line-height:.82}
+.reservation-intro h2 em{color:#d7bb85}
+.reservation-contact small{margin-top:12px;color:#6f716e;font-size:9px;line-height:1.6}
+.reservation-card{padding:43px 46px;background:#161817;border:1px solid rgba(244,240,232,.1);box-shadow:0 30px 70px rgba(0,0,0,.22)}
+.reservation-card>.reservation-form>.eyebrow{margin-bottom:14px}
+.reservation-submit{width:100%;margin-top:12px;color:#d7bb85}
+.site-footer{padding-top:55px}
+.site-footer .footer-main{grid-template-columns:1.4fr 1.4fr 1fr .25fr;align-items:center;min-height:105px}
+.footer-location span{color:#747570;font-size:9px}
+.footer-contact{display:flex;flex-direction:column!important;gap:4px!important}
+.site-footer .footer-bottom{justify-content:space-between}
+.site-footer .footer-bottom a{margin-left:auto}
+
+@media(max-width:900px){
+  .hero{min-height:820px}.hero-grid{min-height:820px}.hero-stats{grid-template-columns:repeat(4,1fr)}.hero-stats .coordinate-bottom{display:none}
+  .fleet-editorial>.fleet-header{grid-template-columns:1fr}.fleet-header>div:first-child{padding-bottom:55px}.fleet-editorial .fleet-rail{grid-column:1}
+  .service-row-copy{gap:25px}.standard-photo img{height:520px}
+}
+@media(max-width:650px){
+  .hero{min-height:760px}.hero-grid{min-height:760px;padding-bottom:170px}.hero-copy h1{font-size:66px}.hero-ctas{align-items:stretch;flex-direction:column;width:250px}.hero-stats{grid-template-columns:1fr 1fr;padding-top:18px;padding-bottom:18px}.hero-stats>span:nth-child(2){border:0}.hero-stats b{font-size:17px}
+  .services-section,.fleet-editorial,.standard-section,.reservation-section{padding-top:80px;padding-bottom:80px}.services-heading{margin-bottom:42px}.services-heading h2{font-size:59px}
+  .service-row{grid-template-columns:38px 1fr 40px;min-height:150px}.service-row-copy{display:block}.service-row h3{font-size:34px}.service-row p{margin-top:12px}.service-badge{width:38px;height:38px}
+  .fleet-editorial>.fleet-header{display:block}.fleet-editorial .fleet-rail{grid-template-columns:1fr;grid-template-rows:auto}.fleet-editorial .vehicle-card,.fleet-editorial .vehicle-card:first-child{grid-row:auto;min-height:360px}
+  .standard-layout{gap:48px}.standard-photo img{height:480px}.standard-copy h2{font-size:59px}
+  .reservation-layout{padding-top:50px}.reservation-card{padding:30px 22px}.site-footer .footer-main{grid-template-columns:1fr 1fr}.footer-contact{display:none!important}
+}

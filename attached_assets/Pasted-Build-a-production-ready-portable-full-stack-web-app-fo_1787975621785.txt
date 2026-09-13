@@ -1,0 +1,43 @@
+Build a production-ready, portable full-stack web app for a high-end Chicago chauffeur/livery company named “ALLAN Livery” (ALLEN LIMOUSINE). Recreate the luxury public website and add a secure admin dashboard for managing the business. The application must be deployable to the customer’s own hosting provider without relying on Manus, Replit-only services, proprietary platform APIs, or hardcoded platform URLs.
+
+Set up the portable full-stack project structure, skipping manual asset uploads. Generate high-quality Unsplash image URLs or luxury SVG illustrations for all hero, airport, city, and fleet visuals that match the Midnight Charcoal (#0D0E0E), Warm Bone (#F4F0E8), and restrained Brass (#C9A56A / #D7BB85) palette. Configure the project, including vite.config.ts, to bind to host: '0.0.0.0', port: 5173, with hmr: { clientPort: 443 } so all changes are instantly visible in Replit's Webview preview. Use Prisma ORM with PostgreSQL for all database models.
+
+TECH STACK
+- React + Vite + TypeScript for the frontend.
+- Node.js + Express + TypeScript for the backend.
+- PostgreSQL with Prisma ORM.
+- Tailwind CSS and lucide-react icons.
+- Zod for shared validation.
+- Secure cookie-based sessions or JWT authentication with refresh-token rotation.
+- Environment variables for all credentials and configuration.
+- Include `.env.example`, database schema, migration commands, seed instructions, and deployment README.
+- Docker support with production Dockerfile and docker-compose.yml.
+
+BRAND AND VISUAL DESIGN
+- Company name: ALLAN Livery.
+- Brand direction: cinematic editorial luxury inspired by Chicago after dark.
+- Palette: #0D0E0E (background), #F4F0E8 (text), #C9A56A & #D7BB85 (accents).
+- Fonts: Cormorant Garamond for display headlines; Manrope for body copy, buttons, and navigation.
+- Large, bold, italic, classy ALLAN wordmark with “LIVERY” beneath it in smaller tracked uppercase lettering.
+- Browser title: ALLAN Livery | Private Chauffeur Service.
+
+PUBLIC WEBSITE
+1. HERO: Full viewport height, cinematic gradient overlay, header navigation (SERVICES, FLEET, THE STANDARD), phone number (+1 312 555 0188), CTA button ("ARRANGE A RIDE ↗"), headline "The city, on your schedule", coordinates "41.8781° N · 87.6298° W".
+2. SERVICES: Cards for Airport Transfers, Executive Travel, Important Evenings & Events, Corporate Roadshows, and Hourly Chauffeur Service.
+3. FLEET: Editorial layout with specs for passenger capacity, luggage capacity, and vehicle categories.
+4. THE STANDARD: Asymmetric luxury layout detailing discreet service.
+5. RESERVATION FORM: Full name, email, phone, service type, pickup date/time, locations, passengers, and notes with database storage and validation.
+6. FOOTER: Logo wordmark, contact details, service area description, copyright.
+
+ADMIN DASHBOARD (/admin)
+- Login page at /admin/login using Argon2/bcrypt password hashing.
+- Navigation: Overview, Inquiries, Services, Fleet, Site Content, Settings, Admin Users.
+- Overview: Analytics cards and recent inquiries table.
+- Inquiry Management: Filter/search, status updates (New, Contacted, Confirmed, Completed, Cancelled), internal notes, contact history timeline, CSV export.
+- Content Management: CRUD for services, fleet, hero copy, and site text.
+- Provide CLI command `npm run admin:create` for super-admin initialization.
+
+PORTABILITY & CONFIG
+- Do not hardcode ports; bind server to process.env.PORT || 5000 and 0.0.0.0.
+- Abstract storage adapter for images.
+- Complete README detailing local run, Docker deployment, database backup, and secret setup.

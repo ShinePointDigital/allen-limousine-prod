@@ -1,0 +1,42 @@
+Act as a senior full-stack developer. Build and configure the complete PWA experience, mobile booking wizard, upfront fare engine, High-Incentive Gate, 1-Time Onboarding Profile Setup with Stripe Card Saving, Step 4 Card-Switching Checkout, AND the Live Dark-Mode Driver Map Tracking Screen for Allen Limousine.
+
+### WORKSPACE TASKS:
+
+1. DEPENDENCIES & PWA CORE CONFIGURATION:
+   - Install required map & UI dependencies: `@vis.gl/react-google-maps`, `lucide-react`, `@stripe/stripe-js`, `@stripe/react-stripe-js`, `stripe`.
+   - Ensure `public/manifest.json` is set: name: "Allen Limousine", short_name: "Allen Limo", start_url: "/?source=pwa", display: "standalone", background_color: "#0a0a0a", theme_color: "#0a0a0a".
+   - Add service worker (`public/sw.js`) and link manifest in index/head.
+
+2. HIGH-INCENTIVE PWA INSTALLATION GATE (`PWAInstallGate.tsx`):
+   - Check if the user is in standard browser mode vs standalone PWA (`display-mode: standalone`).
+   - If in STANDARD BROWSER: Show dark luxury landing screen with "$15 OFF YOUR FIRST RIDE — Save Allen Limousine to your Home Screen for 1-tap bookings & instant driver tracking."
+   - Include "Claim $15 Off & Install App" button triggering `beforeinstallprompt` (Android) or iOS modal guide ("Share" -> "Add to Home Screen").
+
+3. 1-TIME ONBOARDING PROFILE & STRIPE CARD SETUP (`/pages/api/create-setup-intent.ts` & `PWAOnboarding.tsx`):
+   - In STANDALONE PWA mode, check `localStorage` for saved rider profile.
+   - If no profile: Prompt Name, Phone, Email, and Card/Apple Pay setup via Stripe `SetupIntent`. Tokenize without charging upfront. Store `stripe_customer_id`, `default_payment_method_id`, `card_brand`, `card_last4` in `localStorage` and apply $15 credit (`WELCOME15`).
+   - If profile exists: Skip setup and launch into 4-step wizard.
+
+4. 4-STEP BOOKING WIZARD WITH UPFRONT FARES:
+   - Step 1: Route & Airport Lane Logistics (DFW/DAL terminal, staging lane, flight #).
+   - Step 2: Upfront Fare Calculation Engine (Executive Sedan, Luxury SUV, Sprinter rates displayed before personal details).
+   - Step 3: Schedule ("Ride Now" vs Date/Time picker; Point-to-Point vs Hourly).
+   - Step 4: 1-Tap Checkout & Card Switching (`PaymentStep.tsx`). Default to saved card/Apple Pay; allow inline card changes. Issue `PaymentIntent` with `capture_method: 'manual'` (pre-authorization hold). Trigger Twilio SMS on success.
+
+5. LIVE DISPATCH & INTERACTIVE DARK MAP TRACKING (`DispatchTrackingStep.tsx`):
+   - IMPLEMENT INTERACTIVE DARK-MODE MAP:
+     * Embed `@vis.gl/react-google-maps` (or Leaflet with Mapbox dark tiles `mapbox://styles/mapbox/dark-v11`).
+     * Apply custom night-mode style array (dark obsidian canvas `#0a0a0a`, road geometry `#212121`, route polyline `#D4AF37` gold).
+     * Render Custom Markers: 
+       - Gold Luxury Vehicle Pin (Driver location with animated pulse/rotation heading towards pickup).
+       - Pickup Location Pin & Dropoff Destination Pin.
+     * Draw polyline route connecting driver ➔ pickup ➔ dropoff.
+   - CHAUFFEUR & FLIGHT UI OVERLAY:
+     * Booking reference ID, pickup time, confirmation banner showing pre-auth hold ($145.00) and card last 4.
+     * Chauffeur card: Driver name, rating, Cadillac Escalade vehicle details, license plate (`DFW-LIMO-84`).
+     * Flight status pill (e.g., "Flight AA 1248 — On Time").
+     * Direct action buttons: "Call Chauffeur" (`tel:`), "SMS Dispatch" (`sms:`), and "Add Pass to Mobile Wallet".
+   - PERSISTENCE: Save active reservation to `localStorage` (`allen_active_reservation`) so re-opening the PWA opens directly to this live tracking view until trip completion.
+
+6. BUILD VERIFICATION:
+   - Run `npm run build` to verify clean compilation with zero TypeScript errors or missing packages.

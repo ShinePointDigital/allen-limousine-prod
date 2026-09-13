@@ -1,0 +1,124 @@
+:root{--bloom-gold:201,165,106;--bloom-sapphire:30,88,196}
+
+.hero-video{position:absolute;z-index:-3;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 50%;filter:saturate(.72) contrast(1.06);pointer-events:none}
+.hero .hero-image{background-image:linear-gradient(90deg,rgba(8,9,9,.88) 0%,rgba(8,9,9,.58) 42%,rgba(8,9,9,.16) 76%),linear-gradient(0deg,rgba(8,9,9,.84),transparent 52%)}
+
+.booking-wizard-section,.pwa-onboarding{position:relative;isolation:isolate;overflow:hidden}
+.booking-wizard-section::before,.booking-wizard-section::after,.pwa-onboarding::after{position:absolute;z-index:0;border-radius:50%;content:"";pointer-events:none;filter:blur(8px);will-change:transform,opacity}
+.booking-wizard-section::before{top:-18%;left:-16%;width:62vw;height:62vw;max-width:850px;max-height:850px;background:radial-gradient(circle,rgba(var(--bloom-sapphire),.28) 0,rgba(var(--bloom-sapphire),.1) 30%,transparent 68%);animation:sapphire-bloom 14s ease-in-out infinite alternate}
+.booking-wizard-section::after{right:-14%;bottom:-28%;width:68vw;height:68vw;max-width:920px;max-height:920px;background:radial-gradient(circle,rgba(var(--bloom-gold),.26) 0,rgba(var(--bloom-gold),.09) 34%,transparent 70%);animation:gold-bloom 16s ease-in-out infinite alternate}
+.pwa-onboarding::after{right:-30%;bottom:-20%;width:95vw;height:95vw;background:radial-gradient(circle,rgba(var(--bloom-sapphire),.24),rgba(var(--bloom-gold),.1) 35%,transparent 68%);animation:pwa-bloom 15s ease-in-out infinite alternate}
+.wizard-shell,.wizard-success,.onboarding-card{position:relative;z-index:1;box-shadow:0 34px 110px rgba(0,0,0,.46),0 0 70px rgba(var(--bloom-sapphire),.08),0 0 90px rgba(var(--bloom-gold),.07);backdrop-filter:blur(2px)}
+
+.services-section{position:relative;isolation:isolate;overflow:hidden;background:#050606}
+.services-section::before,.services-section::after{position:absolute;z-index:-1;border-radius:50%;content:"";pointer-events:none;filter:blur(10px);will-change:transform,opacity}
+.services-section::before{top:-38%;left:-20%;width:72vw;height:72vw;max-width:920px;max-height:920px;background:radial-gradient(circle,rgba(var(--bloom-sapphire),.3) 0,rgba(var(--bloom-sapphire),.11) 34%,transparent 70%);animation:sapphire-bloom 15s ease-in-out infinite alternate}
+.services-section::after{right:-20%;bottom:-48%;width:78vw;height:78vw;max-width:980px;max-height:980px;background:radial-gradient(circle,rgba(var(--bloom-gold),.26) 0,rgba(var(--bloom-gold),.08) 36%,transparent 71%);animation:gold-bloom 17s ease-in-out infinite alternate}
+.services-heading h2{color:var(--bone)}
+.services-heading h2 em{color:var(--brass-light)}
+.services-heading .section-aside{color:var(--bone-dim)}
+.services-booking-link{color:var(--brass-light)}
+.services-booking-link:hover{color:#f0d9a8}
+.service-list{border-top-color:rgba(201,165,106,.25)}
+.service-row{border-bottom-color:rgba(201,165,106,.22)}
+.service-row .card-number{color:var(--brass)}
+.service-row h3{color:var(--bone)}
+.service-row p{color:var(--bone-dim)}
+.service-badge{border-color:rgba(201,165,106,.65);color:var(--brass-light)}
+.services-section .service-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;border-top:0}
+.services-section .service-row{position:relative;isolation:isolate;display:flex;min-height:390px;overflow:hidden;flex-direction:column;align-items:stretch;gap:28px;border:1px solid rgba(201,165,106,.24);background:linear-gradient(145deg,rgba(19,22,25,.94),rgba(5,6,6,.98));padding:28px;box-shadow:0 28px 70px rgba(0,0,0,.28);transition:transform .3s ease,border-color .3s ease,box-shadow .3s ease}
+.services-section .service-row::before,.services-section .service-row::after{position:absolute;z-index:-1;border-radius:50%;content:"";pointer-events:none;filter:blur(6px);will-change:transform,opacity}
+.services-section .service-row::before{top:-38%;left:-44%;width:120%;aspect-ratio:1;background:radial-gradient(circle,rgba(var(--bloom-sapphire),.36),rgba(var(--bloom-sapphire),.09) 38%,transparent 69%);animation:card-sapphire-bloom 9s ease-in-out infinite alternate}
+.services-section .service-row::after{right:-48%;bottom:-42%;width:125%;aspect-ratio:1;background:radial-gradient(circle,rgba(var(--bloom-gold),.34),rgba(var(--bloom-gold),.08) 39%,transparent 70%);animation:card-gold-bloom 11s ease-in-out infinite alternate}
+.services-section .service-row:nth-child(2)::before{animation-delay:-3s;animation-duration:11s}.services-section .service-row:nth-child(2)::after{animation-delay:-6s;animation-duration:9s}.services-section .service-row:nth-child(3)::before{animation-delay:-7s;animation-duration:10s}.services-section .service-row:nth-child(3)::after{animation-delay:-2s;animation-duration:12s}
+.services-section .service-row:hover{transform:translateY(-7px);border-color:rgba(201,165,106,.6);box-shadow:0 34px 85px rgba(0,0,0,.4),0 0 45px rgba(var(--bloom-sapphire),.1),0 0 55px rgba(var(--bloom-gold),.08)}
+.services-section .service-row .card-number{align-self:auto;padding:0;color:var(--brass);font-size:9px}
+.services-section .service-row-copy{display:flex;flex:1;flex-direction:column;align-items:flex-start;gap:22px}
+.services-section .service-row h3{max-width:260px;color:var(--bone);font-size:clamp(37px,3.5vw,54px);line-height:.92}
+.services-section .service-row p{max-width:330px;color:#a7a8a1;font-size:10px;line-height:1.85}
+.services-section .service-badge{align-self:flex-end;flex:0 0 auto;margin-top:auto;background:rgba(8,9,9,.48);backdrop-filter:blur(8px)}
+.services-section .service-badge:hover{background:rgba(201,165,106,.14)}
+
+.about-section{position:relative;isolation:isolate;overflow:hidden;background:#050606;padding-top:140px;padding-bottom:140px;border-bottom:1px solid rgba(201,165,106,.16)}
+.about-section::before,.about-section::after{position:absolute;z-index:-1;border-radius:50%;content:"";pointer-events:none;filter:blur(12px);will-change:transform,opacity}
+.about-section::before{top:-48%;right:-12%;width:76vw;height:76vw;max-width:980px;max-height:980px;background:radial-gradient(circle,rgba(var(--bloom-sapphire),.3) 0,rgba(var(--bloom-sapphire),.1) 34%,transparent 69%);animation:sapphire-bloom 16s ease-in-out infinite alternate-reverse}
+.about-section::after{left:-24%;bottom:-58%;width:82vw;height:82vw;max-width:1050px;max-height:1050px;background:radial-gradient(circle,rgba(var(--bloom-gold),.25) 0,rgba(var(--bloom-gold),.08) 37%,transparent 72%);animation:gold-bloom 18s ease-in-out infinite alternate-reverse}
+.about-kicker{display:flex;align-items:center;justify-content:space-between;padding-bottom:30px;border-bottom:1px solid rgba(201,165,106,.24)}
+.about-kicker>span{color:#777a74;font-size:8px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
+.about-content{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,.72fr);gap:clamp(55px,9vw,150px);align-items:start;padding-top:64px}
+.about-content h2{max-width:760px;margin:0;color:var(--bone);font-family:"Cormorant Garamond",serif;font-size:clamp(56px,7vw,104px);font-weight:500;letter-spacing:-.055em;line-height:.83}
+.about-content h2 em{color:var(--brass-light);font-weight:400}
+.about-copy{display:grid;gap:25px;padding-top:10px}
+.about-copy p{margin:0;color:var(--bone-dim);font-size:12px;line-height:1.95}
+.about-copy p:first-child::first-letter{float:left;margin:7px 9px 0 0;color:var(--brass-light);font-family:"Cormorant Garamond",serif;font-size:48px;line-height:.65}
+
+.public-page :is(.solid-button,.outline-button,.text-button,.service-badge),
+.install-gate :is(.solid-button,.outline-button,.install-browser-fallback),
+.pwa-onboarding :is(.solid-button,.outline-button),
+.pwa-guide :is(.solid-button,.outline-button),
+.pwa-install-banner>button:not(.pwa-dismiss){
+  position:relative;isolation:isolate;overflow:hidden;
+  transition:transform .22s ease,border-color .22s ease,color .22s ease,box-shadow .3s ease,background-color .22s ease
+}
+.public-page :is(.solid-button,.outline-button,.text-button,.service-badge)::before,
+.install-gate :is(.solid-button,.outline-button,.install-browser-fallback)::before,
+.pwa-onboarding :is(.solid-button,.outline-button)::before,
+.pwa-guide :is(.solid-button,.outline-button)::before,
+.pwa-install-banner>button:not(.pwa-dismiss)::before{
+  position:absolute;z-index:0;inset:-120% -35%;background:
+    radial-gradient(circle at 28% 50%,rgba(var(--bloom-gold),.7),transparent 27%),
+    radial-gradient(circle at 72% 50%,rgba(var(--bloom-sapphire),.72),transparent 30%);
+  content:"";opacity:.18;transform:translate3d(-28%,10%,0) rotate(-8deg);transition:opacity .25s ease;animation:cta-bloom 5.8s ease-in-out infinite alternate;pointer-events:none
+}
+.public-page :is(.solid-button,.outline-button,.text-button,.service-badge):is(:hover,:focus-visible),
+.install-gate :is(.solid-button,.outline-button,.install-browser-fallback):is(:hover,:focus-visible),
+.pwa-onboarding :is(.solid-button,.outline-button):is(:hover,:focus-visible),
+.pwa-guide :is(.solid-button,.outline-button):is(:hover,:focus-visible),
+.pwa-install-banner>button:not(.pwa-dismiss):is(:hover,:focus-visible){
+  border-color:#d9bd83;box-shadow:0 0 0 1px rgba(var(--bloom-gold),.22),0 9px 30px rgba(var(--bloom-sapphire),.24),0 4px 20px rgba(var(--bloom-gold),.2);transform:translateY(-2px)
+}
+.public-page :is(.solid-button,.outline-button,.text-button,.service-badge):is(:hover,:focus-visible)::before,
+.install-gate :is(.solid-button,.outline-button,.install-browser-fallback):is(:hover,:focus-visible)::before,
+.pwa-onboarding :is(.solid-button,.outline-button):is(:hover,:focus-visible)::before,
+.pwa-guide :is(.solid-button,.outline-button):is(:hover,:focus-visible)::before,
+.pwa-install-banner>button:not(.pwa-dismiss):is(:hover,:focus-visible)::before{opacity:.54}
+.public-page :is(.solid-button,.outline-button,.text-button,.service-badge):active,
+.install-gate :is(.solid-button,.outline-button,.install-browser-fallback):active,
+.pwa-onboarding :is(.solid-button,.outline-button):active{transform:translateY(0) scale(.985)}
+
+@keyframes sapphire-bloom{0%{opacity:.62;transform:translate3d(-4%,-3%,0) scale(.9)}100%{opacity:1;transform:translate3d(18%,15%,0) scale(1.16)}}
+@keyframes gold-bloom{0%{opacity:.65;transform:translate3d(7%,8%,0) scale(.92)}100%{opacity:1;transform:translate3d(-17%,-13%,0) scale(1.13)}}
+@keyframes pwa-bloom{0%{opacity:.65;transform:translate3d(10%,8%,0) scale(.9)}100%{opacity:1;transform:translate3d(-18%,-14%,0) scale(1.16)}}
+@keyframes cta-bloom{0%{transform:translate3d(-27%,9%,0) rotate(-8deg)}100%{transform:translate3d(28%,-7%,0) rotate(8deg)}}
+@keyframes card-sapphire-bloom{0%{opacity:.55;transform:translate3d(-8%,-6%,0) scale(.84)}100%{opacity:1;transform:translate3d(38%,32%,0) scale(1.15)}}
+@keyframes card-gold-bloom{0%{opacity:.58;transform:translate3d(12%,10%,0) scale(.88)}100%{opacity:1;transform:translate3d(-35%,-28%,0) scale(1.18)}}
+
+@media(max-width:700px){
+  .booking-wizard-section::before{top:2%;left:-55%;width:130vw;height:130vw}
+  .booking-wizard-section::after{right:-60%;bottom:5%;width:145vw;height:145vw}
+  .services-section::before{top:-8%;left:-75%;width:150vw;height:150vw}
+  .services-section::after{right:-80%;bottom:-15%;width:165vw;height:165vw}
+  .about-section{padding-top:90px;padding-bottom:95px}
+  .about-section::before{top:-5%;right:-85%;width:170vw;height:170vw}
+  .about-section::after{left:-90%;bottom:-20%;width:180vw;height:180vw}
+  .about-kicker>span{display:none}
+  .about-content{grid-template-columns:1fr;gap:42px;padding-top:43px}
+  .about-content h2{font-size:61px}
+  .services-section .service-list{grid-template-columns:1fr;gap:14px}
+  .services-section .service-row{min-height:330px;padding:24px}
+  .services-section .service-row h3{font-size:45px}
+}
+@media(prefers-reduced-motion:reduce){
+  .hero-video{display:none}
+  .hero .hero-image{background-image:linear-gradient(90deg,rgba(8,9,9,.88) 0%,rgba(8,9,9,.58) 42%,rgba(8,9,9,.16) 76%),linear-gradient(0deg,rgba(8,9,9,.84),transparent 52%),url("./assets/hero-cadillac-downtown-night.jpg")}
+  .booking-wizard-section::before,.booking-wizard-section::after,.pwa-onboarding::after,.services-section::before,.services-section::after,.about-section::before,.about-section::after,.services-section .service-row::before,.services-section .service-row::after,
+  .public-page :is(.solid-button,.outline-button,.text-button,.service-badge)::before,
+  .install-gate :is(.solid-button,.outline-button,.install-browser-fallback)::before,
+  .pwa-onboarding :is(.solid-button,.outline-button)::before,
+  .pwa-guide :is(.solid-button,.outline-button)::before,
+  .pwa-install-banner>button:not(.pwa-dismiss)::before{animation:none}
+}
+
+/* Readable minimums for supporting copy and controls across the site and installed app. */
+body :where(p,li,label,input,textarea,select){font-size:max(14px,.875rem)!important;line-height:max(1.5,1.5em)}
+body :where(a,button,small,span,.eyebrow){font-size:max(12px,.75rem)!important}

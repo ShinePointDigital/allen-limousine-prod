@@ -1,0 +1,56 @@
+Act as a senior full-stack developer. Build and configure the complete PWA experience, mobile booking wizard, upfront fare engine, High-Incentive Gate, 1-Time Onboarding Profile Setup with Stripe Card Saving, and Step 4 Card-Switching Checkout for Allen Limousine.
+
+### WORKSPACE TASKS:
+
+1. PWA CORE CONFIGURATION & BUILD CHECK:
+   - Ensure `npm run build` compiles static assets without errors.
+   - Create/update `public/manifest.json`:
+     * name: "Allen Limousine", short_name: "Allen Limo", start_url: "/?source=pwa", display: "standalone", background_color: "#0a0a0a", theme_color: "#0a0a0a"
+   - Add a lightweight Service Worker (`public/sw.js`) and link `manifest.json` in the HTML head.
+
+2. HIGH-INCENTIVE PWA INSTALLATION GATE (`PWAInstallGate.tsx`):
+   - Check if the user is in standard browser mode vs standalone PWA (`display-mode: standalone`).
+   - If in STANDARD BROWSER (Safari/Chrome):
+     * Display a high-converting, luxury dark-mode landing screen featuring an incentive banner: "$15 OFF YOUR FIRST RIDE — Save Allen Limousine to your Home Screen for 1-tap bookings & instant driver tracking."
+     * Show an interactive "Claim $15 Off & Install App" button.
+     * On Android: Trigger native `beforeinstallprompt` on click.
+     * On iOS: Open a modal step-by-step visual guide ("Tap Share" -> "Add to Home Screen" -> "Launch App").
+     * Provide a subtle fallback button at the bottom ("Continue to Browser Booking") so urgent bookings are never blocked.
+
+3. 1-TIME ONBOARDING PROFILE & STRIPE CARD SETUP (`/pages/api/create-setup-intent.ts` & `PWAOnboarding.tsx`):
+   - When launched in STANDALONE PWA mode, check `localStorage` for saved rider profile and Stripe credentials.
+   - IF NO PROFILE EXISTS:
+     * Show a brief 1-time setup screen: "Welcome to Allen Limousine — Set up your passenger profile once for instant 1-tap bookings."
+     * Wrap modal with `@stripe/react-stripe-js` Elements provider.
+     * Collect Name, Phone, Email, and payment method via Stripe `PaymentElement` or `PaymentRequestButton` (Apple Pay / Google Pay).
+     * Issue a `stripe.setupIntents.create({ customer: customer.id })` on backend to tokenize payment credentials without charging upfront.
+     * Call `stripe.confirmSetup()`. Upon success, store `stripe_customer_id`, `default_payment_method_id`, `card_brand`, `card_last4`, and rider info in `localStorage`.
+     * Automatically attach the $15 first-ride promo credit (`WELCOME15`) to their profile payload.
+   - IF PROFILE EXISTS: Skip onboarding completely and load directly into the 4-step booking wizard.
+
+4. UBER/LYFT-STYLE 4-STEP BOOKING WIZARD WITH UPFRONT FARES:
+   - Step 1: Route & Airport Lane Logistics
+     * Autocomplete location inputs with a 1-tap GPS location button (`navigator.geolocation`).
+     * AIRPORT LOGIC (DFW & DAL):
+       - DFW: Terminal selection (A, B, C, D, E), Pickup Staging (Lower-Level Curbside vs Baggage Meet & Greet), and Flight Number tracking.
+       - DAL: Pickup Staging (Garage C / Valet Pavilion vs Lower-Level Curbside vs Baggage Meet & Greet) and Flight Number.
+   - Step 2: Instant Vehicle Selection & Upfront Fare Calculation
+     * Trigger our existing fare calculation function immediately upon selecting Pickup & Dropoff.
+     * Show a loading shimmer on vehicle cards while distance resolves.
+     * Display exact calculated upfront rates in gold text on horizontal vehicle cards (Executive Sedan, Luxury SUV, Mercedes Sprinter) BEFORE user enters personal details.
+     * Display badge: "Guaranteed Upfront Fare • Tolls & Fees Included • Zero Surge".
+   - Step 3: Schedule & Service Type
+     * Toggle between "Reserve for Later" (date/time picker) and "Ride Now".
+     * Support Point-to-Point and Hourly Charter modes.
+   - Step 4: 1-Tap Checkout & Card Switching (`PaymentStep.tsx`)
+     * Auto-fill saved passenger profile from `localStorage`.
+     * DEFAULT VIEW: If saved card exists, display a luxury card pill showing "Paying with saved card: [Brand] ending in [Last4]" with a bold "Confirm & Pre-Authorize ($XXX.XX)" button.
+     * SWITCH CARD VIEW: Provide a "Change" button that opens an inline section with a new Stripe `CardElement`, option for Apple Pay, and a "Save as my new default card" checkbox.
+     * PASS TO PAYMENT INTENT: Send `customerId` and `paymentMethodId` to `/api/create-payment-intent` with `capture_method: 'manual'` for pre-authorization hold (100% direct merchant billing to Allen Limousine).
+     * On submission, trigger Twilio SMS booking confirmation to passenger.
+
+5. PWA-ONLY MOBILE INTERFACE (`display-mode: standalone`):
+   - Hide heavy marketing hero sections inside the PWA.
+   - Fixed luxury bottom navigation bar: [Book], [My Trips], [Fleet], [Support].
+
+Please execute these changes, update dependencies, test static asset compilation with `npm run build`, and confirm when complete.

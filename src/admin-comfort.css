@@ -1,0 +1,503 @@
+/* A calmer, utility-first visual system for the private admin workspace. */
+.admin-app {
+  --admin-bg: #f4f6f8;
+  --admin-surface: #ffffff;
+  --admin-surface-muted: #f8fafb;
+  --admin-border: #e3e8ed;
+  --admin-border-strong: #d3dbe3;
+  --admin-text: #26323b;
+  --admin-muted: #71808b;
+  --admin-subtle: #98a4ad;
+  --admin-primary: #2867a8;
+  --admin-primary-dark: #1f5388;
+  --admin-primary-soft: #eaf2fa;
+  --admin-success: #2c8160;
+  --admin-warning: #9b6a21;
+  --admin-danger: #b4524a;
+  background: var(--admin-bg);
+  color: var(--admin-text);
+  font-family: Manrope, Arial, sans-serif;
+}
+
+.admin-app .admin-sidebar {
+  width: 248px;
+  padding: 24px 16px 18px;
+  border-right: 1px solid var(--admin-border);
+  background: var(--admin-surface);
+  color: var(--admin-text);
+}
+
+.admin-app .admin-brand {
+  align-items: center;
+  padding: 0 13px 38px;
+}
+
+.admin-app .admin-brand .mark {
+  color: var(--admin-text);
+}
+
+.admin-app .admin-brand .mark small {
+  color: var(--admin-primary);
+}
+
+.admin-app .admin-nav-label {
+  margin: 0 13px 10px;
+  color: var(--admin-subtle);
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+
+.admin-app .admin-sidebar nav {
+  gap: 3px;
+}
+
+.admin-app .admin-sidebar nav a {
+  min-height: 42px;
+  border-radius: 7px;
+  padding: 10px 13px;
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background .2s, color .2s;
+}
+
+.admin-app .admin-sidebar nav a svg {
+  width: 17px;
+  height: 17px;
+  color: var(--admin-subtle);
+}
+
+.admin-app .admin-sidebar nav a:hover {
+  background: var(--admin-surface-muted);
+  color: var(--admin-text);
+}
+
+.admin-app .admin-sidebar nav a.active {
+  box-shadow: none;
+  background: var(--admin-primary-soft);
+  color: var(--admin-primary-dark);
+}
+
+.admin-app .admin-sidebar nav a.active svg {
+  color: var(--admin-primary);
+}
+
+.admin-app .admin-sidebar-bottom {
+  padding: 0 5px;
+}
+
+.admin-app .profile-chip {
+  gap: 11px;
+  padding: 15px 8px;
+  border-color: var(--admin-border);
+}
+
+.admin-app .profile-chip > span,
+.admin-app .avatar {
+  width: 32px;
+  height: 32px;
+  background: var(--admin-primary-soft);
+  color: var(--admin-primary-dark);
+}
+
+.admin-app .profile-chip b {
+  color: var(--admin-text);
+  font-size: 11px;
+}
+
+.admin-app .profile-chip small {
+  color: var(--admin-muted);
+  font-size: 9px;
+}
+
+.admin-app .logout-button {
+  margin-top: 13px;
+  color: var(--admin-muted);
+  font-size: 11px;
+}
+
+.admin-app .admin-main {
+  width: calc(100% - 248px);
+  margin-left: 248px;
+}
+
+.admin-app .admin-topbar {
+  height: 68px;
+  padding: 0 clamp(25px, 4vw, 64px);
+  border-bottom-color: var(--admin-border);
+  background: rgba(255, 255, 255, .82);
+}
+
+.admin-app .breadcrumbs {
+  gap: 9px;
+  color: var(--admin-subtle);
+  font-size: 10px;
+  letter-spacing: .06em;
+}
+
+.admin-app .breadcrumbs b {
+  color: var(--admin-text);
+}
+
+.admin-app .topbar-right {
+  color: var(--admin-muted);
+  font-size: 10px;
+}
+
+.admin-app .live-dot {
+  background: #38a276;
+  box-shadow: 0 0 0 3px #e3f3ec;
+}
+
+.admin-app .avatar {
+  margin-left: 17px;
+  background: var(--admin-text);
+  color: #fff;
+}
+
+.admin-app .admin-page {
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 40px clamp(25px, 4vw, 64px) 72px;
+}
+
+.admin-app .admin-page-header {
+  align-items: center;
+  margin-bottom: 30px;
+}
+
+.admin-app .admin-page-header h1 {
+  margin-top: 8px;
+  color: var(--admin-text);
+  font-family: Manrope, Arial, sans-serif;
+  font-size: clamp(30px, 3vw, 40px);
+  font-weight: 700;
+  letter-spacing: -.04em;
+  line-height: 1.1;
+}
+
+.admin-app .eyebrow {
+  color: var(--admin-primary);
+  font-size: 10px;
+  letter-spacing: .09em;
+}
+
+.admin-app .panel,
+.admin-app .stat-card {
+  border: 1px solid var(--admin-border);
+  border-radius: 10px;
+  background: var(--admin-surface);
+  box-shadow: 0 2px 8px rgba(35, 54, 70, .025);
+}
+
+.admin-app .panel-header {
+  align-items: center;
+  padding: 20px 23px 18px;
+}
+
+.admin-app .panel-header h2 {
+  margin-top: 6px;
+  color: var(--admin-text);
+  font-family: Manrope, Arial, sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -.025em;
+  line-height: 1.2;
+}
+
+.admin-app .panel-header > a,
+.admin-app .text-button {
+  color: var(--admin-primary);
+  font-size: 10px;
+  letter-spacing: .04em;
+}
+
+.admin-app .outline-button,
+.admin-app .solid-button {
+  border-radius: 7px;
+  font-family: Manrope, Arial, sans-serif;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: none;
+}
+
+.admin-app .outline-button.dark {
+  border-color: var(--admin-border-strong);
+  background: var(--admin-surface);
+  color: var(--admin-text);
+}
+
+.admin-app .outline-button.dark:hover {
+  border-color: var(--admin-primary);
+  background: var(--admin-primary-soft);
+  color: var(--admin-primary-dark);
+}
+
+.admin-app .solid-button {
+  border-color: var(--admin-primary);
+  background: var(--admin-primary);
+  color: #fff;
+}
+
+.admin-app .solid-button:hover {
+  border-color: var(--admin-primary-dark);
+  background: var(--admin-primary-dark);
+}
+
+.admin-app .stats-grid {
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.admin-app .stat-card {
+  min-height: 136px;
+  padding: 19px 20px;
+}
+
+.admin-app .stat-card.warm {
+  border-color: #ead9b5;
+  background: #fffaf0;
+}
+
+.admin-app .stat-top {
+  color: var(--admin-muted);
+  font-size: 11px;
+}
+
+.admin-app .stat-icon {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  color: var(--admin-primary);
+}
+
+.admin-app .stat-card strong {
+  margin: 20px 0 7px;
+  color: var(--admin-text);
+  font-family: Manrope, Arial, sans-serif;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -.04em;
+}
+
+.admin-app .stat-card small {
+  color: var(--admin-success);
+  font-size: 10px;
+}
+
+.admin-app .stat-card.warm small {
+  color: var(--admin-warning);
+}
+
+.admin-app .operations-callouts {
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.admin-app .operation-callout {
+  min-height: 70px;
+  border: 1px solid var(--admin-border);
+  border-radius: 9px;
+  background: var(--admin-surface);
+}
+
+.admin-app .operation-callout.attention {
+  border-color: #c6dcef;
+  background: var(--admin-primary-soft);
+}
+
+.admin-app .operation-callout > svg {
+  color: var(--admin-primary);
+}
+
+.admin-app .operation-callout b {
+  color: var(--admin-text);
+  font-size: 11px;
+}
+
+.admin-app .operation-callout small {
+  color: var(--admin-muted);
+  font-size: 10px;
+}
+
+.admin-app .ride-list-head,
+.admin-app .inquiry-list-head {
+  border-top-color: var(--admin-border);
+  color: var(--admin-subtle);
+  letter-spacing: .07em;
+}
+
+.admin-app .ride-row,
+.admin-app .inquiry-row,
+.admin-app .notification-item {
+  border-bottom-color: var(--admin-border);
+}
+
+.admin-app .ride-row:hover,
+.admin-app .inquiry-row[onclick]:hover {
+  background: var(--admin-surface-muted);
+}
+
+.admin-app .ride-date {
+  border-color: var(--admin-border);
+  border-radius: 6px;
+  background: var(--admin-surface-muted);
+}
+
+.admin-app .ride-date b {
+  font-family: Manrope, Arial, sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.admin-app .ride-date span {
+  color: var(--admin-primary);
+}
+
+.admin-app .ride-client b,
+.admin-app .ride-assignment b {
+  color: var(--admin-text);
+  font-size: 11px;
+}
+
+.admin-app .ride-client small,
+.admin-app .ride-assignment small {
+  color: var(--admin-muted);
+  font-size: 9px;
+}
+
+.admin-app .ride-value {
+  color: var(--admin-text);
+  font-family: Manrope, Arial, sans-serif;
+  font-size: 13px;
+}
+
+.admin-app .filter-tabs button {
+  border-radius: 6px;
+  color: var(--admin-muted);
+  font-size: 10px;
+}
+
+.admin-app .filter-tabs button.selected {
+  background: var(--admin-primary);
+  color: #fff;
+}
+
+.admin-app .dispatch-filters input,
+.admin-app .assignment-toggle {
+  border-color: var(--admin-border-strong);
+  border-radius: 6px;
+  background: var(--admin-surface);
+}
+
+.admin-app .assignment-toggle.selected {
+  border-color: #b6d0e8;
+  background: var(--admin-primary-soft);
+  color: var(--admin-primary-dark);
+}
+
+.admin-app .status {
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.admin-app .status-unassigned {
+  background: #fff0ed;
+  color: var(--admin-danger);
+}
+
+.admin-app .status-assigned,
+.admin-app .status-en_route,
+.admin-app .status-in_progress {
+  background: #e9f5ef;
+  color: var(--admin-success);
+}
+
+.admin-app .status-completed {
+  background: #eef1f3;
+  color: var(--admin-muted);
+}
+
+.admin-app .empty-state {
+  color: var(--admin-muted);
+}
+
+.admin-app .empty-state svg {
+  color: #83a9c8;
+}
+
+.admin-app .manage-card {
+  border-radius: 10px;
+}
+
+.admin-app .manage-image {
+  filter: saturate(.72);
+}
+
+.admin-app .manage-heading h2 {
+  color: var(--admin-text);
+  font-family: Manrope, Arial, sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.admin-app input,
+.admin-app select,
+.admin-app textarea {
+  border-radius: 6px;
+}
+
+.admin-app .detail-overlay {
+  background: rgba(30, 43, 53, .32);
+}
+
+.admin-app .detail-drawer,
+.admin-app .ride-drawer {
+  background: var(--admin-surface);
+  color: var(--admin-text);
+}
+
+.admin-app .drawer-top h2,
+.admin-app .drawer-section h3 {
+  font-family: Manrope, Arial, sans-serif;
+}
+
+@media (max-width: 900px) {
+  .admin-app .admin-sidebar {
+    width: 248px;
+  }
+
+  .admin-app .admin-main {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-app .admin-page {
+    padding: 28px 18px 50px;
+  }
+
+  .admin-app .admin-page-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 18px;
+    margin-bottom: 24px;
+  }
+
+  .admin-app .admin-page-header h1 {
+    font-size: 30px;
+  }
+
+  .admin-app .panel-header {
+    padding: 18px;
+  }
+
+  .admin-app .stats-grid {
+    gap: 10px;
+  }
+}

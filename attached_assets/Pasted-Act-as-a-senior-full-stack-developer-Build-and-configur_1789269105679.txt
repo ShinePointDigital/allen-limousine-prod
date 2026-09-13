@@ -1,0 +1,37 @@
+Act as a senior full-stack developer. Build and configure the complete PWA experience, mobile booking wizard, and upfront fare integration for Allen Limousine.
+
+### WORKSPACE TASKS:
+
+1. PWA CONFIGURATION & BUILD CHECK:
+   - Ensure `npm run build` compiles static assets without errors.
+   - Create/update `public/manifest.json`:
+     * name: "Allen Limousine", short_name: "Allen Limo", start_url: "/?source=pwa", display: "standalone", background_color: "#0a0a0a", theme_color: "#0a0a0a"
+   - Add a lightweight Service Worker (`public/sw.js`) and link `manifest.json` in the HTML head.
+   - Build `PWAInstallBanner.tsx`:
+     * Detect standalone mode (suppress banner if already installed).
+     * On Android: Trigger native `beforeinstallprompt` on button click.
+     * On iOS: Show a custom luxury dark-themed bottom sheet modal with a 3-step visual guide ("Share" -> "Add to Home Screen" -> "Add").
+
+2. UBER/LYFT-STYLE 4-STEP BOOKING FLOW (Mobile PWA & Web):
+   - Step 1: Pickup & Dropoff Route Selection
+     * Add Google Places autocomplete inputs and a one-tap GPS current location button (`navigator.geolocation`).
+     * DEDICATED AIRPORT LOGIC: If pickup or dropoff is DFW or Dallas Love Field (DAL):
+       - DFW: Allow selection of Terminal (A, B, C, D, E), Pickup Lane (Lower-Level Curbside Staging vs. Baggage Meet & Greet), and Flight Number for live delay tracking.
+       - DAL: Allow selection of Pickup Lane (Garage C / Valet Pavilion vs. Lower-Level Curbside vs. Baggage Meet & Greet) and Flight Number.
+   - Step 2: Instant Vehicle Selection & Upfront Fare Calculation
+     * Trigger our existing fare calculation function immediately when Pickup & Dropoff are selected in Step 1.
+     * Show a shimmer/loading state on vehicle cards while distance/mileage resolves.
+     * Display exact calculated upfront rates in gold text on horizontal vehicle cards (Executive Sedan, Luxury SUV, Mercedes Sprinter) BEFORE user enters personal info.
+     * Add a badge under prices: "Guaranteed Upfront Fare • Tolls & Fees Included • Zero Surge".
+   - Step 3: Date, Time & Service Type
+     * Support "Reserve for Later" (luxury date/time picker) or "Ride Now".
+     * Support Point-to-Point vs. Hourly Charter toggles.
+   - Step 4: Passenger Details & Confirmation
+     * Pre-fill saved contact info (Name, Phone, Email) from localStorage if available.
+     * On submission, pass calculated fare, route, and airport details to the booking payload and trigger Twilio SMS notifications.
+
+3. PWA-ONLY MOBILE INTERFACE (`display-mode: standalone`):
+   - Hide heavy marketing sections when launched as a standalone PWA.
+   - Add a fixed, dark luxury bottom navigation bar: [Book], [My Trips], [Fleet], [Support].
+
+Please execute these changes, verify the full integration with `npm run build`, and confirm when complete.

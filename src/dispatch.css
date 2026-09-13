@@ -1,0 +1,34 @@
+.dispatch-fleet-card-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dispatch-fleet-delete {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border: 1px solid #d7d0c3;
+  color: #a16c62;
+}
+
+.dispatch-fleet-delete:hover {
+  background: #a16c62;
+  color: #fff;
+}
+
+.dispatch-fleet-delete:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.dispatch-fleet-delete svg {
+  width: 13px;
+  height: 13px;
+}
+
+.dispatch-fleet-delete .spinner {
+  width: 12px;
+  height: 12px;
+}

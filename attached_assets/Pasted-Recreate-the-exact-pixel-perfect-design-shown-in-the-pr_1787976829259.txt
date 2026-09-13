@@ -1,0 +1,36 @@
+Recreate the exact pixel-perfect design shown in the provided screenshots for ALLAN Livery:
+
+1. VISUAL SYSTEM & COLOR PALETTE
+- Dark Sections (Hero, Fleet, Reservation, Footer): Background #0D0E0E, primary text #F4F0E8, brass accent #C9A56A.
+- Light Sections (Services, The Standard): Background #ECE8E1 / light cream, dark charcoal text #0D0E0E, brass accent #C9A56A.
+- Typography: Use Cormorant Garamond for display headlines and italicized brass emphasis. Use Manrope for labels, eyebrows, body copy, inputs, and buttons.
+
+2. HERO SECTION
+- Background: High-end midnight Chicago chauffeur photo with dark gradient overlay.
+- Header: Left logo (ALLAN LIVERY wordmark), middle nav (SERVICES, FLEET, THE STANDARD), right phone number (+1 312 555 0188) and brass solid button "ARRANGE A RIDE ↗".
+- Left Content: Eyebrow "— PRIVATE CHAUFFEUR SERVICE · CHICAGO", Headline "The city, on your schedule." (with "on your schedule." in brass italic Garamond), description copy, solid brass button "ARRANGE YOUR CHAUFFEUR ↗" next to outlined button "EXPLORE THE FLEET ↘".
+- Bottom Stats Row: "24 / 7 | AT YOUR SERVICE", "ORD · MDW | EVERY ARRIVAL", "Chicago | AND BEYOND", "Private | BY DESIGN", and bottom-right text "41.8781° N · 87.6298° W".
+
+3. SERVICES SECTION ("THE WAY WE MOVE")
+- Light cream background.
+- Left Eyebrow: "— THE WAY WE MOVE", Headline: "Every mile, considered." (with "considered." in brass italic Garamond).
+- Right Copy: "A private service calibrated to the rhythm of the city—and the people who have places to be."
+- Service Items: Numbered rows (01, 02, 03) featuring "Executive Travel", "Airport Transfers", and "Evenings & Events" with descriptions and right-aligned brass icon badges.
+
+4. FLEET SECTION
+- Dark Charcoal background.
+- Left side: Eyebrow "— THE FLEET", Headline "Your space, set apart." (with "set apart." in brass italic Garamond), description, and "LATE-MODEL LUXURY CLASS" tag.
+- Right side: Editorial fleet grid featuring Executive Sedan (Up to 3 guests), Luxury SUV (Up to 6 guests), and Sprinter Class (Up to 13 guests) over dark architecture background.
+
+5. THE STANDARD SECTION
+- Light cream background.
+- Left side: Image of professional chauffeur opening car door with caption "ALWAYS IN STEP — A precise greeting, before you have to look for it."
+- Right side: Eyebrow "— THE STANDARD", Headline "Details are the difference." (with "difference." in brass italic Garamond), narrative copy, and bullet points with icons: "Punctuality, without theatre", "Professional chauffeurs, personally vetted", "Assistance built into every handoff", "A single concierge point of contact".
+
+6. RESERVATION SECTION & FOOTER
+- Dark background.
+- Left side: Eyebrow "— RESERVE YOUR TIME", Headline "Where will the night take you?" (with "night" in brass italic Garamond), contact phone (+1 312 555 0188), location "Chicago, Illinois", and concierge note.
+- Right side: Dark card form container titled "REQUEST A RESERVATION" with fields for Name, Email, Service Date, Service Type, Pick-up Details, and full-width brass outline button "REQUEST AVAILABILITY ↗".
+- Footer: ALLAN LIVERY logo on the left, "PRIVATE CHAUFFEUR SERVICE · CHICAGO, ILLINOIS" and copyright on the right.
+
+Ensure response compression, lazy loading for below-the-fold images, rate-limiting on forms, and Prisma connection pooling are fully configured.

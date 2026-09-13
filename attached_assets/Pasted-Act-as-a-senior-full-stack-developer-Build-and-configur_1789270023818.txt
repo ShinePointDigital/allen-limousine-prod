@@ -1,0 +1,48 @@
+Act as a senior full-stack developer. Build and configure the complete PWA experience, mobile booking wizard, upfront fare engine, High-Incentive Gate, and 1-Time Onboarding Profile Setup for Allen Limousine.
+
+### WORKSPACE TASKS:
+
+1. PWA CORE CONFIGURATION & BUILD CHECK:
+   - Ensure `npm run build` compiles static assets without errors.
+   - Create/update `public/manifest.json`:
+     * name: "Allen Limousine", short_name: "Allen Limo", start_url: "/?source=pwa", display: "standalone", background_color: "#0a0a0a", theme_color: "#0a0a0a"
+   - Add a lightweight Service Worker (`public/sw.js`) and link `manifest.json` in the HTML head.
+
+2. HIGH-INCENTIVE PWA INSTALLATION GATE (`PWAInstallGate.tsx`):
+   - Check if the user is in standard browser mode vs standalone PWA (`display-mode: standalone`).
+   - If in STANDARD BROWSER (Safari/Chrome):
+     * Display a high-converting, luxury dark-mode landing screen featuring an incentive banner: "$15 OFF YOUR FIRST RIDE — Save Allen Limousine to your Home Screen for 1-tap bookings & instant driver tracking."
+     * Show an interactive "Claim $15 Off & Install App" button.
+     * On Android: Trigger native `beforeinstallprompt` on click.
+     * On iOS: Open a modal step-by-step visual guide ("Tap Share" -> "Add to Home Screen" -> "Launch App").
+     * Provide a subtle fallback button at the bottom ("Continue to Browser Booking") so urgent bookings are never blocked.
+
+3. ONE-TIME PWA PASSENGER ONBOARDING PROFILE:
+   - When launched in STANDALONE PWA mode, check `localStorage` for saved rider profile (`rider_name`, `rider_phone`, `rider_email`).
+   - IF NO PROFILE EXISTS: Show a brief 1-time welcome/onboarding screen: "Welcome to Allen Limousine — Set up your passenger profile once for instant 1-tap bookings."
+   - Collect Name, Phone Number, and Email, save them to `localStorage`, automatically apply the $15 first-ride promo code, and proceed to the booking wizard.
+   - IF PROFILE EXISTS: Skip onboarding completely and load directly into the booking wizard.
+
+4. UBER/LYFT-STYLE 4-STEP BOOKING WIZARD:
+   - Step 1: Route & Airport Lane Logistics
+     * Autocomplete location inputs with a 1-tap GPS location button (`navigator.geolocation`).
+     * AIRPORT LOGIC (DFW & DAL):
+       - DFW: Terminal selection (A, B, C, D, E), Pickup Staging (Lower-Level Curbside vs Baggage Meet & Greet), and Flight Number tracking.
+       - DAL: Pickup Staging (Garage C / Valet Pavilion vs Lower-Level Curbside vs Baggage Meet & Greet) and Flight Number.
+   - Step 2: Instant Vehicle Selection & Upfront Fare Calculation
+     * Trigger our existing fare calculation function immediately upon selecting Pickup & Dropoff.
+     * Show a loading shimmer on vehicle cards while distance resolves.
+     * Display exact calculated upfront rates in gold text on horizontal vehicle cards (Executive Sedan, Luxury SUV, Mercedes Sprinter) BEFORE user enters personal details.
+     * Display badge: "Guaranteed Upfront Fare • Tolls & Fees Included • Zero Surge".
+   - Step 3: Schedule & Service Type
+     * Toggle between "Reserve for Later" (date/time picker) and "Ride Now".
+     * Support Point-to-Point and Hourly Charter modes.
+   - Step 4: Passenger Review & One-Tap Confirmation
+     * AUTO-FILL saved passenger profile (Name, Phone, Email) from `localStorage` so the user never has to re-type contact information.
+     * On submit, send calculated fare, route, airport details, applied promo code, and passenger info to the booking payload and trigger Twilio SMS notifications.
+
+5. PWA-ONLY MOBILE INTERFACE (`display-mode: standalone`):
+   - Hide heavy marketing hero sections inside the PWA.
+   - Fixed luxury bottom navigation bar: [Book], [My Trips], [Fleet], [Support].
+
+Please execute these changes, verify the integration with `npm run build`, and confirm when complete.
