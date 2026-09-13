@@ -12,6 +12,9 @@ const isStandalone = () =>
 const isAppleMobile = () =>
   /iphone|ipad|ipod/i.test(navigator.userAgent) ||
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isMobileDevice = () =>
+  /android|iphone|ipad|ipod/i.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 export default function PWAInstallGate({ children }: { children: ReactNode }) {
   const [continueInBrowser, setContinueInBrowser] = useState(() => sessionStorage.getItem("allan-browser-booking") === "true");
@@ -19,15 +22,17 @@ export default function PWAInstallGate({ children }: { children: ReactNode }) {
   const [showIosGuide, setShowIosGuide] = useState(false);
   const [installUnavailable, setInstallUnavailable] = useState(false);
   const ios = isAppleMobile();
+  const mobile = isMobileDevice();
   useEffect(() => {
+    if (!mobile) return;
     const handler = (event: Event) => {
       event.preventDefault();
       setPrompt(event as InstallPromptEvent);
     };
     window.addEventListener("beforeinstallprompt", handler);
     return () => window.removeEventListener("beforeinstallprompt", handler);
-  }, []);
-  if (isStandalone() || continueInBrowser) return children;
+  }, [mobile]);
+  if (isStandalone() || !mobile || continueInBrowser) return children;
   const install = async () => {
     if (ios) { setShowIosGuide(true); return; }
     if (!prompt) {
