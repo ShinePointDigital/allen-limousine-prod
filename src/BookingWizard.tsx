@@ -51,23 +51,6 @@ const request = async (url: string, options?: RequestInit) => {
   return data;
 };
 
-let placesLoader: Promise<boolean> | null = null;
-function loadPlaces() {
-  const googleWindow = window as Window & { google?: any };
-  if (googleWindow.google?.maps?.places) return Promise.resolve(true);
-  const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-  if (!key) return Promise.resolve(false);
-  placesLoader ??= new Promise(resolve => {
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&loading=async`;
-    script.async = true;
-    script.onload = () => resolve(Boolean(googleWindow.google?.maps?.places));
-    script.onerror = () => resolve(false);
-    document.head.appendChild(script);
-  });
-  return placesLoader;
-}
-
 function SmartLocation({ label, value, placeholder, onType, onSelect, currentLocation }: {
   label: string;
   value: string;
@@ -79,29 +62,8 @@ function SmartLocation({ label, value, placeholder, onType, onSelect, currentLoc
   const input = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [googleActive, setGoogleActive] = useState(false);
   useEffect(() => {
-    let listener: { remove?: () => void } | undefined;
-    loadPlaces().then(active => {
-      if (!active || !input.current) return;
-      const googleWindow = window as Window & { google?: any };
-      const autocomplete = new googleWindow.google.maps.places.Autocomplete(input.current, {
-        componentRestrictions: { country: "us" },
-        fields: ["formatted_address", "geometry", "name"],
-      });
-      listener = autocomplete.addListener("place_changed", () => {
-        const place = autocomplete.getPlace();
-        const latitude = place.geometry?.location?.lat();
-        const longitude = place.geometry?.location?.lng();
-        const address = place.formatted_address || place.name;
-        if (address && Number.isFinite(latitude) && Number.isFinite(longitude)) onSelect(address, { latitude, longitude });
-      });
-      setGoogleActive(true);
-    });
-    return () => listener?.remove?.();
-  }, []);
-  useEffect(() => {
-    if (googleActive || !focused || value.trim().length < 3) { setSuggestions([]); return; }
+    if (!focused || value.trim().length < 3) { setSuggestions([]); return; }
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       request(`/api/location-search?q=${encodeURIComponent(value.trim())}`, { signal: controller.signal })
@@ -109,7 +71,7 @@ function SmartLocation({ label, value, placeholder, onType, onSelect, currentLoc
         .catch(() => setSuggestions([]));
     }, 350);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [focused, googleActive, value]);
+  }, [focused, value]);
   return <div className="wizard-location">
     <label>{label}</label>
     <div><MapPin /><input ref={input} value={value} required placeholder={placeholder} autoComplete="off" onFocus={() => setFocused(true)} onChange={event => onType(event.target.value)} />{currentLocation && <button type="button" onClick={currentLocation} aria-label="Use current location"><LocateFixed /></button>}</div>
@@ -207,9 +169,16 @@ export default function BookingWizard() {
         setPoints(current => ({ ...current, pickup: point }));
         setLocationStatus(`Current location added · accurate to about ${Math.round(position.coords.accuracy)} m`);
       } catch { setLocationStatus("Enter your pickup manually."); }
-    }, () => setLocationStatus("Enter your pickup manually."), {
+    }, error => {
+      const message = error.code === error.PERMISSION_DENIED
+        ? "Location permission is off. Allow location access for this app, then tap the location button."
+        : error.code === error.TIMEOUT
+          ? "Location took too long. Move near a window and tap the location button to retry."
+          : "Your phone couldn’t determine its location. Tap the location button to retry or enter pickup manually.";
+      setLocationStatus(message);
+    }, {
       enableHighAccuracy: true,
-      timeout: 12_000,
+      timeout: 20_000,
       maximumAge: 60_000,
     });
   }
