@@ -12,7 +12,7 @@ import { classifyTwilioMessageStatus, getDriverDispatchSms, sendDriverDispatchSm
 import { estimateFare, reverseGeocode, searchLocations } from "./fare-estimate.js";
 import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "./stripe-client.js";
 
-const app = express();
+export const app = express();
 const port = Number(process.env.PORT) || 5000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 app.set("trust proxy", 1);
@@ -740,8 +740,14 @@ app.get("/api/admin/export.csv", admin, async (_req, res) => {
   res.type("text/csv").set("Content-Disposition", "attachment; filename=allan-inquiries.csv").send([headers.map(escape).join(","), ...rows].join("\n"));
 });
 
+let storeReady: Promise<void> | null = null;
+export async function prepareApp() {
+  storeReady ??= initializeStore();
+  await storeReady;
+}
+
 async function start() {
-  await initializeStore();
+  await prepareApp();
   if (process.env.NODE_ENV === "production") {
     const dist = path.resolve(__dirname, "../dist");
     app.use(express.static(dist, { maxAge: "1h" }));
@@ -757,7 +763,9 @@ async function start() {
   app.listen(port, "0.0.0.0", () => console.log(`ALLAN Livery listening on 0.0.0.0:${port}`));
 }
 
-start().catch(error => {
-  console.error("Unable to start ALLAN Livery:", error);
-  process.exit(1);
-});
+if (!process.env.VERCEL) {
+  start().catch(error => {
+    console.error("Unable to start ALLAN Livery:", error);
+    process.exit(1);
+  });
+}

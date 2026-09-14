@@ -17,5 +17,5 @@
     "jsx": "react-jsx",
     "types": ["vite/client", "node", "google.maps"]
   },
-  "include": ["src", "server", "shared", "vite.config.ts", "prisma"]
+  "include": ["src", "server", "shared", "api", "vite.config.ts", "prisma"]
 }
