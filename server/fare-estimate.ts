@@ -14,6 +14,23 @@ type Estimate = ReturnType<typeof calculateFare> & {
   hourlyCharterSuggested: boolean;
 };
 type LocationSuggestion = { label: string; latitude: number; longitude: number };
+type GoogleGeocodeResponse = {
+  status: string;
+  results?: Array<{
+    formatted_address: string;
+    geometry: { location: { lat: number; lng: number } };
+  }>;
+};
+type GoogleDistanceMatrixResponse = {
+  status: string;
+  rows?: Array<{
+    elements?: Array<{
+      status: string;
+      distance?: { value: number };
+      duration?: { value: number };
+    }>;
+  }>;
+};
 
 const geocodeCache = new Map<string, { expiresAt: number; result: Coordinates | null }>();
 const estimateCache = new Map<string, { expiresAt: number; result: Estimate }>();
@@ -24,43 +41,62 @@ const locationQuery = (address: string) => {
   return `${address}, ${texas ? "Texas" : "Chicago, IL"}`;
 };
 
+function googleMapsServerKey() {
+  const key = process.env.GOOGLE_MAPS_SERVER_API_KEY;
+  if (!key) throw new Error("Google Maps server configuration is unavailable.");
+  return key;
+}
+
+async function googleMapsRequest<T>(path: string, parameters: Record<string, string>): Promise<T> {
+  const query = new URLSearchParams({ ...parameters, key: googleMapsServerKey() });
+  const response = await fetch(`https://maps.googleapis.com/maps/api/${path}?${query}`, {
+    signal: AbortSignal.timeout(7000),
+  });
+  if (!response.ok) throw new Error("Google Maps is temporarily unavailable.");
+  return response.json() as Promise<T>;
+}
+
 async function geocode(address: string): Promise<Coordinates | null> {
   const query = locationQuery(address);
   const cacheKey = query.toLowerCase().trim();
   const cached = geocodeCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.result;
 
-  const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(query)}`, {
-    headers: { "User-Agent": "ALLAN-Livery/1.0" },
-    signal: AbortSignal.timeout(7000),
+  const data = await googleMapsRequest<GoogleGeocodeResponse>("geocode/json", {
+    address: query,
+    components: "country:US",
   });
-  if (!response.ok) throw new Error("Address lookup is temporarily unavailable.");
-  const results = await response.json() as Array<{ lat: string; lon: string; display_name: string }>;
-  const first = results[0];
-  const result = first ? { latitude: Number(first.lat), longitude: Number(first.lon), label: first.display_name } : null;
+  if (data.status !== "OK" && data.status !== "ZERO_RESULTS") throw new Error("Address lookup is temporarily unavailable.");
+  const first = data.results?.[0];
+  const result = first ? {
+    latitude: first.geometry.location.lat,
+    longitude: first.geometry.location.lng,
+    label: first.formatted_address,
+  } : null;
   geocodeCache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, result });
   return result;
 }
 
 export async function reverseGeocode(latitude: number, longitude: number): Promise<string> {
-  const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`, {
-    headers: { "User-Agent": "ALLAN-Livery/1.0" },
-    signal: AbortSignal.timeout(7000),
+  const data = await googleMapsRequest<GoogleGeocodeResponse>("geocode/json", {
+    latlng: `${latitude},${longitude}`,
+    result_type: "street_address|premise|route",
   });
-  if (!response.ok) throw new Error("Live location lookup is temporarily unavailable.");
-  const result = await response.json() as { display_name?: string };
-  if (!result.display_name) throw new Error("We couldn’t identify your current location.");
-  return result.display_name;
+  if (data.status !== "OK" || !data.results?.[0]?.formatted_address) throw new Error("We couldn’t identify your current location.");
+  return data.results[0].formatted_address;
 }
 
 export async function searchLocations(query: string): Promise<LocationSuggestion[]> {
-  const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=us&q=${encodeURIComponent(locationQuery(query))}`, {
-    headers: { "User-Agent": "ALLAN-Livery/1.0" },
-    signal: AbortSignal.timeout(7000),
+  const data = await googleMapsRequest<GoogleGeocodeResponse>("geocode/json", {
+    address: locationQuery(query),
+    components: "country:US",
   });
-  if (!response.ok) throw new Error("Location suggestions are temporarily unavailable.");
-  const results = await response.json() as Array<{ lat: string; lon: string; display_name: string }>;
-  return results.map(result => ({ label: result.display_name, latitude: Number(result.lat), longitude: Number(result.lon) }));
+  if (data.status !== "OK" && data.status !== "ZERO_RESULTS") throw new Error("Location suggestions are temporarily unavailable.");
+  return (data.results || []).slice(0, 5).map(result => ({
+    label: result.formatted_address,
+    latitude: result.geometry.location.lat,
+    longitude: result.geometry.location.lng,
+  }));
 }
 
 export async function estimateFare(pickup: string, destination: string, tier: RateTier, coordinates: FareCoordinates = {}): Promise<Estimate> {
@@ -82,17 +118,18 @@ export async function estimateFare(pickup: string, destination: string, tier: Ra
   ]);
   if (!origin || !target) throw new Error("We couldn’t locate one of those Chicago addresses. Try adding a street address, hotel, or airport name.");
 
-  const routeResponse = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.longitude},${origin.latitude};${target.longitude},${target.latitude}?overview=false`, {
-    headers: { "User-Agent": "ALLAN-Livery/1.0" },
-    signal: AbortSignal.timeout(7000),
+  const matrix = await googleMapsRequest<GoogleDistanceMatrixResponse>("distancematrix/json", {
+    origins: `${origin.latitude},${origin.longitude}`,
+    destinations: `${target.latitude},${target.longitude}`,
+    mode: "driving",
+    units: "imperial",
   });
-  if (!routeResponse.ok) throw new Error("Driving distance is temporarily unavailable. Please try again.");
-  const route = await routeResponse.json() as { code: string; routes?: Array<{ distance: number; duration: number }> };
-  const firstRoute = route.routes?.[0];
-  if (route.code !== "Ok" || !firstRoute) throw new Error("We couldn’t calculate a driving route between those points.");
+  if (matrix.status !== "OK") throw new Error("Driving distance is temporarily unavailable. Please try again.");
+  const route = matrix.rows?.[0]?.elements?.[0];
+  if (route?.status !== "OK" || !route.distance || !route.duration) throw new Error("We couldn’t calculate a driving route between those points.");
 
-  const miles = firstRoute.distance / 1609.344;
-  const minutes = firstRoute.duration / 60;
+  const miles = route.distance.value / 1609.344;
+  const minutes = route.duration.value / 60;
   const eventVenue = detectEventVenue(target.label) || detectEventVenue(destination);
   const eventSurchargeCents = eventVenue?.surchargeCents || 0;
   const baseFare = calculateFare(tier, miles, minutes);
