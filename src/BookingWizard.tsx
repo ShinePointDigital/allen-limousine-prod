@@ -205,9 +205,13 @@ export default function BookingWizard() {
         }
         setRoute(current => ({ ...current, pickup: result.address }));
         setPoints(current => ({ ...current, pickup: point }));
-        setLocationStatus("Current location added");
+        setLocationStatus(`Current location added · accurate to about ${Math.round(position.coords.accuracy)} m`);
       } catch { setLocationStatus("Enter your pickup manually."); }
-    }, () => setLocationStatus("Enter your pickup manually."), { timeout: 8000, maximumAge: 300_000 });
+    }, () => setLocationStatus("Enter your pickup manually."), {
+      enableHighAccuracy: true,
+      timeout: 12_000,
+      maximumAge: 60_000,
+    });
   }
   const selectedFare = fares[tier];
   const promoDiscount = hasWelcomePromo(promoCode) && selectedFare ? Math.min(1500, selectedFare.fareCents) : 0;
@@ -327,9 +331,10 @@ export default function BookingWizard() {
     setStep(1);
     setBookingRequestId(crypto.randomUUID());
     setPaymentNotice("");
+    useCurrentLocation();
   }} />;
 
-  if (submitState === "success") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><Check /><p className="eyebrow brass">Request received</p><h2>Your ride is<br /><em>in motion.</em></h2><p>We saved your trip and sent it to the Allen Limousine team for confirmation.</p>{paymentNotice && <p className="payment-result">{paymentNotice}</p>}<button className="solid-button" onClick={() => { setSubmitState("idle"); setStep(1); setBookingRequestId(crypto.randomUUID()); setPaymentNotice(""); }}>Book another ride</button></div></section>;
+  if (submitState === "success") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><Check /><p className="eyebrow brass">Request received</p><h2>Your ride is<br /><em>in motion.</em></h2><p>We saved your trip and sent it to the Allen Limousine team for confirmation.</p>{paymentNotice && <p className="payment-result">{paymentNotice}</p>}<button className="solid-button" onClick={() => { setSubmitState("idle"); setStep(1); setBookingRequestId(crypto.randomUUID()); setPaymentNotice(""); useCurrentLocation(); }}>Book another ride</button></div></section>;
 
   return <section id="reserve" className="booking-wizard-section section-pad">
     <div className="wizard-shell">
