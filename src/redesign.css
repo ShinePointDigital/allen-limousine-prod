@@ -29,14 +29,14 @@
 .destination-booking-section>header>p{max-width:390px;margin:0 0 5px;color:#989a94;font-size:12px;line-height:1.8}
 .destination-booking-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
 .destination-booking-card{position:relative;isolation:isolate;min-height:410px;overflow:hidden;background:#20221f}
-.destination-booking-card>img{position:absolute;z-index:-2;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(.55) brightness(.7);transition:transform .6s ease,filter .6s ease}
-.destination-card-shade{position:absolute;z-index:-1;inset:0;background:linear-gradient(180deg,rgba(6,7,7,.16),rgba(6,7,7,.22) 45%,rgba(6,7,7,.9))}
+.destination-booking-card>img{position:absolute;z-index:-2;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(.72) brightness(.9);transition:transform .6s ease,filter .6s ease}
+.destination-card-shade{position:absolute;z-index:-1;inset:0;background:linear-gradient(180deg,rgba(6,7,7,.06),rgba(6,7,7,.1) 45%,rgba(6,7,7,.68))}
 .destination-card-copy{position:absolute;top:28px;right:28px;left:28px}
 .destination-card-copy span{color:#d7bb85;font-size:10px;font-weight:700;letter-spacing:.18em}
 .destination-card-copy h3{max-width:260px;margin:9px 0 0;font-family:"Cormorant Garamond",serif;font-size:39px;font-weight:500;line-height:.92}
 .destination-booking-card>button{position:absolute;right:24px;bottom:24px;display:flex;align-items:center;gap:10px;border:1px solid rgba(215,187,133,.65);background:rgba(12,13,12,.74);padding:13px 16px;color:#f4f0e8;font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;backdrop-filter:blur(8px);transition:background .2s,color .2s}
 .destination-booking-card>button svg{width:14px}
-.destination-booking-card:hover>img{transform:scale(1.04);filter:saturate(.7) brightness(.78)}
+.destination-booking-card:hover>img{transform:scale(1.04);filter:saturate(.82) brightness(.98)}
 .destination-booking-card>button:hover{background:#c9a56a;color:#0d0e0e}
 .service-list{border-top:1px solid #c9c4ba}
 .service-row{display:grid;grid-template-columns:80px 1fr 55px;align-items:center;gap:20px;min-height:132px;border-bottom:1px solid #c9c4ba}
