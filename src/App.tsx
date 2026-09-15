@@ -64,6 +64,33 @@ function PublicNav() {
 }
 function ArrowUpRight() { return <ArrowDownRight style={{ transform: "rotate(-90deg)" }} />; }
 
+const BOOKING_DESTINATIONS = [
+  { code: "ORD", title: "O’Hare International", image: "/images/ord-aerial.jpg", destination: "O'Hare International Airport (ORD), Chicago, IL" },
+  { code: "MDW", title: "Midway International", image: "/images/mdw-airfield.jpg", destination: "Chicago Midway International Airport (MDW), Chicago, IL" },
+  { code: "CITY", title: "Downtown Chicago", image: "/images/chicago-night.jpg", destination: "Downtown Chicago, Chicago, IL" },
+];
+
+function DestinationBookingCards() {
+  const bookDestination = (destination: string) => {
+    window.dispatchEvent(new CustomEvent("allen-booking-prefill", { detail: { destination } }));
+    window.setTimeout(() => document.getElementById("reserve")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  };
+  return <section className="destination-booking-section" aria-labelledby="destination-booking-title">
+    <header>
+      <div><p className="eyebrow brass">— Direct connections</p><h2 id="destination-booking-title">Chicago, picked up<br /><em>on your schedule.</em></h2></div>
+      <p>Choose a frequent destination to begin your private transfer. Your route can be adjusted in the booking form.</p>
+    </header>
+    <div className="destination-booking-grid">
+      {BOOKING_DESTINATIONS.map(item => <article className="destination-booking-card" key={item.code}>
+        <img src={item.image} alt="" />
+        <div className="destination-card-shade" />
+        <div className="destination-card-copy"><span>{item.code}</span><h3>{item.title}</h3></div>
+        <button type="button" onClick={() => bookDestination(item.destination)}>Book this route <ArrowUpRight /></button>
+      </article>)}
+    </div>
+  </section>;
+}
+
 function Home() {
   const [content, setContent] = useState(fallbackContent);
   const pwaLaunch = new URLSearchParams(window.location.search).get("source") === "pwa";
@@ -104,6 +131,7 @@ function Home() {
       <div className="section-heading services-heading"><div><p className="eyebrow brass">— The way we move</p><h2>Every mile,<br /><em>considered.</em></h2></div><div className="section-aside"><p>A private service calibrated to the rhythm of the city—and the people who have places to be.</p><a className="text-button services-booking-link" href="#reserve">Book your service <ArrowUpRight /></a></div></div>
       <div className="service-list">{content.services.slice(0, 3).map((service, index) => <article className="service-row" key={service.id}><div className="service-row-copy"><h3>{index === 0 ? "Executive Travel" : index === 1 ? "Airport Transfers" : "Evenings & Events"}</h3><p>{service.description}</p></div><a className="service-badge" href="#reserve" aria-label={`Book ${index === 0 ? "Executive Travel" : index === 1 ? "Airport Transfers" : "Evenings and Events"}`}><ArrowUpRight /></a></article>)}</div>
     </section>
+    {!pwaMode && <DestinationBookingCards />}
     {!pwaMode && <BookingWizard />}
     <PWABottomNav />
     <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · Chicago, Illinois</p><span>© {new Date().getFullYear()} ALLAN Livery</span></div><div className="footer-contact"><a href="tel:+13125550188">+1 312 555 0188</a><a href="mailto:hello@allanlivery.com">hello@allanlivery.com</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>Available citywide & beyond</span><Link to="/admin/login">Client access ↗</Link></div></footer>
