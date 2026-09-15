@@ -7,16 +7,31 @@ import DispatchTrackingStep, { type ActiveReservation } from "./DispatchTracking
 type Point = { latitude: number; longitude: number };
 type Suggestion = Point & { label: string };
 type Fare = { fareCents: number; miles: number; minutes: number; eventVenue?: { name: string } | null; eventSurchargeCents?: number };
-type AirportCode = "DFW" | "DAL";
+type AirportCode = "ORD" | "MDW";
+type AirlineRule = { airline: string; airport: AirportCode; terminal: string };
 
-const VEHICLES: { tier: RateTier; label: string; detail: string }[] = [
-  { tier: "EXECUTIVE_SEDAN", label: "Executive Sedan", detail: "Up to 3 passengers" },
-  { tier: "LUXURY_SUV", label: "Luxury SUV", detail: "Up to 6 passengers" },
-  { tier: "SPRINTER_CLASS", label: "Mercedes Sprinter", detail: "Up to 14 passengers" },
+const VEHICLES: { tier: RateTier; label: string; detail: string; capacity: number }[] = [
+  { tier: "EXECUTIVE_SEDAN", label: "Executive Sedan", detail: "Up to 3 passengers", capacity: 3 },
+  { tier: "LUXURY_SUV", label: "Luxury SUV", detail: "Up to 6 passengers", capacity: 6 },
+  { tier: "SPRINTER_CLASS", label: "Mercedes Sprinter", detail: "Up to 14 passengers", capacity: 14 },
 ];
-const DFW_TERMINALS = ["Terminal A", "Terminal B", "Terminal C", "Terminal D", "Terminal E"];
-const DFW_LANES = ["Lower-Level Curbside Staging", "Baggage Meet & Greet"];
-const DAL_LANES = ["Garage C / Valet Pavilion", "Lower-Level Curbside", "Baggage Meet & Greet"];
+const AIRPORTS: Record<AirportCode, { name: string; terminals: string[] }> = {
+  ORD: { name: "O’Hare International", terminals: ["Terminal 1", "Terminal 2", "Terminal 3", "Terminal 5"] },
+  MDW: { name: "Midway International", terminals: ["Concourse A", "Concourse B", "Concourse C"] },
+};
+const AIRLINE_RULES: Record<string, AirlineRule> = {
+  UA: { airline: "United Airlines", airport: "ORD", terminal: "Terminal 1" },
+  AC: { airline: "Air Canada", airport: "ORD", terminal: "Terminal 2" },
+  AA: { airline: "American Airlines", airport: "ORD", terminal: "Terminal 3" },
+  AS: { airline: "Alaska Airlines", airport: "ORD", terminal: "Terminal 3" },
+  NK: { airline: "Spirit Airlines", airport: "ORD", terminal: "Terminal 3" },
+  DL: { airline: "Delta Air Lines", airport: "ORD", terminal: "Terminal 5" },
+  BA: { airline: "British Airways", airport: "ORD", terminal: "Terminal 5" },
+  LH: { airline: "Lufthansa", airport: "ORD", terminal: "Terminal 5" },
+  WN: { airline: "Southwest Airlines", airport: "MDW", terminal: "Concourse B" },
+  F9: { airline: "Frontier Airlines", airport: "MDW", terminal: "Concourse A" },
+  PD: { airline: "Porter Airlines", airport: "MDW", terminal: "Concourse A" },
+};
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
 const hasWelcomePromo = (code: string | null | undefined) => code === "WELCOME15" || code === "FIRST15";
 const readSavedPayment = (): SavedPayment | null => {
@@ -36,10 +51,29 @@ const launchedAsPwa = () =>
   Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
 const detectAirport = (value: string): AirportCode | null => {
   const text = value.toLowerCase().replace(/[^a-z0-9]+/g, " ");
-  if (text.includes("dallas fort worth") || text.includes("dfw")) return "DFW";
-  if (text.includes("dallas love field") || /\bdal\b/.test(text)) return "DAL";
+  if (text.includes("o hare") || text.includes("ohare") || /\bord\b/.test(text)) return "ORD";
+  if (text.includes("midway") || /\bmdw\b/.test(text)) return "MDW";
   return null;
 };
+const parseFlightNumber = (value: string, routeAirport: AirportCode | null) => {
+  const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const match = normalized.match(/^([A-Z]{2}|[A-Z]\d|[A-Z]{3})(\d{1,4}[A-Z]?)$/);
+  if (!match) return { normalized, airline: "", airport: routeAirport, terminal: "", valid: false, ruleAirport: null as AirportCode | null };
+  const rule = AIRLINE_RULES[match[1]];
+  const airport = routeAirport || rule?.airport || null;
+  return {
+    normalized: `${match[1]} ${match[2]}`,
+    airline: rule?.airline || match[1],
+    airport,
+    terminal: rule && rule.airport === airport ? rule.terminal : "",
+    valid: true,
+    ruleAirport: rule?.airport || null,
+  };
+};
+const validRiderProfile = (contact: { fullName: string; phone: string; email: string }) =>
+  contact.fullName.trim().length >= 2 &&
+  contact.phone.replace(/\D/g, "").length >= 7 &&
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email.trim());
 const request = async (url: string, options?: RequestInit) => {
   const response = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
   const contentType = response.headers.get("content-type") || "";
@@ -91,9 +125,11 @@ export default function BookingWizard() {
   const [timing, setTiming] = useState<"RIDE_NOW" | "RESERVE_LATER">("RESERVE_LATER");
   const [pickupAt, setPickupAt] = useState(localDateTime(60));
   const [serviceType, setServiceType] = useState("Point-to-Point");
-  const [airport, setAirport] = useState({ code: "DFW" as AirportCode, terminal: "", lane: "", flight: "" });
+  const [airport, setAirport] = useState<{ code: AirportCode | null; terminal: string; flight: string; airline: string }>({ code: null, terminal: "", flight: "", airline: "" });
   const [contact, setContact] = useState({ fullName: "", phone: "", email: "", passengers: "1", notes: "" });
   const [needsOnboarding, setNeedsOnboarding] = useState(() => launchedAsPwa() && !["rider_name", "rider_phone", "rider_email"].every(key => localStorage.getItem(key)?.trim()));
+  const [hasRiderProfile, setHasRiderProfile] = useState(() => ["rider_name", "rider_phone", "rider_email"].every(key => localStorage.getItem(key)?.trim()));
+  const [editingProfile, setEditingProfile] = useState(false);
   const [promoCode, setPromoCode] = useState(() => launchedAsPwa() ? localStorage.getItem("allan_first_ride_promo") || "" : "");
   const [submitState, setSubmitState] = useState<"idle" | "sending" | "success" | "error">("idle");
   const [error, setError] = useState("");
@@ -115,7 +151,8 @@ export default function BookingWizard() {
 
   const pickup = typeof route.pickup === "string" ? route.pickup : "";
   const destination = typeof route.destination === "string" ? route.destination : "";
-  const detectedAirport = detectAirport(`${pickup} ${destination}`);
+  const routeAirport = detectAirport(`${pickup} ${destination}`);
+  const detectedAirport = routeAirport || airport.code;
   useEffect(() => {
     const riderProfile = {
       fullName: localStorage.getItem("rider_name") || "",
@@ -142,8 +179,16 @@ export default function BookingWizard() {
     return () => window.removeEventListener("allen-booking-prefill", prefill);
   }, []);
   useEffect(() => {
-    if (detectedAirport && detectedAirport !== airport.code) setAirport({ code: detectedAirport, terminal: "", lane: "", flight: "" });
-  }, [detectedAirport]);
+    if (!routeAirport) {
+      setAirport(current => current.code ? { code: null, terminal: "", flight: "", airline: "" } : current);
+      return;
+    }
+    setAirport(current => {
+      if (current.code === routeAirport) return current;
+      const parsed = parseFlightNumber(current.flight, routeAirport);
+      return { ...current, code: routeAirport, terminal: parsed.terminal, airline: parsed.airline };
+    });
+  }, [routeAirport]);
   useEffect(() => {
     if (pickup.trim().length < 3 || destination.trim().length < 3) { setFareState("idle"); setFares({}); return; }
     setFareState("loading");
@@ -194,10 +239,26 @@ export default function BookingWizard() {
     });
   }
   const selectedFare = fares[tier];
+  const selectedVehicle = VEHICLES.find(vehicle => vehicle.tier === tier)!;
   const promoDiscount = hasWelcomePromo(promoCode) && selectedFare ? Math.min(1500, selectedFare.fareCents) : 0;
   const finalFareCents = selectedFare ? selectedFare.fareCents - promoDiscount : 0;
-  const canContinueRoute = pickup.trim().length > 2 && destination.trim().length > 2 && (!detectedAirport || Boolean(airport.lane && airport.flight && (airport.code === "DAL" || airport.terminal)));
-  const next = () => { setError(""); setStep(current => Math.min(4, current + 1)); };
+  const parsedFlight = parseFlightNumber(airport.flight, routeAirport);
+  const flightMatchesAirport = !detectedAirport || !parsedFlight.ruleAirport || parsedFlight.ruleAirport === detectedAirport;
+  const flightReady = Boolean(parsedFlight.valid && flightMatchesAirport && airport.terminal);
+  const canContinueRoute = pickup.trim().length > 2 && destination.trim().length > 2 && (!detectedAirport || flightReady);
+  const profileValid = validRiderProfile(contact);
+  const updateFlight = (value: string) => {
+    const parsed = parseFlightNumber(value, routeAirport);
+    setAirport(current => ({
+      code: parsed.airport,
+      terminal: parsed.terminal || (current.code === parsed.airport ? current.terminal : ""),
+      flight: parsed.normalized,
+      airline: parsed.airline,
+    }));
+  };
+  const validSchedule = timing === "RIDE_NOW" || Boolean(pickupAt && new Date(pickupAt).getTime() > Date.now());
+  const canBook = Boolean(selectedFare && profileValid && validSchedule && Number(contact.passengers) <= selectedVehicle.capacity);
+  const next = () => { setError(""); setStep(current => Math.min(3, current + 1)); };
   const submit = async () => {
     if (!selectedFare) return;
     setSubmitState("sending");
@@ -205,6 +266,11 @@ export default function BookingWizard() {
     const effectivePickupAt = timing === "RIDE_NOW" ? new Date(Date.now() + 15 * 60_000).toISOString() : new Date(pickupAt).toISOString();
     try {
       localStorage.setItem("allan-booking-contact", JSON.stringify({ fullName: contact.fullName, phone: contact.phone, email: contact.email }));
+      if (hasRiderProfile || editingProfile || launchedAsPwa()) {
+        localStorage.setItem("rider_name", contact.fullName);
+        localStorage.setItem("rider_phone", contact.phone);
+        localStorage.setItem("rider_email", contact.email);
+      }
       const result = await request("/api/inquiries", {
         method: "POST",
         body: JSON.stringify({
@@ -227,10 +293,10 @@ export default function BookingWizard() {
           destinationLatitude: points.destination?.latitude,
           destinationLongitude: points.destination?.longitude,
           ...(detectedAirport ? {
-            airportCode: airport.code,
-            airportTerminal: airport.code === "DFW" ? airport.terminal : undefined,
+            airportCode: detectedAirport,
+            airportTerminal: airport.terminal,
             flightNumber: airport.flight,
-            pickupPreference: airport.lane,
+            pickupPreference: "Meet & Greet",
           } : {}),
         }),
       });
@@ -299,6 +365,7 @@ export default function BookingWizard() {
       localStorage.setItem("allan-booking-contact", JSON.stringify({ fullName: contact.fullName, phone: contact.phone, email: contact.email }));
       setPromoCode("WELCOME15");
       setNeedsOnboarding(false);
+      setHasRiderProfile(true);
       useCurrentLocation();
     };
     return <section className="pwa-onboarding"><div className="onboarding-card"><div className="onboarding-offer">$15 FIRST-RIDE CREDIT</div><p className="eyebrow brass">Welcome to Allen Limousine</p><h1>Set up once.<br /><em>Ride in one tap.</em></h1><p>Save your passenger profile and payment method for faster bookings and direct chauffeur updates.</p><div className="onboarding-fields"><label className="wizard-field">Full name<input autoFocus value={contact.fullName} onChange={event => setContact(current => ({ ...current, fullName: event.target.value }))} placeholder="Your name" /></label><label className="wizard-field">Phone number<input value={contact.phone} onChange={event => setContact(current => ({ ...current, phone: event.target.value }))} placeholder="+1 214…" /></label><label className="wizard-field">Email<input type="email" value={contact.email} onChange={event => setContact(current => ({ ...current, email: event.target.value }))} placeholder="you@example.com" /></label></div><StripeCardSetup fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} /><button className="solid-button" disabled={!contact.fullName || !contact.phone || !contact.email} onClick={saveProfile}>{savedPayment ? "Save profile & start booking" : "Continue — pay later"} <ArrowRight /></button><small>Card details are tokenized by Stripe. Allen Limousine never stores your card number.</small></div></section>;
@@ -318,21 +385,32 @@ export default function BookingWizard() {
 
   return <section id="reserve" className="booking-wizard-section section-pad">
     <div className="wizard-shell">
-      <header className="wizard-header"><div><p className="eyebrow brass">Book your chauffeur</p><h2>{["Where are you going?", "Choose your vehicle", "When should we arrive?", "Confirm your details"][step - 1]}</h2></div><span>0{step} / 04</span></header>
-      <nav className="wizard-progress" aria-label="Booking progress">{[1, 2, 3, 4].map(number => <i key={number} className={number <= step ? "active" : ""} />)}</nav>
+      <header className="wizard-header"><div><p className="eyebrow brass">Book your chauffeur</p><h2>{["Where are you going?", "Choose your vehicle", "Schedule & book"][step - 1]}</h2></div><span>0{step} / 03</span></header>
+      <nav className="wizard-progress" aria-label="Booking progress">{[1, 2, 3].map(number => <i key={number} className={number <= step ? "active" : ""} />)}</nav>
       <main className="wizard-body">
         {step === 1 && <div className="wizard-step">
           {hasWelcomePromo(promoCode) && <div className="wizard-promo"><Check /><span><b>$15 first-ride credit applied</b><small>Promo WELCOME15 will be included with your booking.</small></span></div>}
           <SmartLocation label="Pickup location" value={pickup} placeholder="Address, hotel, airport, or landmark" currentLocation={useCurrentLocation} onType={value => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: undefined })); }} onSelect={(value, point) => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: point })); }} />
           <small className="wizard-location-status">{locationStatus}</small>
           <SmartLocation label="Drop-off location" value={destination} placeholder="Where should we take you?" onType={value => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: undefined })); }} onSelect={(value, point) => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: point })); }} />
-          {detectedAirport && <div className="wizard-airport"><header><Plane /><div><b>{detectedAirport === "DFW" ? "Dallas Fort Worth International" : "Dallas Love Field"}</b><span>Flight-aware airport pickup</span></div></header>{detectedAirport === "DFW" && <label>Terminal<select required value={airport.terminal} onChange={event => setAirport(current => ({ ...current, terminal: event.target.value }))}><option value="">Select terminal</option>{DFW_TERMINALS.map(item => <option key={item}>{item}</option>)}</select></label>}<label>Pickup lane<select required value={airport.lane} onChange={event => setAirport(current => ({ ...current, lane: event.target.value }))}><option value="">Select pickup preference</option>{(detectedAirport === "DFW" ? DFW_LANES : DAL_LANES).map(item => <option key={item}>{item}</option>)}</select></label><label>Flight number<input required value={airport.flight} onChange={event => setAirport(current => ({ ...current, flight: event.target.value.toUpperCase() }))} placeholder="AA 1234" /></label></div>}
+          <label className="wizard-field wizard-flight-field">Airline flight number<input value={airport.flight} onChange={event => updateFlight(event.target.value)} placeholder="UA 1234 or WN 567" inputMode="text" autoComplete="off" /><small>Enter the airline code and flight number. We’ll identify O’Hare or Midway and suggest the terminal.</small></label>
+          {detectedAirport && <div className="wizard-airport"><header><Plane /><div><b>{AIRPORTS[detectedAirport].name}</b><span>{airport.airline ? `${airport.airline} · flight ${airport.flight}` : "Chicago airport detected from your route"}</span></div></header><label>Airport<input readOnly value={`${detectedAirport} · ${AIRPORTS[detectedAirport].name}`} /></label><label>Terminal / concourse<select required value={airport.terminal} onChange={event => setAirport(current => ({ ...current, terminal: event.target.value }))}><option value="">Select terminal</option>{AIRPORTS[detectedAirport].terminals.map(item => <option key={item}>{item}</option>)}</select></label></div>}
+          {detectedAirport && airport.flight && (!parsedFlight.valid || !flightMatchesAirport) && <p className="form-error">{!parsedFlight.valid ? "Enter a valid airline code and flight number, such as UA 1234 or WN 567." : `${airport.airline || "This airline"} does not use ${AIRPORTS[detectedAirport].name}. Check the flight number or airport.`}</p>}
           {fareState === "error" && <p className="form-error">We couldn’t calculate this route. Select an address suggestion or add a more specific address.</p>}
           <button className="solid-button wizard-next" disabled={!canContinueRoute || fareState === "loading"} onClick={next}>{fareState === "loading" ? "Calculating route…" : <>See vehicles & fares <ArrowRight /></>}</button>
         </div>}
-        {step === 2 && <div className="wizard-step"><div className="wizard-route-summary"><MapPin /><span>{route.pickup}</span><ArrowRight /><span>{route.destination}</span></div><div className="wizard-vehicles">{VEHICLES.map(vehicle => { const fare = fares[vehicle.tier]; const discount = hasWelcomePromo(promoCode) && fare ? Math.min(1500, fare.fareCents) : 0; return <button type="button" key={vehicle.tier} className={tier === vehicle.tier ? "selected" : ""} onClick={() => setTier(vehicle.tier)}><CarFront /><div><b>{vehicle.label}</b><span>{vehicle.detail}</span><small>Guaranteed Upfront Fare • Tolls &amp; Fees Included • Zero Surge</small></div>{fareState === "loading" ? <i className="fare-shimmer" /> : <strong>{fare ? <>{discount > 0 && <del>{money(fare.fareCents)}</del>}{money(fare.fareCents - discount)}</> : "Unavailable"}</strong>}</button>; })}</div><div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(1)}><ArrowLeft /> Back</button><button className="solid-button" disabled={!selectedFare} onClick={next}>Choose {RATE_TIER_PRICING[tier].label} <ArrowRight /></button></div></div>}
-        {step === 3 && <div className="wizard-step"><div className="wizard-toggle"><button className={timing === "RIDE_NOW" ? "active" : ""} onClick={() => setTiming("RIDE_NOW")}><Clock3 />Ride Now</button><button className={timing === "RESERVE_LATER" ? "active" : ""} onClick={() => setTiming("RESERVE_LATER")}><CalendarDays />Reserve for Later</button></div>{timing === "RESERVE_LATER" && <label className="wizard-field">Pickup date &amp; time<input type="datetime-local" min={localDateTime()} value={pickupAt} onChange={event => setPickupAt(event.target.value)} /></label>}<div className="wizard-toggle"><button className={serviceType === "Point-to-Point" ? "active" : ""} onClick={() => setServiceType("Point-to-Point")}>Point-to-Point</button><button className={serviceType === "Hourly Charter" ? "active" : ""} onClick={() => setServiceType("Hourly Charter")}>Hourly Charter</button></div><div className="wizard-selection-note"><ShieldCheck /><span><b>{timing === "RIDE_NOW" ? "Pickup requested as soon as possible" : new Date(pickupAt).toLocaleString()}</b><small>{serviceType} · {RATE_TIER_PRICING[tier].label}</small></span><strong>{selectedFare && money(finalFareCents)}</strong></div><div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(2)}><ArrowLeft /> Back</button><button className="solid-button" onClick={next}>Passenger details <ArrowRight /></button></div></div>}
-        {step === 4 && <div className="wizard-step"><div className="wizard-contact-grid"><label className="wizard-field">Full name<input required value={contact.fullName} onChange={event => setContact(current => ({ ...current, fullName: event.target.value }))} placeholder="Your name" /></label><label className="wizard-field">Phone<input required value={contact.phone} onChange={event => setContact(current => ({ ...current, phone: event.target.value }))} placeholder="+1 214…" /></label><label className="wizard-field">Email<input required type="email" value={contact.email} onChange={event => setContact(current => ({ ...current, email: event.target.value }))} placeholder="you@example.com" /></label><label className="wizard-field">Passengers<select value={contact.passengers} onChange={event => setContact(current => ({ ...current, passengers: event.target.value }))}>{Array.from({ length: 14 }, (_, index) => index + 1).map(number => <option key={number}>{number}</option>)}</select></label></div><label className="wizard-field">Notes<textarea value={contact.notes} onChange={event => setContact(current => ({ ...current, notes: event.target.value }))} placeholder="Special requests, luggage, or itinerary notes…" /></label><div className="wizard-final-summary"><UserRound /><div><b>{RATE_TIER_PRICING[tier].label} · {serviceType}</b><span>{route.pickup} → {route.destination}</span></div><strong>{selectedFare && money(finalFareCents)}</strong></div><StripeCardSetup compact fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} />{savedPayment?.capability && <label className="payment-choice"><input type="checkbox" checked={authorizeCard} onChange={event => setAuthorizeCard(event.target.checked)} /><span><b>Pre-authorize {money(finalFareCents)} on this card</b><small>Uncheck to submit this booking as pay later.</small></span></label>}{error && <p className="form-error">{error}</p>}<div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(3)}><ArrowLeft /> Back</button><button className="solid-button" disabled={submitState === "sending" || !contact.fullName || !contact.phone || !contact.email} onClick={submit}>{submitState === "sending" ? "Submitting…" : savedPayment?.capability && authorizeCard ? <>Confirm &amp; Pre-Authorize ({money(finalFareCents)}) <Check /></> : <>Confirm booking — pay later <Check /></>}</button></div></div>}
+        {step === 2 && <div className="wizard-step"><div className="wizard-route-summary"><MapPin /><span>{route.pickup}</span><ArrowRight /><span>{route.destination}</span></div><div className="wizard-vehicles">{VEHICLES.map(vehicle => { const fare = fares[vehicle.tier]; const discount = hasWelcomePromo(promoCode) && fare ? Math.min(1500, fare.fareCents) : 0; return <button type="button" key={vehicle.tier} className={tier === vehicle.tier ? "selected" : ""} onClick={() => { setTier(vehicle.tier); setContact(current => ({ ...current, passengers: String(Math.min(Number(current.passengers), vehicle.capacity)) })); }}><CarFront /><div><b>{vehicle.label}</b><span>{vehicle.detail}</span><small>Guaranteed Upfront Fare • Tolls &amp; Fees Included • Zero Surge</small></div>{fareState === "loading" ? <i className="fare-shimmer" /> : <strong>{fare ? <>{discount > 0 && <del>{money(fare.fareCents)}</del>}{money(fare.fareCents - discount)}</> : "Unavailable"}</strong>}</button>; })}</div><div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(1)}><ArrowLeft /> Back</button><button className="solid-button" disabled={!selectedFare} onClick={next}>Choose {RATE_TIER_PRICING[tier].label} <ArrowRight /></button></div></div>}
+        {step === 3 && <div className="wizard-step">
+          <div className="wizard-toggle"><button className={timing === "RIDE_NOW" ? "active" : ""} onClick={() => setTiming("RIDE_NOW")}><Clock3 />Ride Now</button><button className={timing === "RESERVE_LATER" ? "active" : ""} onClick={() => setTiming("RESERVE_LATER")}><CalendarDays />Reserve for Later</button></div>
+          {timing === "RESERVE_LATER" && <label className="wizard-field">Pickup date &amp; time<input type="datetime-local" required min={localDateTime()} value={pickupAt} onChange={event => setPickupAt(event.target.value)} /></label>}
+          <div className="wizard-toggle"><button className={serviceType === "Point-to-Point" ? "active" : ""} onClick={() => setServiceType("Point-to-Point")}>Point-to-Point</button><button className={serviceType === "Hourly Charter" ? "active" : ""} onClick={() => setServiceType("Hourly Charter")}>Hourly Charter</button></div>
+          {hasRiderProfile && !editingProfile ? <div className="wizard-profile-summary"><UserRound /><div><small>Rider profile</small><b>{contact.fullName}</b><span>{contact.phone} · {contact.email}</span></div><button type="button" onClick={() => setEditingProfile(true)}>Edit</button><Check /></div> : <><div className="wizard-contact-grid"><label className="wizard-field">Full name<input required value={contact.fullName} onChange={event => setContact(current => ({ ...current, fullName: event.target.value }))} placeholder="Your name" /></label><label className="wizard-field">Phone<input required value={contact.phone} onChange={event => setContact(current => ({ ...current, phone: event.target.value }))} placeholder="+1 312…" /></label><label className="wizard-field">Email<input required type="email" value={contact.email} onChange={event => setContact(current => ({ ...current, email: event.target.value }))} placeholder="you@example.com" /></label></div>{!profileValid && <small className="wizard-profile-help">Enter a valid name, phone number, and email to enable one-tap booking.</small>}</>}
+          <div className="wizard-trip-options"><label className="wizard-field">Passengers<select value={contact.passengers} onChange={event => setContact(current => ({ ...current, passengers: event.target.value }))}>{Array.from({ length: selectedVehicle.capacity }, (_, index) => index + 1).map(number => <option key={number}>{number}</option>)}</select></label><label className="wizard-field">Notes<textarea value={contact.notes} onChange={event => setContact(current => ({ ...current, notes: event.target.value }))} placeholder="Luggage, accessibility, or itinerary notes…" /></label></div>
+          <div className="wizard-final-summary"><ShieldCheck /><div><b>{timing === "RIDE_NOW" ? "Pickup as soon as possible" : new Date(pickupAt).toLocaleString()}</b><span>{RATE_TIER_PRICING[tier].label} · {serviceType} · {route.pickup} → {route.destination}</span></div><strong>{selectedFare && money(finalFareCents)}</strong></div>
+          {savedPayment?.capability ? <><StripeCardSetup compact fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} /><label className="payment-choice"><input type="checkbox" checked={authorizeCard} onChange={event => setAuthorizeCard(event.target.checked)} /><span><b>Use saved card for this booking</b><small>{authorizeCard ? `Pre-authorize ${money(finalFareCents)} now.` : "Submit as pay later."}</small></span></label></> : <div className="wizard-pay-later"><ShieldCheck /><span><b>Book now, pay later</b><small>The Allen Limousine team will arrange payment after confirmation.</small></span></div>}
+          {error && <p className="form-error">{error}</p>}
+          <div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(2)}><ArrowLeft /> Back</button><button className="solid-button wizard-instant-book" disabled={submitState === "sending" || !canBook} onClick={submit}>{submitState === "sending" ? "Booking…" : <>Book in one tap · {money(finalFareCents)} <Check /></>}</button></div>
+        </div>}
       </main>
     </div>
   </section>;
