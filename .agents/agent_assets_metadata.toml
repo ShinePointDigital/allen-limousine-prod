@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "MjdkgDN2LVSH90EnVcM5o"
+uri = "file://public/hero-cadillac-allan-limo.mp4"
+type = "video"
+title = "Cadillac hero with ALLAN LIMO plate"
+description = "The original five-second hero animation with the Illinois-style ALLAN LIMO plate tracked onto the Cadillac."
+logical_id = "df141442-12c1-40c1-9a88-69950481a1e1"
+content_hash = "sha256:025bc6f221d404a0be651e68954c5337b307534932c34967933ad84bad927640"
+size = 6976018
+mtime_ms = 1789512266505
+storage_uri = "gcs://replit-rams-assets-spock/rams/assets/repl:7e9b2bf7-9562-4844-9c1b-e036ea2c6b8f/df141442-12c1-40c1-9a88-69950481a1e1/cd6a9987-5520-4232-bb6f-4117922bf91a"
+storage_version_token = "1789512366534040"
+content_type = "video/mp4"
