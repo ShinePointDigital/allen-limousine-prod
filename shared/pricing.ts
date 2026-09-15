@@ -8,6 +8,14 @@ export type RateTierPricing = {
   minimumFareCents: number;
 };
 
+export const PRIVATE_FBO_PRICING = {
+  baseFareCents: 6500,
+  perMileCents: 425,
+  perMinuteCents: 85,
+  handlingSurchargeCents: 3500,
+  minimumFareCents: 15000,
+} as const;
+
 export const RATE_TIER_PRICING: Record<RateTier, RateTierPricing> = {
   EXECUTIVE_SEDAN: {
     label: "Executive Sedan",
@@ -32,14 +40,22 @@ export const RATE_TIER_PRICING: Record<RateTier, RateTierPricing> = {
   },
 };
 
-export function calculateFare(tier: RateTier, miles: number, minutes: number) {
-  const rate = RATE_TIER_PRICING[tier];
+export function calculateFare(tier: RateTier, miles: number, minutes: number, isPrivateFBO = false) {
+  const standardRate = RATE_TIER_PRICING[tier];
+  const rate = isPrivateFBO ? {
+    ...standardRate,
+    baseFareCents: PRIVATE_FBO_PRICING.baseFareCents,
+    perMileCents: PRIVATE_FBO_PRICING.perMileCents,
+    perMinuteCents: PRIVATE_FBO_PRICING.perMinuteCents,
+    minimumFareCents: PRIVATE_FBO_PRICING.minimumFareCents,
+  } : standardRate;
   const validMiles = Number.isFinite(miles) && miles >= 0 ? miles : 0;
   const validMinutes = Number.isFinite(minutes) && minutes >= 0 ? minutes : 0;
   const meteredFareCents = Math.round(
     rate.baseFareCents
       + validMiles * rate.perMileCents
-      + validMinutes * rate.perMinuteCents,
+      + validMinutes * rate.perMinuteCents
+      + (isPrivateFBO ? PRIVATE_FBO_PRICING.handlingSurchargeCents : 0),
   );
 
   return {
@@ -47,6 +63,8 @@ export function calculateFare(tier: RateTier, miles: number, minutes: number) {
     tier,
     miles: validMiles,
     minutes: validMinutes,
+    isPrivateFBO,
+    handlingSurchargeCents: isPrivateFBO ? PRIVATE_FBO_PRICING.handlingSurchargeCents : 0,
     fareCents: Math.max(rate.minimumFareCents, meteredFareCents),
   };
 }

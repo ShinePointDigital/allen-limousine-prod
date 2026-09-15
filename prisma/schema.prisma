@@ -47,6 +47,11 @@ model Inquiry {
   flightNumber      String?
   flightScheduledAt DateTime?
   pickupPreference  String?
+  isPrivateFBO      Boolean             @default(false)
+  specificTailNumber String?
+  principalName       String?
+  fboName             String?
+  tarmacInstructions  String?
   rateTier           String?
   estimatedFareCents Int?
   estimatedMiles     Float?
