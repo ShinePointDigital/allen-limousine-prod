@@ -10,7 +10,7 @@ import { RATE_TIER_PRICING, type RateTier } from "../shared/pricing.js";
 import BookingWizard from "./BookingWizard";
 import { PWABottomNav } from "./PWAInstallBanner";
 import PWAInstallGate from "./PWAInstallGate";
-import heroCadillac from "./assets/hero-cadillac-allan-limo-poster.jpg";
+import heroCadillac from "./assets/hero-cadillac-downtown-night.jpg";
 
 type Service = { id: string; slug: string; title: string; eyebrow: string; description: string; imageUrl: string; active: boolean };
 type Vehicle = { id: string; name: string; category: string; description: string; imageUrl: string; passengers: string; luggage: string; defaultDriverName: string | null; defaultDriverPhone: string | null; active: boolean };
@@ -101,7 +101,7 @@ function Home() {
   return <main className={`public-page${pwaMode ? " pwa-launch" : ""}`}>
     <section className="hero">
       <video className="hero-video" autoPlay muted loop playsInline preload="metadata" poster={heroCadillac} aria-hidden="true">
-        <source src="/hero-cadillac-allan-limo-tracked.mp4" type="video/mp4" />
+        <source src="/hero-cadillac-edge-to-edge.mp4" type="video/mp4" />
       </video>
       <div className="hero-image" />
       <PublicNav />
@@ -134,7 +134,7 @@ function Home() {
     </section>
     {!pwaMode && <BookingWizard />}
     <PWABottomNav />
-    <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · Chicago, Illinois</p><span>© {new Date().getFullYear()} ALLAN Livery</span></div><div className="footer-contact"><a href="tel:+13125550188">+1 312 555 0188</a><a href="mailto:hello@allanlivery.com">hello@allanlivery.com</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>Available citywide & beyond</span><Link to="/admin/login">Client access ↗</Link></div></footer>
+    <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · Chicago, Illinois</p><span>© {new Date().getFullYear()} ALLAN Livery</span></div><div className="footer-contact"><a href="tel:+13125550188">+1 312 555 0188</a><a href="mailto:hello@allanlivery.com">hello@allanlivery.com</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>Available citywide & beyond</span><span className="site-credit">Built with <strong>Shine Point Digital</strong></span><Link to="/admin/login">Client access ↗</Link></div></footer>
   </main>;
 }
 
