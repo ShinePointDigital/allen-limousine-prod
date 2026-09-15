@@ -50,7 +50,7 @@ const inquirySchema = z.object({
   destination: z.string().trim().min(2).max(180),
   passengers: z.coerce.number().int().min(1).max(50),
   notes: z.string().max(1000).optional().default(""),
-  airportCode: z.enum(["ORD", "MDW"]).optional(),
+  airportCode: z.enum(["ORD", "MDW", "DFW", "DAL"]).optional(),
   airportTerminal: z.string().trim().max(100).optional(),
   flightNumber: z.string().trim().max(20).optional(),
   flightScheduledAt: z.string().datetime().optional(),

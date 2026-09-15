@@ -10,7 +10,7 @@ import { RATE_TIER_PRICING, type RateTier } from "../shared/pricing.js";
 import BookingWizard from "./BookingWizard";
 import { PWABottomNav } from "./PWAInstallBanner";
 import PWAInstallGate from "./PWAInstallGate";
-import heroCadillac from "./assets/hero-cadillac-allan-limo-poster.jpg";
+import heroCadillac from "./assets/hero-cadillac-downtown-night.jpg";
 
 type Service = { id: string; slug: string; title: string; eyebrow: string; description: string; imageUrl: string; active: boolean };
 type Vehicle = { id: string; name: string; category: string; description: string; imageUrl: string; passengers: string; luggage: string; defaultDriverName: string | null; defaultDriverPhone: string | null; active: boolean };
@@ -101,7 +101,7 @@ function Home() {
   return <main className={`public-page${pwaMode ? " pwa-launch" : ""}`}>
     <section className="hero">
       <video className="hero-video" autoPlay muted loop playsInline preload="metadata" poster={heroCadillac} aria-hidden="true">
-        <source src="/hero-cadillac-allan-limo-tracked.mp4" type="video/mp4" />
+        <source src="/hero-cadillac-edge-to-edge.mp4" type="video/mp4" />
       </video>
       <div className="hero-image" />
       <PublicNav />
