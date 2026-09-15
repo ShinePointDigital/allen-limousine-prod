@@ -131,6 +131,17 @@ export default function BookingWizard() {
     if (!needsOnboarding) useCurrentLocation();
   }, []);
   useEffect(() => {
+    const prefill = (event: Event) => {
+      const destination = (event as CustomEvent<{ destination?: string }>).detail?.destination;
+      if (!destination) return;
+      setStep(1);
+      setRoute(current => ({ ...current, destination }));
+      setPoints(current => ({ ...current, destination: undefined }));
+    };
+    window.addEventListener("allen-booking-prefill", prefill);
+    return () => window.removeEventListener("allen-booking-prefill", prefill);
+  }, []);
+  useEffect(() => {
     if (detectedAirport && detectedAirport !== airport.code) setAirport({ code: detectedAirport, terminal: "", lane: "", flight: "" });
   }, [detectedAirport]);
   useEffect(() => {
