@@ -116,6 +116,7 @@ function Home() {
       </div>
       <div className="hero-bottom hero-stats"><span><b>ORD · MDW</b> Every arrival</span><span><b>Chicago</b> And beyond</span><span><b>Private</b> By design</span></div>
     </section>
+    {!pwaMode && <DestinationBookingCards />}
     {pwaMode && <BookingWizard />}
     <section id="about" className="about-section section-pad">
       <div className="about-kicker"><p className="eyebrow brass">— About Allen Limousine</p><span>Luxury, without compromise</span></div>
@@ -131,7 +132,6 @@ function Home() {
       <div className="section-heading services-heading"><div><p className="eyebrow brass">— The way we move</p><h2>Every mile,<br /><em>considered.</em></h2></div><div className="section-aside"><p>A private service calibrated to the rhythm of the city—and the people who have places to be.</p><a className="text-button services-booking-link" href="#reserve">Book your service <ArrowUpRight /></a></div></div>
       <div className="service-list">{content.services.slice(0, 3).map((service, index) => <article className="service-row" key={service.id}><div className="service-row-copy"><h3>{index === 0 ? "Executive Travel" : index === 1 ? "Airport Transfers" : "Evenings & Events"}</h3><p>{service.description}</p></div><a className="service-badge" href="#reserve" aria-label={`Book ${index === 0 ? "Executive Travel" : index === 1 ? "Airport Transfers" : "Evenings and Events"}`}><ArrowUpRight /></a></article>)}</div>
     </section>
-    {!pwaMode && <DestinationBookingCards />}
     {!pwaMode && <BookingWizard />}
     <PWABottomNav />
     <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · Chicago, Illinois</p><span>© {new Date().getFullYear()} ALLAN Livery</span></div><div className="footer-contact"><a href="tel:+13125550188">+1 312 555 0188</a><a href="mailto:hello@allanlivery.com">hello@allanlivery.com</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>Available citywide & beyond</span><Link to="/admin/login">Client access ↗</Link></div></footer>
