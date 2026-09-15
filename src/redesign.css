@@ -91,6 +91,9 @@
 .footer-contact{display:flex;flex-direction:column!important;gap:4px!important}
 .site-footer .footer-bottom{justify-content:space-between}
 .site-footer .footer-bottom a{margin-left:auto}
+.site-credit{margin-left:auto;color:#777a74;font-size:8px;letter-spacing:.12em;text-transform:uppercase}
+.site-credit strong{color:#c9a56a;font-weight:700}
+.site-credit+a{margin-left:28px!important}
 
 @media(max-width:900px){
   .hero{min-height:820px}.hero-grid{min-height:820px}.hero-stats{grid-template-columns:repeat(4,1fr)}.hero-stats .coordinate-bottom{display:none}
@@ -105,5 +108,5 @@
   .service-row{grid-template-columns:38px 1fr 40px;min-height:150px}.service-row-copy{display:block}.service-row h3{font-size:34px}.service-row p{margin-top:12px}.service-badge{width:38px;height:38px}
   .fleet-editorial>.fleet-header{display:block}.fleet-editorial .fleet-rail{grid-template-columns:1fr;grid-template-rows:auto}.fleet-editorial .vehicle-card,.fleet-editorial .vehicle-card:first-child{grid-row:auto;min-height:360px}
   .standard-layout{gap:48px}.standard-photo img{height:480px}.standard-copy h2{font-size:59px}
-  .reservation-layout{padding-top:50px}.reservation-card{padding:30px 22px}.site-footer .footer-main{grid-template-columns:1fr 1fr}.footer-contact{display:none!important}
+  .reservation-layout{padding-top:50px}.reservation-card{padding:30px 22px}.site-footer .footer-main{grid-template-columns:1fr 1fr}.footer-contact{display:none!important}.site-footer .footer-bottom{align-items:flex-start;flex-direction:column;gap:12px}.site-credit,.site-credit+a{margin-left:0!important}
 }

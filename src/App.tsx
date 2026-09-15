@@ -134,7 +134,7 @@ function Home() {
     </section>
     {!pwaMode && <BookingWizard />}
     <PWABottomNav />
-    <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · Chicago, Illinois</p><span>© {new Date().getFullYear()} ALLAN Livery</span></div><div className="footer-contact"><a href="tel:+13125550188">+1 312 555 0188</a><a href="mailto:hello@allanlivery.com">hello@allanlivery.com</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>Available citywide & beyond</span><Link to="/admin/login">Client access ↗</Link></div></footer>
+    <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · Chicago, Illinois</p><span>© {new Date().getFullYear()} ALLAN Livery</span></div><div className="footer-contact"><a href="tel:+13125550188">+1 312 555 0188</a><a href="mailto:hello@allanlivery.com">hello@allanlivery.com</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>Available citywide & beyond</span><span className="site-credit">Built with <strong>Shine Point Digital</strong></span><Link to="/admin/login">Client access ↗</Link></div></footer>
   </main>;
 }
 
