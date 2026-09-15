@@ -60,12 +60,13 @@ function SetupForm({ clientSecret, setupIntentId, customerId, setupToken, onSave
   </div>;
 }
 
-export default function StripeCardSetup({ fullName, email, savedPayment, onSaved, compact = false }: {
+export default function StripeCardSetup({ fullName, email, savedPayment, onSaved, compact = false, requiredPayment = false }: {
   fullName: string;
   email: string;
   savedPayment?: SavedPayment | null;
   onSaved: (payment: SavedPayment) => void;
   compact?: boolean;
+  requiredPayment?: boolean;
 }) {
   const [config, setConfig] = useState<{ configured: boolean; publishableKey: string | null } | null>(null);
   const [intent, setIntent] = useState<{ clientSecret: string; setupIntentId: string; customerId: string; setupToken: string } | null>(null);
@@ -86,7 +87,7 @@ export default function StripeCardSetup({ fullName, email, savedPayment, onSaved
     }
   };
   if (!config) return <div className="payment-skeleton" aria-label="Loading secure payments" />;
-  if (!config.configured) return <div className="payment-unavailable"><LockKeyhole /><span><b>Secure card setup ready to connect</b><small>Add Stripe credentials later to enable card saving and pre-authorization. Bookings can still be submitted as pay later.</small></span></div>;
+  if (!config.configured) return <div className="payment-unavailable"><LockKeyhole /><span><b>Secure card setup is unavailable</b><small>{requiredPayment ? "Payment authorization is required to finish this booking. Please try again when Stripe is connected." : "Add Stripe credentials later to enable card saving and pre-authorization. You can continue without a saved card."}</small></span></div>;
   if (savedPayment && !changing) return <div className="saved-card-pill"><CreditCard /><span><small>Paying with saved card</small><b>{savedPayment.cardBrand.toUpperCase()} ending in {savedPayment.cardLast4}</b></span><Check /><button type="button" onClick={() => setChanging(true)}>Change</button></div>;
   if (!intent) return <div className={compact ? "stripe-start compact" : "stripe-start"}><button type="button" className="outline-button" disabled={loading || !fullName || !email} onClick={begin}><CreditCard />{loading ? "Opening secure form…" : savedPayment ? "Use a different card" : "Add payment card"}</button>{error && <p className="form-error">{error}</p>}</div>;
   return <Elements stripe={stripePromise} options={{

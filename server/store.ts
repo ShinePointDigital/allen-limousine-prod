@@ -3,7 +3,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 
-export type InquiryStatus = "NEW" | "CONTACTED" | "CONFIRMED" | "COMPLETED" | "CANCELLED";
+export type InquiryStatus = "PAYMENT_PENDING" | "NEW" | "CONTACTED" | "CONFIRMED" | "COMPLETED" | "CANCELLED";
 export type RideStatus = "UNASSIGNED" | "ASSIGNED" | "EN_ROUTE" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
 export type Inquiry = {
   id: string; fullName: string; email: string; phone: string; serviceType: string;
@@ -127,8 +127,8 @@ export async function getPublicContent() {
 }
 const mapInquiry = (item: any): Inquiry => ({ ...item, pickupAt: item.pickupAt.toISOString(), flightScheduledAt: item.flightScheduledAt?.toISOString() || null, trackingExpiresAt: item.trackingExpiresAt?.toISOString() || null, createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(), history: (item.inquiryNotes || []).map((note: any) => ({ body: note.body, author: note.author.name, createdAt: note.createdAt.toISOString() })) });
 export async function getInquiries() {
-  if (!databaseConfigured) return [...inquiries].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-  return (await prisma.inquiry.findMany({ include: { inquiryNotes: { include: { author: true }, orderBy: { createdAt: "asc" } } }, orderBy: { createdAt: "desc" } })).map(mapInquiry);
+  if (!databaseConfigured) return inquiries.filter(item => item.status !== "PAYMENT_PENDING").sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+  return (await prisma.inquiry.findMany({ where: { status: { not: "PAYMENT_PENDING" } }, include: { inquiryNotes: { include: { author: true }, orderBy: { createdAt: "asc" } } }, orderBy: { createdAt: "desc" } })).map(mapInquiry);
 }
 export async function getInquiryByBookingRequestId(bookingRequestId: string) {
   if (!databaseConfigured) return inquiries.find(item => item.bookingRequestId === bookingRequestId) || null;
@@ -223,7 +223,7 @@ export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "created
     const created = await prisma.$transaction(async tx => {
       const welcomePromo = !input.isPrivateFBO && (input.promoCode === "WELCOME15" || input.promoCode === "FIRST15");
       const priorPromo = welcomePromo ? await tx.inquiry.findFirst({
-        where: { promoCode: { in: ["WELCOME15", "FIRST15"] }, OR: [{ email: input.email }, { phone: input.phone }] },
+        where: { status: { not: "PAYMENT_PENDING" }, promoCode: { in: ["WELCOME15", "FIRST15"] }, OR: [{ email: input.email }, { phone: input.phone }] },
         select: { id: true },
       }) : null;
       const promoDiscountCents = welcomePromo && !priorPromo ? Math.min(1500, input.grossFareCents || 0) : 0;
@@ -233,9 +233,10 @@ export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "created
         promoDiscountCents,
         estimatedFareCents: input.grossFareCents != null ? input.grossFareCents - promoDiscountCents : null,
       };
-      const inquiry = await tx.inquiry.create({ data: { ...canonicalInput, pickupAt: new Date(input.pickupAt), flightScheduledAt: input.flightScheduledAt ? new Date(input.flightScheduledAt) : null } });
-      if (input.isPrivateFBO) await tx.ride.create({ data: { inquiryId: inquiry.id, quoteCents: canonicalInput.estimatedFareCents || 0 } });
-      await tx.adminNotification.create({ data: { type: "NEW_INQUIRY", title: "New reservation request", body: `${input.fullName} requested ${input.serviceType} for ${new Date(input.pickupAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`, inquiryId: inquiry.id } });
+      const paymentPending = input.paymentStatus === "authorization_pending";
+      const inquiry = await tx.inquiry.create({ data: { ...canonicalInput, status: paymentPending ? "PAYMENT_PENDING" : "NEW", pickupAt: new Date(input.pickupAt), flightScheduledAt: input.flightScheduledAt ? new Date(input.flightScheduledAt) : null } });
+      if (!paymentPending && input.isPrivateFBO) await tx.ride.create({ data: { inquiryId: inquiry.id, quoteCents: canonicalInput.estimatedFareCents || 0 } });
+      if (!paymentPending) await tx.adminNotification.create({ data: { type: "NEW_INQUIRY", title: "New reservation request", body: `${input.fullName} requested ${input.serviceType} for ${new Date(input.pickupAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`, inquiryId: inquiry.id } });
       return tx.inquiry.findUniqueOrThrow({ where: { id: inquiry.id }, include: { inquiryNotes: { include: { author: true } } } });
     }, { isolationLevel: "Serializable" });
     return { inquiry: mapInquiry(created), created: true };
@@ -245,14 +246,51 @@ export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "created
     if (existing) return { inquiry: existing, created: false };
   }
   const welcomePromo = !input.isPrivateFBO && (input.promoCode === "WELCOME15" || input.promoCode === "FIRST15");
-  const priorPromo = welcomePromo && inquiries.some(item => (item.promoCode === "WELCOME15" || item.promoCode === "FIRST15") && (item.email === input.email || item.phone === input.phone));
+  const priorPromo = welcomePromo && inquiries.some(item => item.status !== "PAYMENT_PENDING" && (item.promoCode === "WELCOME15" || item.promoCode === "FIRST15") && (item.email === input.email || item.phone === input.phone));
   const promoDiscountCents = welcomePromo && !priorPromo ? Math.min(1500, input.grossFareCents || 0) : 0;
   const now = new Date().toISOString();
-  const inquiry: Inquiry = { ...input, promoCode: promoDiscountCents ? "WELCOME15" : null, promoDiscountCents, estimatedFareCents: input.grossFareCents != null ? input.grossFareCents - promoDiscountCents : null, id: `inq-${crypto.randomUUID().slice(0, 8)}`, status: "NEW", createdAt: now, updatedAt: now, history: [] };
+  const paymentPending = input.paymentStatus === "authorization_pending";
+  const inquiry: Inquiry = { ...input, promoCode: promoDiscountCents ? "WELCOME15" : null, promoDiscountCents, estimatedFareCents: input.grossFareCents != null ? input.grossFareCents - promoDiscountCents : null, id: `inq-${crypto.randomUUID().slice(0, 8)}`, status: paymentPending ? "PAYMENT_PENDING" : "NEW", createdAt: now, updatedAt: now, history: [] };
   inquiries.unshift(inquiry);
-  if (input.isPrivateFBO) rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: inquiry.id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: inquiry.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: now, updatedAt: now, inquiry: { fullName: inquiry.fullName, serviceType: inquiry.serviceType, pickupAt: inquiry.pickupAt, pickup: inquiry.pickup, destination: inquiry.destination, passengers: inquiry.passengers, notes: inquiry.notes, isPrivateFBO: true, specificTailNumber: inquiry.specificTailNumber, principalName: inquiry.principalName, fboName: inquiry.fboName, tarmacInstructions: inquiry.tarmacInstructions }, vehicle: null, dispatchMessages: [] });
-  notifications.unshift({ id: `notification-${crypto.randomUUID().slice(0, 8)}`, type: "NEW_INQUIRY", title: "New reservation request", body: `${input.fullName} requested ${input.serviceType}.`, inquiryId: inquiry.id, readAt: null, createdAt: now });
+  if (!paymentPending && input.isPrivateFBO) rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: inquiry.id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: inquiry.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: now, updatedAt: now, inquiry: { fullName: inquiry.fullName, serviceType: inquiry.serviceType, pickupAt: inquiry.pickupAt, pickup: inquiry.pickup, destination: inquiry.destination, passengers: inquiry.passengers, notes: inquiry.notes, isPrivateFBO: true, specificTailNumber: inquiry.specificTailNumber, principalName: inquiry.principalName, fboName: inquiry.fboName, tarmacInstructions: inquiry.tarmacInstructions }, vehicle: null, dispatchMessages: [] });
+  if (!paymentPending) notifications.unshift({ id: `notification-${crypto.randomUUID().slice(0, 8)}`, type: "NEW_INQUIRY", title: "New reservation request", body: `${input.fullName} requested ${input.serviceType}.`, inquiryId: inquiry.id, readAt: null, createdAt: now });
   return { inquiry, created: true };
+}
+export async function finalizeAuthorizedInquiry(bookingRequestId: string, trackingTokenHash: string, trackingExpiresAt: string) {
+  if (databaseConfigured) {
+    const result = await prisma.$transaction(async tx => {
+      const inquiry = await tx.inquiry.findUnique({ where: { bookingRequestId } });
+      if (!inquiry) return null;
+      if (inquiry.status !== "PAYMENT_PENDING") return { inquiry, activatedNow: false };
+      if (inquiry.promoCode === "WELCOME15") {
+        const priorPromo = await tx.inquiry.findFirst({
+          where: {
+            id: { not: inquiry.id },
+            status: { not: "PAYMENT_PENDING" },
+            promoCode: { in: ["WELCOME15", "FIRST15"] },
+            OR: [{ email: inquiry.email }, { phone: inquiry.phone }],
+          },
+          select: { id: true },
+        });
+        if (priorPromo) throw new Error("The first-ride credit was already used. Restart the booking to authorize the current fare.");
+      }
+      const updated = await tx.inquiry.update({ where: { id: inquiry.id }, data: { status: "NEW", trackingTokenHash, trackingExpiresAt: new Date(trackingExpiresAt) } });
+      if (updated.isPrivateFBO) await tx.ride.upsert({ where: { inquiryId: updated.id }, update: {}, create: { inquiryId: updated.id, quoteCents: updated.estimatedFareCents || 0 } });
+      await tx.adminNotification.create({ data: { type: "NEW_INQUIRY", title: "New reservation request", body: `${updated.fullName} requested ${updated.serviceType} for ${updated.pickupAt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`, inquiryId: updated.id } });
+      return { inquiry: updated, activatedNow: true };
+    }, { isolationLevel: "Serializable" });
+    return result;
+  }
+  const inquiry = inquiries.find(item => item.bookingRequestId === bookingRequestId);
+  if (!inquiry) return null;
+  if (inquiry.status !== "PAYMENT_PENDING") return { inquiry, activatedNow: false };
+  if (inquiry.promoCode === "WELCOME15" && inquiries.some(item => item.id !== inquiry.id && item.status !== "PAYMENT_PENDING" && (item.promoCode === "WELCOME15" || item.promoCode === "FIRST15") && (item.email === inquiry.email || item.phone === inquiry.phone))) {
+    throw new Error("The first-ride credit was already used. Restart the booking to authorize the current fare.");
+  }
+  Object.assign(inquiry, { status: "NEW", trackingTokenHash, trackingExpiresAt, updatedAt: new Date().toISOString() });
+  if (inquiry.isPrivateFBO && !rides.some(ride => ride.inquiryId === inquiry.id)) rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: inquiry.id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: inquiry.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: inquiry.updatedAt, updatedAt: inquiry.updatedAt, inquiry: { fullName: inquiry.fullName, serviceType: inquiry.serviceType, pickupAt: inquiry.pickupAt, pickup: inquiry.pickup, destination: inquiry.destination, passengers: inquiry.passengers, notes: inquiry.notes, isPrivateFBO: inquiry.isPrivateFBO, specificTailNumber: inquiry.specificTailNumber, principalName: inquiry.principalName, fboName: inquiry.fboName, tarmacInstructions: inquiry.tarmacInstructions }, vehicle: null, dispatchMessages: [] });
+  notifications.unshift({ id: `notification-${crypto.randomUUID().slice(0, 8)}`, type: "NEW_INQUIRY", title: "New reservation request", body: `${inquiry.fullName} requested ${inquiry.serviceType}.`, inquiryId: inquiry.id, readAt: null, createdAt: inquiry.updatedAt });
+  return { inquiry, activatedNow: true };
 }
 export async function updateInquiry(id: string, patch: Partial<Pick<Inquiry, "status" | "notes">>) {
   if (databaseConfigured) {

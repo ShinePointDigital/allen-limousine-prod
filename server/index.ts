@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finishDispatchAttempt, getAdminContent, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, initializeStore, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, sessionUser, updateAdmin, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent } from "./store.js";
+import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finalizeAuthorizedInquiry, finishDispatchAttempt, getAdminContent, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, initializeStore, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, sessionUser, updateAdmin, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent } from "./store.js";
 import { classifyTwilioMessageStatus, getDriverDispatchSms, sendDriverDispatchSms, TwilioRequestError } from "./twilio.js";
 import { estimateFare, reverseGeocode, searchLocations } from "./fare-estimate.js";
 import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "./stripe-client.js";
@@ -103,6 +103,7 @@ const paymentIntentSchema = z.object({
   customerId: z.string().regex(/^cus_[A-Za-z0-9]+$/),
   paymentMethodId: z.string().regex(/^pm_[A-Za-z0-9]+$/),
   capability: z.string().min(40).max(2000),
+  trackingToken: z.string().regex(/^[a-f0-9]{64}$/),
 });
 const authSchema = z.object({ email: z.string().email(), password: z.string().min(8).max(200) });
 const moneyCents = z.coerce.number().finite().min(0).max(10000000).transform(value => Math.round(value * 100));
@@ -124,6 +125,78 @@ const rideUpdateSchema = z.object({
   if (data.deposit !== undefined && data.quote !== undefined && data.deposit > data.quote) context.addIssue({ code: "custom", path: ["deposit"], message: "Deposit cannot exceed the quoted fare." });
   if (data.collected !== undefined && data.quote !== undefined && data.collected > data.quote) context.addIssue({ code: "custom", path: ["collected"], message: "Collected amount cannot exceed the quoted fare." });
 });
+async function captureAuthorizedPayment(bookingRequestId: string) {
+  const inquiry = await getInquiryByBookingRequestId(bookingRequestId);
+  if (!inquiry?.stripePaymentIntentId) throw new Error("No card authorization exists for this booking.");
+  const stripe = await getStripeClient();
+  const current = await stripe.paymentIntents.retrieve(inquiry.stripePaymentIntentId);
+  if (current.status === "succeeded") {
+    await updateInquiryPaymentStatusByIntent(current.id, current.status);
+    return current;
+  }
+  if (current.status !== "requires_capture") throw new Error(`Payment cannot be captured while its status is ${current.status}.`);
+  const captured = await stripe.paymentIntents.capture(
+    current.id,
+    {},
+    { idempotencyKey: `capture-${current.id}` },
+  );
+  await updateInquiryPaymentStatusByIntent(captured.id, captured.status);
+  return captured;
+}
+async function activateAuthorizedBooking(bookingRequestId: string, token: string, pickupAt: string, paymentIntentId: string) {
+  const pickupExpiry = new Date(pickupAt).getTime() + 24 * 60 * 60 * 1000;
+  const expiresAt = new Date(Math.min(Math.max(pickupExpiry, Date.now() + 24 * 60 * 60 * 1000), Date.now() + 30 * 24 * 60 * 60 * 1000));
+  const activate = () => finalizeAuthorizedInquiry(bookingRequestId, trackingTokenHash(token), expiresAt.toISOString());
+  try {
+    return await activate();
+  } catch (firstError) {
+    const afterFirstAttempt = await getInquiryByBookingRequestId(bookingRequestId);
+    if (afterFirstAttempt && afterFirstAttempt.status !== "PAYMENT_PENDING") return { inquiry: afterFirstAttempt, activatedNow: false };
+    const promoConflict = firstError instanceof Error && firstError.message.startsWith("The first-ride credit was already used.");
+    if (promoConflict) {
+      const stripe = await getStripeClient();
+      const current = await stripe.paymentIntents.retrieve(paymentIntentId);
+      if (current.status === "requires_capture") {
+        const canceled = await stripe.paymentIntents.cancel(paymentIntentId, {}, { idempotencyKey: `activation-failed-${paymentIntentId}` });
+        await updateInquiryPaymentStatusByIntent(canceled.id, canceled.status);
+      }
+      throw firstError;
+    }
+    try {
+      return await activate();
+    } catch (retryError) {
+      const afterRetry = await getInquiryByBookingRequestId(bookingRequestId);
+      if (afterRetry && afterRetry.status !== "PAYMENT_PENDING") return { inquiry: afterRetry, activatedNow: false };
+      const retryPromoConflict = retryError instanceof Error && retryError.message.startsWith("The first-ride credit was already used.");
+      if (retryPromoConflict) {
+        const stripe = await getStripeClient();
+        const current = await stripe.paymentIntents.retrieve(paymentIntentId);
+        if (current.status === "requires_capture") {
+          const canceled = await stripe.paymentIntents.cancel(paymentIntentId, {}, { idempotencyKey: `activation-failed-${paymentIntentId}` });
+          await updateInquiryPaymentStatusByIntent(canceled.id, canceled.status);
+        }
+      }
+      throw retryError;
+    }
+  }
+}
+async function completeRideWithCapture(rideId: string, preCompletionUpdate: Parameters<typeof updateRide>[1] = {}) {
+  let ride = await getRideById(rideId);
+  if (!ride) return null;
+  if (Object.keys(preCompletionUpdate).length) {
+    ride = await updateRide(rideId, preCompletionUpdate);
+    if (!ride) return null;
+  }
+  const inquiry = (await getInquiries()).find(item => item.id === ride!.inquiryId);
+  if (ride.status === "COMPLETED") {
+    if (inquiry?.bookingRequestId && inquiry.paymentStatus === "requires_capture") await captureAuthorizedPayment(inquiry.bookingRequestId);
+    return ride;
+  }
+  if (inquiry?.bookingRequestId && (inquiry.stripePaymentIntentId || inquiry.paymentStatus === "authorization_pending")) {
+    await captureAuthorizedPayment(inquiry.bookingRequestId);
+  }
+  return updateRide(rideId, { status: "COMPLETED" });
+}
 const admin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const user = await sessionUser(req.cookies.allan_session);
   if (!user) return res.status(401).json({ error: "Your session has expired. Please sign in again." });
@@ -281,8 +354,9 @@ app.post("/api/create-payment-intent", inquiryLimiter, async (req, res) => {
   try {
     const inquiry = await getInquiryByBookingRequestId(parsed.data.bookingRequestId);
     if (!inquiry || inquiry.estimatedFareCents == null) return res.status(404).json({ error: "The priced booking could not be found." });
+    if (inquiry.trackingTokenHash !== trackingTokenHash(parsed.data.trackingToken)) return res.status(403).json({ error: "This booking finalization token is invalid." });
     if (new Date(inquiry.pickupAt).getTime() > Date.now() + 6 * 24 * 60 * 60 * 1000) {
-      return res.status(409).json({ error: "Card holds are placed no more than six days before pickup. This reservation was saved as pay later." });
+      return res.status(409).json({ error: "Card holds can only be placed within six days of pickup. Choose a pickup time within that authorization window." });
     }
     const capability = verifyPaymentCapability(parsed.data.capability);
     if (!capability
@@ -296,7 +370,12 @@ app.post("/api/create-payment-intent", inquiryLimiter, async (req, res) => {
       const existing = await stripe.paymentIntents.retrieve(inquiry.stripePaymentIntentId);
       await updateInquiryPaymentStatusByIntent(existing.id, existing.status);
       if (!["canceled", "requires_payment_method"].includes(existing.status)) {
-        return res.json({ paymentIntentId: existing.id, status: existing.status, amount: existing.amount });
+        if (existing.status === "requires_capture") {
+          const activation = await activateAuthorizedBooking(parsed.data.bookingRequestId, parsed.data.trackingToken, inquiry.pickupAt, existing.id);
+          if (activation?.activatedNow) void sendDriverDispatchSms(inquiry.phone, `ALLAN Livery: Your booking request ${inquiry.id.slice(-6).toUpperCase()} was received. Estimated fare: $${Math.round(inquiry.estimatedFareCents / 100)}. We will confirm your chauffeur shortly.`)
+            .catch(error => console.warn("Booking authorized, but confirmation SMS was not sent:", error instanceof Error ? error.message : error));
+        }
+        return res.json({ paymentIntentId: existing.id, status: existing.status, amount: existing.amount, trackingToken: parsed.data.trackingToken });
       }
     }
     const stripe = await getStripeClient();
@@ -321,7 +400,11 @@ app.post("/api/create-payment-intent", inquiryLimiter, async (req, res) => {
       stripePaymentIntentId: intent.id,
       paymentStatus: intent.status,
     });
-    res.json({ paymentIntentId: intent.id, status: intent.status, amount: intent.amount });
+    if (intent.status !== "requires_capture") throw new Error("The card authorization hold was not completed.");
+    const activation = await activateAuthorizedBooking(parsed.data.bookingRequestId, parsed.data.trackingToken, inquiry.pickupAt, intent.id);
+    if (activation?.activatedNow) void sendDriverDispatchSms(inquiry.phone, `ALLAN Livery: Your booking request ${inquiry.id.slice(-6).toUpperCase()} was received. Estimated fare: $${Math.round(inquiry.estimatedFareCents / 100)}. We will confirm your chauffeur shortly.`)
+      .catch(error => console.warn("Booking authorized, but confirmation SMS was not sent:", error instanceof Error ? error.message : error));
+    res.json({ paymentIntentId: intent.id, status: intent.status, amount: intent.amount, trackingToken: parsed.data.trackingToken });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Card authorization was unsuccessful.";
     res.status(message === "Stripe is not configured yet." ? 503 : 402).json({ error: message });
@@ -330,13 +413,7 @@ app.post("/api/create-payment-intent", inquiryLimiter, async (req, res) => {
 app.post("/api/admin/payments/:bookingRequestId/capture", admin, async (req, res) => {
   try {
     const bookingRequestId = Array.isArray(req.params.bookingRequestId) ? req.params.bookingRequestId[0] : req.params.bookingRequestId;
-    const inquiry = await getInquiryByBookingRequestId(bookingRequestId);
-    if (!inquiry?.stripePaymentIntentId) return res.status(404).json({ error: "No card authorization exists for this booking." });
-    const stripe = await getStripeClient();
-    const current = await stripe.paymentIntents.retrieve(inquiry.stripePaymentIntentId);
-    if (current.status === "succeeded") return res.json({ paymentIntentId: current.id, status: current.status, amountReceived: current.amount_received });
-    const intent = await stripe.paymentIntents.capture(inquiry.stripePaymentIntentId, {}, { idempotencyKey: `capture-${inquiry.stripePaymentIntentId}` });
-    await updateInquiryPaymentStatusByIntent(intent.id, intent.status);
+    const intent = await captureAuthorizedPayment(bookingRequestId);
     res.json({ paymentIntentId: intent.id, status: intent.status, amountReceived: intent.amount_received });
   } catch (error) {
     res.status(422).json({ error: error instanceof Error ? error.message : "The authorization could not be captured." });
@@ -411,6 +488,9 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
   if (parsed.data.isPrivateFBO && (!parsed.data.specificTailNumber || !parsed.data.principalName || !parsed.data.fboName || !parsed.data.tarmacInstructions)) {
     return res.status(400).json({ error: "Complete all private aviation coordination fields before booking." });
   }
+  if (new Date(parsed.data.pickupAt).getTime() > Date.now() + 6 * 24 * 60 * 60 * 1000) {
+    return res.status(409).json({ error: "Card authorization holds can only be placed within six days of pickup." });
+  }
   const {
     pickupLatitude: _pickupLatitude,
     pickupLongitude: _pickupLongitude,
@@ -442,6 +522,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
       estimatedMiles: canonicalEstimate?.miles,
       estimatedMinutes: canonicalEstimate?.minutes,
       promoDiscountCents: undefined,
+      paymentStatus: "authorization_pending",
       trackingTokenHash: trackingTokenHash(trackingToken),
       trackingExpiresAt: trackingExpiresAt.toISOString(),
     });
@@ -452,10 +533,8 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
       ok: true,
       inquiry: { id: inquiry.id, estimatedFareCents: inquiry.estimatedFareCents, promoCode: inquiry.promoCode, promoDiscountCents: inquiry.promoDiscountCents },
       trackingToken: created ? trackingToken : undefined,
-      smsNotification: created ? "queued" : "not_repeated",
+      smsNotification: "pending_payment",
     });
-    if (created) void sendDriverDispatchSms(input.phone, `ALLAN Livery: Your booking request ${inquiry.id.slice(-6).toUpperCase()} was received. Estimated fare: ${inquiry.estimatedFareCents != null ? `$${Math.round(inquiry.estimatedFareCents / 100)}` : "pending confirmation"}. We will confirm your chauffeur shortly.`)
-      .catch(error => console.warn("Booking saved, but confirmation SMS was not sent:", error instanceof Error ? error.message : error));
   } catch (error) {
     const replay = parsed.data.bookingRequestId ? await getInquiryByBookingRequestId(parsed.data.bookingRequestId) : null;
     if (replay) {
@@ -486,6 +565,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
 app.get("/api/tracking/:token", publicReadLimiter, async (req, res) => {
   const parsed = z.string().regex(/^[a-f0-9]{64}$/).safeParse(req.params.token);
   const inquiry = parsed.success ? await getInquiryByTrackingTokenHash(trackingTokenHash(parsed.data)) : null;
+  if (inquiry?.status === "PAYMENT_PENDING") return res.status(404).json({ error: "Booking not found." });
   if (!inquiry || !inquiry.trackingExpiresAt || new Date(inquiry.trackingExpiresAt) <= new Date()) return res.status(404).json({ error: "Reservation tracking is unavailable." });
   const ride = await getRideByInquiryId(inquiry.id);
   res.json({
@@ -531,7 +611,11 @@ app.patch("/api/admin/rides/:id", admin, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid ride update." });
   const { quote, deposit, collected, expense, driverPhone, ...rest } = parsed.data;
   try {
-    const item = await updateRide(String(req.params.id), { ...rest, ...(driverPhone !== undefined ? { driverPhone: normalizePhone(driverPhone) } : {}), ...(quote !== undefined ? { quoteCents: quote } : {}), ...(deposit !== undefined ? { depositCents: deposit } : {}), ...(collected !== undefined ? { collectedCents: collected } : {}), ...(expense !== undefined ? { expenseCents: expense } : {}) });
+    const rideData = { ...rest, ...(driverPhone !== undefined ? { driverPhone: normalizePhone(driverPhone) } : {}), ...(quote !== undefined ? { quoteCents: quote } : {}), ...(deposit !== undefined ? { depositCents: deposit } : {}), ...(collected !== undefined ? { collectedCents: collected } : {}), ...(expense !== undefined ? { expenseCents: expense } : {}) };
+    const { status, ...preCompletionUpdate } = rideData;
+    const item = status === "COMPLETED"
+      ? await completeRideWithCapture(String(req.params.id), preCompletionUpdate)
+      : await updateRide(String(req.params.id), rideData);
     if (!item) return res.status(404).json({ error: "Ride not found." });
     res.json({ ride: item });
   } catch (error) {
@@ -676,6 +760,20 @@ app.get("/api/admin/inquiries", admin, async (req, res) => {
 app.patch("/api/admin/inquiries/:id", admin, async (req, res) => {
   const parsed = z.object({ status: z.enum(["NEW", "CONTACTED", "CONFIRMED", "COMPLETED", "CANCELLED"]).optional(), notes: z.string().max(1000).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid inquiry update." });
+  if (parsed.data.status === "COMPLETED") {
+    const inquiry = (await getInquiries()).find(item => item.id === String(req.params.id));
+    if (!inquiry) return res.status(404).json({ error: "Inquiry not found." });
+    if (parsed.data.notes !== undefined) await updateInquiry(inquiry.id, { notes: parsed.data.notes });
+    const ride = await getRideByInquiryId(inquiry.id);
+    if (!ride) return res.status(409).json({ error: "Assign this inquiry to dispatch before completing it." });
+    try {
+      await completeRideWithCapture(ride.id);
+    } catch (error) {
+      return res.status(422).json({ error: error instanceof Error ? error.message : "Payment capture failed." });
+    }
+    const item = (await getInquiries()).find(value => value.id === inquiry.id);
+    return res.json({ inquiry: item });
+  }
   const item = await updateInquiry(String(req.params.id), parsed.data);
   if (!item) return res.status(404).json({ error: "Inquiry not found." });
   res.json({ inquiry: item });

@@ -136,8 +136,9 @@ export default function BookingWizard() {
   const [submitState, setSubmitState] = useState<"idle" | "sending" | "success" | "error">("idle");
   const [error, setError] = useState("");
   const [savedPayment, setSavedPayment] = useState<SavedPayment | null>(readSavedPayment);
-  const [authorizeCard, setAuthorizeCard] = useState(() => Boolean(readSavedPayment()?.capability));
   const [paymentNotice, setPaymentNotice] = useState("");
+  const [pendingTrackingToken, setPendingTrackingToken] = useState("");
+  const [rideNowPickupAt, setRideNowPickupAt] = useState("");
   const [activeReservation, setActiveReservation] = useState<ActiveReservation | null>(() => {
     try { return JSON.parse(localStorage.getItem("allen_active_reservation") || "null"); } catch { return null; }
   });
@@ -148,7 +149,6 @@ export default function BookingWizard() {
     localStorage.setItem("card_brand", payment.cardBrand);
     localStorage.setItem("card_last4", payment.cardLast4);
     setSavedPayment(payment);
-    setAuthorizeCard(true);
   };
 
   const pickup = typeof route.pickup === "string" ? route.pickup : "";
@@ -263,14 +263,22 @@ export default function BookingWizard() {
       airline: parsed.airline,
     }));
   };
-  const validSchedule = timing === "RIDE_NOW" || Boolean(pickupAt && new Date(pickupAt).getTime() > Date.now());
+  const scheduledPickupTime = timing === "RIDE_NOW" ? Date.now() + 15 * 60_000 : new Date(pickupAt).getTime();
+  const withinAuthorizationWindow = scheduledPickupTime <= Date.now() + 6 * 24 * 60 * 60 * 1000;
+  const validSchedule = scheduledPickupTime > Date.now() && withinAuthorizationWindow;
   const canBook = Boolean(selectedFare && profileValid && validSchedule && Number(contact.passengers) <= selectedVehicle.capacity);
-  const next = () => { setError(""); setStep(current => Math.min(3, current + 1)); };
+  const next = () => { setError(""); setStep(current => Math.min(4, current + 1)); };
   const submit = async () => {
-    if (!selectedFare) return;
+    if (!selectedFare || !savedPayment?.capability) {
+      setError("Add a payment card before booking.");
+      return;
+    }
     setSubmitState("sending");
     setError("");
-    const effectivePickupAt = timing === "RIDE_NOW" ? new Date(Date.now() + 15 * 60_000).toISOString() : new Date(pickupAt).toISOString();
+    const effectivePickupAt = timing === "RIDE_NOW"
+      ? rideNowPickupAt || new Date(Date.now() + 15 * 60_000).toISOString()
+      : new Date(pickupAt).toISOString();
+    if (timing === "RIDE_NOW" && !rideNowPickupAt) setRideNowPickupAt(effectivePickupAt);
     try {
       localStorage.setItem("allan-booking-contact", JSON.stringify({ fullName: contact.fullName, phone: contact.phone, email: contact.email }));
       if (hasRiderProfile || editingProfile || launchedAsPwa()) {
@@ -309,12 +317,9 @@ export default function BookingWizard() {
           } : {}),
         }),
       });
-      if (!isPrivateFBO && hasWelcomePromo(promoCode)) {
-        localStorage.removeItem("allan_first_ride_promo");
-        setPromoCode("");
-      }
-      if (!isPrivateFBO && !hasWelcomePromo(result.inquiry?.promoCode)) localStorage.removeItem("allan_first_ride_promo");
-      const trackingToken = typeof result.trackingToken === "string" ? result.trackingToken : "";
+      const trackingToken = typeof result.trackingToken === "string" ? result.trackingToken : pendingTrackingToken;
+      if (!trackingToken) throw new Error("The secure booking session expired. Start a new booking and try again.");
+      setPendingTrackingToken(trackingToken);
       let active: ActiveReservation | null = null;
       if (trackingToken) {
         active = {
@@ -326,31 +331,30 @@ export default function BookingWizard() {
           destination: route.destination,
           fareCents: result.inquiry.estimatedFareCents,
           paymentNotice: "Your booking was received. Payment confirmation is being finalized.",
-          cardLast4: savedPayment && authorizeCard ? savedPayment.cardLast4 : undefined,
+          cardLast4: savedPayment.cardLast4,
           flightNumber: detectedAirport ? airport.flight : undefined,
           pickupPoint: points.pickup,
           destinationPoint: points.destination,
           createdAt: new Date().toISOString(),
         };
-        localStorage.setItem("allen_active_reservation", JSON.stringify(active));
       }
-      let finalPaymentNotice = "Your booking was received as pay later. The Allen Limousine team will arrange payment with you.";
-      if (savedPayment && authorizeCard && savedPayment.capability) {
-        try {
-          await request("/api/create-payment-intent", {
-            method: "POST",
-            body: JSON.stringify({
-              bookingRequestId,
-              customerId: savedPayment.customerId,
-              paymentMethodId: savedPayment.paymentMethodId,
-              capability: savedPayment.capability,
-            }),
-          });
-          finalPaymentNotice = `A ${money(result.inquiry.estimatedFareCents)} authorization hold was placed on your saved card.`;
-        } catch {
-          finalPaymentNotice = "Your booking was received, but the card hold was not placed. The Allen Limousine team will arrange payment with you.";
-        }
+      const payment = await request("/api/create-payment-intent", {
+        method: "POST",
+        body: JSON.stringify({
+          bookingRequestId,
+          customerId: savedPayment.customerId,
+          paymentMethodId: savedPayment.paymentMethodId,
+          capability: savedPayment.capability,
+          trackingToken,
+        }),
+      });
+      if (payment.status !== "requires_capture") throw new Error("The card authorization hold was not completed.");
+      const finalPaymentNotice = `A ${money(result.inquiry.estimatedFareCents)} authorization hold was placed on your card. It will be captured when your driver completes the ride.`;
+      if (!isPrivateFBO && hasWelcomePromo(promoCode)) {
+        localStorage.removeItem("allan_first_ride_promo");
+        setPromoCode("");
       }
+      if (!isPrivateFBO && !hasWelcomePromo(result.inquiry?.promoCode)) localStorage.removeItem("allan_first_ride_promo");
       setPaymentNotice(finalPaymentNotice);
       if (active) {
         active = { ...active, paymentNotice: finalPaymentNotice };
@@ -358,6 +362,8 @@ export default function BookingWizard() {
         setActiveReservation(active);
       }
       setSubmitState("success");
+      setPendingTrackingToken("");
+      setRideNowPickupAt("");
     } catch (reason) {
       setSubmitState("error");
       setError(reason instanceof Error ? reason.message : "Unable to submit your booking.");
@@ -394,8 +400,8 @@ export default function BookingWizard() {
 
   return <section id="reserve" className="booking-wizard-section section-pad">
     <div className="wizard-shell">
-       <header className="wizard-header"><div><p className="eyebrow brass">{isPrivateFBO ? "Private aviation coordination" : "Book your chauffeur"}</p><h2>{["Where are you going?", "Choose your vehicle", "Schedule & book"][step - 1]}</h2></div><span>0{step} / 03</span></header>
-      <nav className="wizard-progress" aria-label="Booking progress">{[1, 2, 3].map(number => <i key={number} className={number <= step ? "active" : ""} />)}</nav>
+       <header className="wizard-header"><div><p className="eyebrow brass">{isPrivateFBO ? "Private aviation coordination" : "Book your chauffeur"}</p><h2>{["Where are you going?", "Choose your vehicle", "Schedule your ride", "Review & payment"][step - 1]}</h2></div><span>0{step} / 04</span></header>
+      <nav className="wizard-progress" aria-label="Booking progress">{[1, 2, 3, 4].map(number => <i key={number} className={number <= step ? "active" : ""} />)}</nav>
       <main className="wizard-body">
         {step === 1 && <div className="wizard-step">
           {!isPrivateFBO && hasWelcomePromo(promoCode) && <div className="wizard-promo"><Check /><span><b>$15 first-ride credit applied</b><small>Promo WELCOME15 will be included with your booking.</small></span></div>}
@@ -410,13 +416,19 @@ export default function BookingWizard() {
         {step === 3 && <div className="wizard-step">
           <div className="wizard-toggle"><button className={timing === "RIDE_NOW" ? "active" : ""} onClick={() => setTiming("RIDE_NOW")}><Clock3 />Ride Now</button><button className={timing === "RESERVE_LATER" ? "active" : ""} onClick={() => setTiming("RESERVE_LATER")}><CalendarDays />Reserve for Later</button></div>
           {timing === "RESERVE_LATER" && <label className="wizard-field">Pickup date &amp; time<input type="datetime-local" required min={localDateTime()} value={pickupAt} onChange={event => setPickupAt(event.target.value)} /></label>}
+          {!withinAuthorizationWindow && <p className="form-error">Card authorization holds can be placed up to six days before pickup. Choose an earlier pickup time to continue.</p>}
            {!isPrivateFBO && <div className="wizard-toggle"><button className={serviceType === "Point-to-Point" ? "active" : ""} onClick={() => setServiceType("Point-to-Point")}>Point-to-Point</button><button className={serviceType === "Hourly Charter" ? "active" : ""} onClick={() => setServiceType("Hourly Charter")}>Hourly Charter</button></div>}
           {hasRiderProfile && !editingProfile ? <div className="wizard-profile-summary"><UserRound /><div><small>Rider profile</small><b>{contact.fullName}</b><span>{contact.phone} · {contact.email}</span></div><button type="button" onClick={() => setEditingProfile(true)}>Edit</button><Check /></div> : <><div className="wizard-contact-grid"><label className="wizard-field">Full name<input required value={contact.fullName} onChange={event => setContact(current => ({ ...current, fullName: event.target.value }))} placeholder="Your name" /></label><label className="wizard-field">Phone<input required value={contact.phone} onChange={event => setContact(current => ({ ...current, phone: event.target.value }))} placeholder="+1 312…" /></label><label className="wizard-field">Email<input required type="email" value={contact.email} onChange={event => setContact(current => ({ ...current, email: event.target.value }))} placeholder="you@example.com" /></label></div>{!profileValid && <small className="wizard-profile-help">Enter a valid name, phone number, and email to enable one-tap booking.</small>}</>}
           <div className="wizard-trip-options"><label className="wizard-field">Passengers<select value={contact.passengers} onChange={event => setContact(current => ({ ...current, passengers: event.target.value }))}>{Array.from({ length: selectedVehicle.capacity }, (_, index) => index + 1).map(number => <option key={number}>{number}</option>)}</select></label><label className="wizard-field">Notes<textarea value={contact.notes} onChange={event => setContact(current => ({ ...current, notes: event.target.value }))} placeholder="Luggage, accessibility, or itinerary notes…" /></label></div>
-           <div className="wizard-final-summary"><ShieldCheck /><div><b>{timing === "RIDE_NOW" ? "Pickup as soon as possible" : new Date(pickupAt).toLocaleString()}</b><span>{RATE_TIER_PRICING[tier].label} · {serviceType} · {route.pickup} → {route.destination}</span>{isPrivateFBO && <span>{fboDetails.fboName} · Tail {fboDetails.specificTailNumber} · Principal {fboDetails.principalName}</span>}</div><strong>{selectedFare && money(finalFareCents)}</strong></div>
-          {savedPayment?.capability ? <><StripeCardSetup compact fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} /><label className="payment-choice"><input type="checkbox" checked={authorizeCard} onChange={event => setAuthorizeCard(event.target.checked)} /><span><b>Use saved card for this booking</b><small>{authorizeCard ? `Pre-authorize ${money(finalFareCents)} now.` : "Submit as pay later."}</small></span></label></> : <div className="wizard-pay-later"><ShieldCheck /><span><b>Book now, pay later</b><small>The Allen Limousine team will arrange payment after confirmation.</small></span></div>}
           {error && <p className="form-error">{error}</p>}
-          <div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(2)}><ArrowLeft /> Back</button><button className="solid-button wizard-instant-book" disabled={submitState === "sending" || !canBook} onClick={submit}>{submitState === "sending" ? "Booking…" : <>Book in one tap · {money(finalFareCents)} <Check /></>}</button></div>
+          <div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(2)}><ArrowLeft /> Back</button><button className="solid-button" disabled={!canBook} onClick={next}>Continue to payment <ArrowRight /></button></div>
+        </div>}
+        {step === 4 && <div className="wizard-step">
+          <div className="wizard-final-summary"><ShieldCheck /><div><b>{timing === "RIDE_NOW" ? "Pickup as soon as possible" : new Date(pickupAt).toLocaleString()}</b><span>{RATE_TIER_PRICING[tier].label} · {serviceType} · {route.pickup} → {route.destination}</span>{isPrivateFBO && <span>{fboDetails.fboName} · Tail {fboDetails.specificTailNumber} · Principal {fboDetails.principalName}</span>}</div><strong>{selectedFare && money(finalFareCents)}</strong></div>
+          <StripeCardSetup compact requiredPayment fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} />
+          <div className="wizard-pay-later"><ShieldCheck /><span><b>Authorization hold today</b><small>{money(finalFareCents)} will be authorized now and captured only after your driver completes the ride.</small></span></div>
+          {error && <p className="form-error">{error}</p>}
+          <div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(3)}><ArrowLeft /> Back</button><button className="solid-button wizard-instant-book" disabled={submitState === "sending" || !canBook || !savedPayment?.capability} onClick={submit}>{submitState === "sending" ? "Authorizing…" : <>Authorize &amp; book · {money(finalFareCents)} <Check /></>}</button></div>
         </div>}
       </main>
     </div>
