@@ -35,11 +35,7 @@ type GoogleDistanceMatrixResponse = {
 const geocodeCache = new Map<string, { expiresAt: number; result: Coordinates | null }>();
 const estimateCache = new Map<string, { expiresAt: number; result: Estimate }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const locationQuery = (address: string) => {
-  const normalized = address.toLowerCase();
-  const texas = /\b(dfw|dal)\b|dallas|fort worth|love field/.test(normalized);
-  return `${address}, ${texas ? "Texas" : "Chicago, IL"}`;
-};
+const locationQuery = (address: string) => `${address}, Chicago, IL`;
 
 function googleMapsServerKey() {
   const key = process.env.GOOGLE_MAPS_SERVER_API_KEY;
