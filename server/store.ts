@@ -10,6 +10,8 @@ export type Inquiry = {
   pickupAt: string; pickup: string; destination: string; passengers: number;
   notes?: string; airportCode?: string | null; airportTerminal?: string | null;
   flightNumber?: string | null; flightScheduledAt?: string | null; pickupPreference?: string | null;
+  isPrivateFBO?: boolean; specificTailNumber?: string | null; principalName?: string | null;
+  fboName?: string | null; tarmacInstructions?: string | null;
   rateTier?: string | null; estimatedFareCents?: number | null; estimatedMiles?: number | null;
   estimatedMinutes?: number | null; rideTiming?: string | null;
   promoCode?: string | null; promoDiscountCents?: number | null;
@@ -27,7 +29,7 @@ export type Ride = {
   driverLatitude: number | null; driverLongitude: number | null; driverHeading: number | null; locationUpdatedAt: string | null;
   quoteCents: number; depositCents: number; collectedCents: number; expenseCents: number;
   dispatchNotes: string | null; createdAt: string; updatedAt: string;
-  inquiry: Pick<Inquiry, "fullName" | "serviceType" | "pickupAt" | "pickup" | "destination" | "passengers" | "notes">;
+  inquiry: Pick<Inquiry, "fullName" | "serviceType" | "pickupAt" | "pickup" | "destination" | "passengers" | "notes" | "isPrivateFBO" | "specificTailNumber" | "principalName" | "fboName" | "tarmacInstructions">;
   vehicle: Pick<FleetVehicle, "id" | "name" | "category" | "active"> | null;
   dispatchMessages: DispatchActivity[];
 };
@@ -219,7 +221,7 @@ export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "created
       if (existing) return { inquiry: mapInquiry(existing), created: false };
     }
     const created = await prisma.$transaction(async tx => {
-      const welcomePromo = input.promoCode === "WELCOME15" || input.promoCode === "FIRST15";
+      const welcomePromo = !input.isPrivateFBO && (input.promoCode === "WELCOME15" || input.promoCode === "FIRST15");
       const priorPromo = welcomePromo ? await tx.inquiry.findFirst({
         where: { promoCode: { in: ["WELCOME15", "FIRST15"] }, OR: [{ email: input.email }, { phone: input.phone }] },
         select: { id: true },
@@ -232,6 +234,7 @@ export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "created
         estimatedFareCents: input.grossFareCents != null ? input.grossFareCents - promoDiscountCents : null,
       };
       const inquiry = await tx.inquiry.create({ data: { ...canonicalInput, pickupAt: new Date(input.pickupAt), flightScheduledAt: input.flightScheduledAt ? new Date(input.flightScheduledAt) : null } });
+      if (input.isPrivateFBO) await tx.ride.create({ data: { inquiryId: inquiry.id, quoteCents: canonicalInput.estimatedFareCents || 0 } });
       await tx.adminNotification.create({ data: { type: "NEW_INQUIRY", title: "New reservation request", body: `${input.fullName} requested ${input.serviceType} for ${new Date(input.pickupAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`, inquiryId: inquiry.id } });
       return tx.inquiry.findUniqueOrThrow({ where: { id: inquiry.id }, include: { inquiryNotes: { include: { author: true } } } });
     }, { isolationLevel: "Serializable" });
@@ -241,12 +244,13 @@ export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "created
     const existing = inquiries.find(item => item.bookingRequestId === input.bookingRequestId);
     if (existing) return { inquiry: existing, created: false };
   }
-  const welcomePromo = input.promoCode === "WELCOME15" || input.promoCode === "FIRST15";
+  const welcomePromo = !input.isPrivateFBO && (input.promoCode === "WELCOME15" || input.promoCode === "FIRST15");
   const priorPromo = welcomePromo && inquiries.some(item => (item.promoCode === "WELCOME15" || item.promoCode === "FIRST15") && (item.email === input.email || item.phone === input.phone));
   const promoDiscountCents = welcomePromo && !priorPromo ? Math.min(1500, input.grossFareCents || 0) : 0;
   const now = new Date().toISOString();
   const inquiry: Inquiry = { ...input, promoCode: promoDiscountCents ? "WELCOME15" : null, promoDiscountCents, estimatedFareCents: input.grossFareCents != null ? input.grossFareCents - promoDiscountCents : null, id: `inq-${crypto.randomUUID().slice(0, 8)}`, status: "NEW", createdAt: now, updatedAt: now, history: [] };
   inquiries.unshift(inquiry);
+  if (input.isPrivateFBO) rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: inquiry.id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: inquiry.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: now, updatedAt: now, inquiry: { fullName: inquiry.fullName, serviceType: inquiry.serviceType, pickupAt: inquiry.pickupAt, pickup: inquiry.pickup, destination: inquiry.destination, passengers: inquiry.passengers, notes: inquiry.notes, isPrivateFBO: true, specificTailNumber: inquiry.specificTailNumber, principalName: inquiry.principalName, fboName: inquiry.fboName, tarmacInstructions: inquiry.tarmacInstructions }, vehicle: null, dispatchMessages: [] });
   notifications.unshift({ id: `notification-${crypto.randomUUID().slice(0, 8)}`, type: "NEW_INQUIRY", title: "New reservation request", body: `${input.fullName} requested ${input.serviceType}.`, inquiryId: inquiry.id, readAt: null, createdAt: now });
   return { inquiry, created: true };
 }
@@ -269,7 +273,7 @@ export async function updateInquiry(id: string, patch: Partial<Pick<Inquiry, "st
   if (!item) return null;
   Object.assign(item, patch, { updatedAt: new Date().toISOString() });
   if (patch.status === "CONFIRMED" && !rides.some(ride => ride.inquiryId === id)) {
-    rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: item.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), inquiry: { fullName: item.fullName, serviceType: item.serviceType, pickupAt: item.pickupAt, pickup: item.pickup, destination: item.destination, passengers: item.passengers, notes: item.notes }, vehicle: null, dispatchMessages: [] });
+    rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: item.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), inquiry: { fullName: item.fullName, serviceType: item.serviceType, pickupAt: item.pickupAt, pickup: item.pickup, destination: item.destination, passengers: item.passengers, notes: item.notes, isPrivateFBO: item.isPrivateFBO, specificTailNumber: item.specificTailNumber, principalName: item.principalName, fboName: item.fboName, tarmacInstructions: item.tarmacInstructions }, vehicle: null, dispatchMessages: [] });
   }
   const linkedRide = rides.find(ride => ride.inquiryId === id);
   if (linkedRide && patch.status === "CONFIRMED" && linkedRide.status === "CANCELLED") linkedRide.status = "UNASSIGNED";
@@ -376,6 +380,11 @@ const mapRide = (item: any): Ride => ({
     destination: item.inquiry.destination,
     passengers: item.inquiry.passengers,
     notes: item.inquiry.notes,
+    isPrivateFBO: item.inquiry.isPrivateFBO,
+    specificTailNumber: item.inquiry.specificTailNumber,
+    principalName: item.inquiry.principalName,
+    fboName: item.inquiry.fboName,
+    tarmacInstructions: item.inquiry.tarmacInstructions,
   },
   vehicle: item.vehicle ? { id: item.vehicle.id, name: item.vehicle.name, category: item.vehicle.category, active: item.vehicle.active } : null,
   dispatchMessages: (item.dispatchMessages || []).map((message: any) => ({
@@ -462,10 +471,21 @@ export function dispatchBrief(ride: Ride) {
     `To: ${ride.inquiry.destination}`,
     `Service: ${ride.inquiry.serviceType}`,
     `Passengers: ${ride.inquiry.passengers}`,
+    ride.inquiry.isPrivateFBO ? `FBO / Jet Center: ${ride.inquiry.fboName}` : "",
+    ride.inquiry.isPrivateFBO ? `Tail number: ${ride.inquiry.specificTailNumber}` : "",
+    ride.inquiry.isPrivateFBO ? `Passenger / principal: ${ride.inquiry.principalName}` : "",
+    ride.inquiry.isPrivateFBO ? `Ramp escort: ${ride.inquiry.tarmacInstructions}` : "",
+  ].filter(Boolean);
+  let brief = lines.join("\n");
+  for (const note of [
     ride.inquiry.notes ? `Booking notes: ${ride.inquiry.notes}` : "",
     ride.dispatchNotes ? `Dispatch notes: ${ride.dispatchNotes}` : "",
-  ];
-  return lines.filter(Boolean).join("\n");
+  ].filter(Boolean)) {
+    const available = 1600 - brief.length - 1;
+    if (available <= 0) break;
+    brief += `\n${note.slice(0, available)}`;
+  }
+  return brief;
 }
 
 function formatDispatchDate(value: string) {

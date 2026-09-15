@@ -99,12 +99,12 @@ export async function searchLocations(query: string): Promise<LocationSuggestion
   }));
 }
 
-export async function estimateFare(pickup: string, destination: string, tier: RateTier, coordinates: FareCoordinates = {}): Promise<Estimate> {
+export async function estimateFare(pickup: string, destination: string, tier: RateTier, coordinates: FareCoordinates = {}, isPrivateFBO = false): Promise<Estimate> {
   const coordinateKey = [
     coordinates.pickup ? `${coordinates.pickup.latitude},${coordinates.pickup.longitude}` : "",
     coordinates.destination ? `${coordinates.destination.latitude},${coordinates.destination.longitude}` : "",
   ].join(":");
-  const cacheKey = `${tier}:${pickup.trim().toLowerCase()}:${destination.trim().toLowerCase()}:${coordinateKey}`;
+  const cacheKey = `${tier}:${isPrivateFBO ? "fbo" : "standard"}:${pickup.trim().toLowerCase()}:${destination.trim().toLowerCase()}:${coordinateKey}`;
   const cached = estimateCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.result;
 
@@ -130,9 +130,9 @@ export async function estimateFare(pickup: string, destination: string, tier: Ra
 
   const miles = route.distance.value / 1609.344;
   const minutes = route.duration.value / 60;
-  const eventVenue = detectEventVenue(target.label) || detectEventVenue(destination);
+  const eventVenue = isPrivateFBO ? null : detectEventVenue(target.label) || detectEventVenue(destination);
   const eventSurchargeCents = eventVenue?.surchargeCents || 0;
-  const baseFare = calculateFare(tier, miles, minutes);
+  const baseFare = calculateFare(tier, miles, minutes, isPrivateFBO);
   const result = {
     ...baseFare,
     fareCents: baseFare.fareCents + eventSurchargeCents,

@@ -55,6 +55,11 @@ const inquirySchema = z.object({
   flightNumber: z.string().trim().max(20).optional(),
   flightScheduledAt: z.string().datetime().optional(),
   pickupPreference: z.string().trim().max(100).optional(),
+  isPrivateFBO: z.boolean().optional().default(false),
+  specificTailNumber: z.string().trim().max(40).optional(),
+  principalName: z.string().trim().max(100).optional(),
+  fboName: z.string().trim().max(100).optional(),
+  tarmacInstructions: z.string().trim().max(400).optional(),
   rateTier: z.enum(["EXECUTIVE_SEDAN", "LUXURY_SUV", "SPRINTER_CLASS"]),
   estimatedFareCents: z.number().int().min(0).max(10000000).optional(),
   estimatedMiles: z.number().finite().min(0).max(10000).optional(),
@@ -76,6 +81,7 @@ const fareEstimateSchema = z.object({
   pickupLon: z.coerce.number().finite().min(-180).max(180).optional(),
   destinationLat: z.coerce.number().finite().min(-90).max(90).optional(),
   destinationLon: z.coerce.number().finite().min(-180).max(180).optional(),
+  isPrivateFBO: z.enum(["true", "false"]).transform(value => value === "true").optional().default(false),
 });
 const coordinatesSchema = z.object({
   lat: z.coerce.number().finite().min(-90).max(90),
@@ -361,6 +367,7 @@ const calculateFareHandler = async (req: express.Request, res: express.Response)
     pickupLon: req.query.pickupLon,
     destinationLat: req.query.destinationLat,
     destinationLon: req.query.destinationLon,
+    isPrivateFBO: req.query.isPrivateFBO,
   });
   if (!parsed.success) return res.status(400).json({ error: "Enter both pickup and drop-off points to estimate the fare." });
   try {
@@ -373,7 +380,7 @@ const calculateFareHandler = async (req: express.Request, res: express.Response)
     res.json(await estimateFare(parsed.data.pickup, parsed.data.destination, parsed.data.tier, {
       pickup: pickupCoordinates,
       destination: destinationCoordinates,
-    }));
+    }, parsed.data.isPrivateFBO));
   } catch (error) {
     res.status(422).json({ error: error instanceof Error ? error.message : "We couldn’t calculate the fare for those locations." });
   }
@@ -401,6 +408,9 @@ app.get("/api/location-search", publicReadLimiter, async (req, res) => {
 app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
   const parsed = inquirySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Please check the highlighted fields and try again.", fields: parsed.error.flatten().fieldErrors });
+  if (parsed.data.isPrivateFBO && (!parsed.data.specificTailNumber || !parsed.data.principalName || !parsed.data.fboName || !parsed.data.tarmacInstructions)) {
+    return res.status(400).json({ error: "Complete all private aviation coordination fields before booking." });
+  }
   const {
     pickupLatitude: _pickupLatitude,
     pickupLongitude: _pickupLongitude,
@@ -420,7 +430,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
       if (priorRequest.bookingRequestFingerprint !== bookingRequestFingerprint) return res.status(409).json({ error: "This booking request was already used for different trip details." });
       return res.status(200).json({ ok: true, inquiry: { id: priorRequest.id, estimatedFareCents: priorRequest.estimatedFareCents, promoCode: priorRequest.promoCode, promoDiscountCents: priorRequest.promoDiscountCents }, smsNotification: "not_repeated" });
     }
-    const canonicalEstimate = input.rateTier ? await estimateFare(input.pickup, input.destination, input.rateTier) : null;
+    const canonicalEstimate = input.rateTier ? await estimateFare(input.pickup, input.destination, input.rateTier, {}, input.isPrivateFBO) : null;
     const trackingToken = crypto.randomBytes(32).toString("hex");
     const pickupExpiry = new Date(input.pickupAt).getTime() + 24 * 60 * 60 * 1000;
     const trackingExpiresAt = new Date(Math.min(Math.max(pickupExpiry, Date.now() + 24 * 60 * 60 * 1000), Date.now() + 30 * 24 * 60 * 60 * 1000));

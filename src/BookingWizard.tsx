@@ -125,6 +125,8 @@ export default function BookingWizard() {
   const [timing, setTiming] = useState<"RIDE_NOW" | "RESERVE_LATER">("RESERVE_LATER");
   const [pickupAt, setPickupAt] = useState(localDateTime(60));
   const [serviceType, setServiceType] = useState("Point-to-Point");
+  const [isPrivateFBO, setIsPrivateFBO] = useState(false);
+  const [fboDetails, setFboDetails] = useState({ specificTailNumber: "", principalName: "", fboName: "", tarmacInstructions: "" });
   const [airport, setAirport] = useState<{ code: AirportCode | null; terminal: string; flight: string; airline: string }>({ code: null, terminal: "", flight: "", airline: "" });
   const [contact, setContact] = useState({ fullName: "", phone: "", email: "", passengers: "1", notes: "" });
   const [needsOnboarding, setNeedsOnboarding] = useState(() => launchedAsPwa() && !["rider_name", "rider_phone", "rider_email"].every(key => localStorage.getItem(key)?.trim()));
@@ -169,10 +171,13 @@ export default function BookingWizard() {
   }, []);
   useEffect(() => {
     const prefill = (event: Event) => {
-      const destination = (event as CustomEvent<{ destination?: string }>).detail?.destination;
-      if (!destination) return;
+      const detail = (event as CustomEvent<{ destination?: string; isPrivateFBO?: boolean }>).detail;
+      if (!detail) return;
       setStep(1);
-      setRoute(current => ({ ...current, destination }));
+      setIsPrivateFBO(Boolean(detail.isPrivateFBO));
+      setTier("EXECUTIVE_SEDAN");
+      setServiceType(detail.isPrivateFBO ? "Private Aviation / FBO" : "Point-to-Point");
+      setRoute(current => ({ ...current, destination: detail.destination || "" }));
       setPoints(current => ({ ...current, destination: undefined }));
     };
     window.addEventListener("allen-booking-prefill", prefill);
@@ -197,7 +202,7 @@ export default function BookingWizard() {
     const timer = window.setTimeout(async () => {
       try {
         const entries = await Promise.all(VEHICLES.map(async vehicle => {
-          const query = new URLSearchParams({ pickup, destination, tier: vehicle.tier });
+           const query = new URLSearchParams({ pickup, destination, tier: vehicle.tier, isPrivateFBO: String(isPrivateFBO) });
           if (points.pickup) { query.set("pickupLat", String(points.pickup.latitude)); query.set("pickupLon", String(points.pickup.longitude)); }
           if (points.destination) { query.set("destinationLat", String(points.destination.latitude)); query.set("destinationLon", String(points.destination.longitude)); }
           return [vehicle.tier, await request(`/api/fare/calculate?${query}`, { signal: controller.signal })] as const;
@@ -209,7 +214,7 @@ export default function BookingWizard() {
       }
     }, 450);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [pickup, destination, points]);
+   }, [pickup, destination, points, isPrivateFBO]);
 
   function useCurrentLocation() {
     if (!navigator.geolocation) { setLocationStatus("Location is unavailable. Enter your pickup manually."); return; }
@@ -240,12 +245,14 @@ export default function BookingWizard() {
   }
   const selectedFare = fares[tier];
   const selectedVehicle = VEHICLES.find(vehicle => vehicle.tier === tier)!;
-  const promoDiscount = hasWelcomePromo(promoCode) && selectedFare ? Math.min(1500, selectedFare.fareCents) : 0;
+  const availableVehicles = isPrivateFBO ? VEHICLES.filter(vehicle => vehicle.tier !== "SPRINTER_CLASS") : VEHICLES;
+  const promoDiscount = !isPrivateFBO && hasWelcomePromo(promoCode) && selectedFare ? Math.min(1500, selectedFare.fareCents) : 0;
   const finalFareCents = selectedFare ? selectedFare.fareCents - promoDiscount : 0;
   const parsedFlight = parseFlightNumber(airport.flight, routeAirport);
   const flightMatchesAirport = !detectedAirport || !parsedFlight.ruleAirport || parsedFlight.ruleAirport === detectedAirport;
   const flightReady = Boolean(parsedFlight.valid && flightMatchesAirport && airport.terminal);
-  const canContinueRoute = pickup.trim().length > 2 && destination.trim().length > 2 && (!detectedAirport || flightReady);
+  const fboReady = Object.values(fboDetails).every(value => value.trim().length > 1);
+  const canContinueRoute = pickup.trim().length > 2 && destination.trim().length > 2 && (isPrivateFBO ? fboReady : (!detectedAirport || flightReady));
   const profileValid = validRiderProfile(contact);
   const updateFlight = (value: string) => {
     const parsed = parseFlightNumber(value, routeAirport);
@@ -285,14 +292,16 @@ export default function BookingWizard() {
           estimatedFareCents: finalFareCents,
           estimatedMiles: selectedFare.miles,
           estimatedMinutes: selectedFare.minutes,
-          promoCode: promoCode || undefined,
+          promoCode: !isPrivateFBO && promoCode ? promoCode : undefined,
           promoDiscountCents: promoDiscount || undefined,
           bookingRequestId,
           pickupLatitude: points.pickup?.latitude,
           pickupLongitude: points.pickup?.longitude,
           destinationLatitude: points.destination?.latitude,
           destinationLongitude: points.destination?.longitude,
-          ...(detectedAirport ? {
+           isPrivateFBO,
+           ...(isPrivateFBO ? fboDetails : {}),
+           ...(!isPrivateFBO && detectedAirport ? {
             airportCode: detectedAirport,
             airportTerminal: airport.terminal,
             flightNumber: airport.flight,
@@ -300,11 +309,11 @@ export default function BookingWizard() {
           } : {}),
         }),
       });
-      if (hasWelcomePromo(promoCode)) {
+      if (!isPrivateFBO && hasWelcomePromo(promoCode)) {
         localStorage.removeItem("allan_first_ride_promo");
         setPromoCode("");
       }
-      if (!hasWelcomePromo(result.inquiry?.promoCode)) localStorage.removeItem("allan_first_ride_promo");
+      if (!isPrivateFBO && !hasWelcomePromo(result.inquiry?.promoCode)) localStorage.removeItem("allan_first_ride_promo");
       const trackingToken = typeof result.trackingToken === "string" ? result.trackingToken : "";
       let active: ActiveReservation | null = null;
       if (trackingToken) {
@@ -385,28 +394,26 @@ export default function BookingWizard() {
 
   return <section id="reserve" className="booking-wizard-section section-pad">
     <div className="wizard-shell">
-      <header className="wizard-header"><div><p className="eyebrow brass">Book your chauffeur</p><h2>{["Where are you going?", "Choose your vehicle", "Schedule & book"][step - 1]}</h2></div><span>0{step} / 03</span></header>
+       <header className="wizard-header"><div><p className="eyebrow brass">{isPrivateFBO ? "Private aviation coordination" : "Book your chauffeur"}</p><h2>{["Where are you going?", "Choose your vehicle", "Schedule & book"][step - 1]}</h2></div><span>0{step} / 03</span></header>
       <nav className="wizard-progress" aria-label="Booking progress">{[1, 2, 3].map(number => <i key={number} className={number <= step ? "active" : ""} />)}</nav>
       <main className="wizard-body">
         {step === 1 && <div className="wizard-step">
-          {hasWelcomePromo(promoCode) && <div className="wizard-promo"><Check /><span><b>$15 first-ride credit applied</b><small>Promo WELCOME15 will be included with your booking.</small></span></div>}
+          {!isPrivateFBO && hasWelcomePromo(promoCode) && <div className="wizard-promo"><Check /><span><b>$15 first-ride credit applied</b><small>Promo WELCOME15 will be included with your booking.</small></span></div>}
           <SmartLocation label="Pickup location" value={pickup} placeholder="Address, hotel, airport, or landmark" currentLocation={useCurrentLocation} onType={value => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: undefined })); }} onSelect={(value, point) => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: point })); }} />
           <small className="wizard-location-status">{locationStatus}</small>
           <SmartLocation label="Drop-off location" value={destination} placeholder="Where should we take you?" onType={value => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: undefined })); }} onSelect={(value, point) => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: point })); }} />
-          <label className="wizard-field wizard-flight-field">Airline flight number<input value={airport.flight} onChange={event => updateFlight(event.target.value)} placeholder="UA 1234 or WN 567" inputMode="text" autoComplete="off" /><small>Enter the airline code and flight number. We’ll identify O’Hare or Midway and suggest the terminal.</small></label>
-          {detectedAirport && <div className="wizard-airport"><header><Plane /><div><b>{AIRPORTS[detectedAirport].name}</b><span>{airport.airline ? `${airport.airline} · flight ${airport.flight}` : "Chicago airport detected from your route"}</span></div></header><label>Airport<input readOnly value={`${detectedAirport} · ${AIRPORTS[detectedAirport].name}`} /></label><label>Terminal / concourse<select required value={airport.terminal} onChange={event => setAirport(current => ({ ...current, terminal: event.target.value }))}><option value="">Select terminal</option>{AIRPORTS[detectedAirport].terminals.map(item => <option key={item}>{item}</option>)}</select></label></div>}
-          {detectedAirport && airport.flight && (!parsedFlight.valid || !flightMatchesAirport) && <p className="form-error">{!parsedFlight.valid ? "Enter a valid airline code and flight number, such as UA 1234 or WN 567." : `${airport.airline || "This airline"} does not use ${AIRPORTS[detectedAirport].name}. Check the flight number or airport.`}</p>}
+           {isPrivateFBO ? <div className="wizard-fbo-fields"><header><Plane /><div><b>Private aviation details</b><span>Required for ramp access and FBO coordination.</span></div></header><label className="wizard-field">Specific Tail Number<input required maxLength={40} value={fboDetails.specificTailNumber} onChange={event => setFboDetails(current => ({ ...current, specificTailNumber: event.target.value.toUpperCase() }))} placeholder="N123AB" autoComplete="off" /></label><label className="wizard-field">Passenger Name / Principal<input required maxLength={100} value={fboDetails.principalName} onChange={event => setFboDetails(current => ({ ...current, principalName: event.target.value }))} placeholder="Passenger or principal name" /></label><label className="wizard-field">FBO / Jet Center Name<input required maxLength={100} value={fboDetails.fboName} onChange={event => setFboDetails(current => ({ ...current, fboName: event.target.value }))} placeholder="Signature, Atlantic, Hawthorne…" /></label><label className="wizard-field wizard-fbo-instructions">Ramp/Tarmac Escort Instructions<textarea required maxLength={400} value={fboDetails.tarmacInstructions} onChange={event => setFboDetails(current => ({ ...current, tarmacInstructions: event.target.value }))} placeholder="Access contact, gate, escort procedure, or aircraft-side instructions…" /></label></div> : <><label className="wizard-field wizard-flight-field">Airline flight number<input value={airport.flight} onChange={event => updateFlight(event.target.value)} placeholder="UA 1234 or WN 567" inputMode="text" autoComplete="off" /><small>Enter the airline code and flight number. We’ll identify O’Hare or Midway and suggest the terminal.</small></label>{detectedAirport && <div className="wizard-airport"><header><Plane /><div><b>{AIRPORTS[detectedAirport].name}</b><span>{airport.airline ? `${airport.airline} · flight ${airport.flight}` : "Chicago airport detected from your route"}</span></div></header><label>Airport<input readOnly value={`${detectedAirport} · ${AIRPORTS[detectedAirport].name}`} /></label><label>Terminal / concourse<select required value={airport.terminal} onChange={event => setAirport(current => ({ ...current, terminal: event.target.value }))}><option value="">Select terminal</option>{AIRPORTS[detectedAirport].terminals.map(item => <option key={item}>{item}</option>)}</select></label></div>}{detectedAirport && airport.flight && (!parsedFlight.valid || !flightMatchesAirport) && <p className="form-error">{!parsedFlight.valid ? "Enter a valid airline code and flight number, such as UA 1234 or WN 567." : `${airport.airline || "This airline"} does not use ${AIRPORTS[detectedAirport].name}. Check the flight number or airport.`}</p>}</>}
           {fareState === "error" && <p className="form-error">We couldn’t calculate this route. Select an address suggestion or add a more specific address.</p>}
           <button className="solid-button wizard-next" disabled={!canContinueRoute || fareState === "loading"} onClick={next}>{fareState === "loading" ? "Calculating route…" : <>See vehicles & fares <ArrowRight /></>}</button>
         </div>}
-        {step === 2 && <div className="wizard-step"><div className="wizard-route-summary"><MapPin /><span>{route.pickup}</span><ArrowRight /><span>{route.destination}</span></div><div className="wizard-vehicles">{VEHICLES.map(vehicle => { const fare = fares[vehicle.tier]; const discount = hasWelcomePromo(promoCode) && fare ? Math.min(1500, fare.fareCents) : 0; return <button type="button" key={vehicle.tier} className={tier === vehicle.tier ? "selected" : ""} onClick={() => { setTier(vehicle.tier); setContact(current => ({ ...current, passengers: String(Math.min(Number(current.passengers), vehicle.capacity)) })); }}><CarFront /><div><b>{vehicle.label}</b><span>{vehicle.detail}</span><small>Guaranteed Upfront Fare • Tolls &amp; Fees Included • Zero Surge</small></div>{fareState === "loading" ? <i className="fare-shimmer" /> : <strong>{fare ? <>{discount > 0 && <del>{money(fare.fareCents)}</del>}{money(fare.fareCents - discount)}</> : "Unavailable"}</strong>}</button>; })}</div><div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(1)}><ArrowLeft /> Back</button><button className="solid-button" disabled={!selectedFare} onClick={next}>Choose {RATE_TIER_PRICING[tier].label} <ArrowRight /></button></div></div>}
+         {step === 2 && <div className="wizard-step"><div className="wizard-route-summary"><MapPin /><span>{route.pickup}</span><ArrowRight /><span>{route.destination}</span></div>{isPrivateFBO && <div className="wizard-fbo-rate-note"><Plane /><span><b>Private aviation rate</b><small>Includes dedicated FBO coordination and $35 tarmac handling. $150 minimum.</small></span></div>}<div className="wizard-vehicles">{availableVehicles.map(vehicle => { const fare = fares[vehicle.tier]; const discount = !isPrivateFBO && hasWelcomePromo(promoCode) && fare ? Math.min(1500, fare.fareCents) : 0; return <button type="button" key={vehicle.tier} className={tier === vehicle.tier ? "selected" : ""} onClick={() => { setTier(vehicle.tier); setContact(current => ({ ...current, passengers: String(Math.min(Number(current.passengers), vehicle.capacity)) })); }}><CarFront /><div><b>{vehicle.label}</b><span>{vehicle.detail}</span><small>Guaranteed Upfront Fare • Tolls &amp; Fees Included • Zero Surge</small></div>{fareState === "loading" ? <i className="fare-shimmer" /> : <strong>{fare ? <>{discount > 0 && <del>{money(fare.fareCents)}</del>}{money(fare.fareCents - discount)}</> : "Unavailable"}</strong>}</button>; })}</div><div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(1)}><ArrowLeft /> Back</button><button className="solid-button" disabled={!selectedFare} onClick={next}>Choose {RATE_TIER_PRICING[tier].label} <ArrowRight /></button></div></div>}
         {step === 3 && <div className="wizard-step">
           <div className="wizard-toggle"><button className={timing === "RIDE_NOW" ? "active" : ""} onClick={() => setTiming("RIDE_NOW")}><Clock3 />Ride Now</button><button className={timing === "RESERVE_LATER" ? "active" : ""} onClick={() => setTiming("RESERVE_LATER")}><CalendarDays />Reserve for Later</button></div>
           {timing === "RESERVE_LATER" && <label className="wizard-field">Pickup date &amp; time<input type="datetime-local" required min={localDateTime()} value={pickupAt} onChange={event => setPickupAt(event.target.value)} /></label>}
-          <div className="wizard-toggle"><button className={serviceType === "Point-to-Point" ? "active" : ""} onClick={() => setServiceType("Point-to-Point")}>Point-to-Point</button><button className={serviceType === "Hourly Charter" ? "active" : ""} onClick={() => setServiceType("Hourly Charter")}>Hourly Charter</button></div>
+           {!isPrivateFBO && <div className="wizard-toggle"><button className={serviceType === "Point-to-Point" ? "active" : ""} onClick={() => setServiceType("Point-to-Point")}>Point-to-Point</button><button className={serviceType === "Hourly Charter" ? "active" : ""} onClick={() => setServiceType("Hourly Charter")}>Hourly Charter</button></div>}
           {hasRiderProfile && !editingProfile ? <div className="wizard-profile-summary"><UserRound /><div><small>Rider profile</small><b>{contact.fullName}</b><span>{contact.phone} · {contact.email}</span></div><button type="button" onClick={() => setEditingProfile(true)}>Edit</button><Check /></div> : <><div className="wizard-contact-grid"><label className="wizard-field">Full name<input required value={contact.fullName} onChange={event => setContact(current => ({ ...current, fullName: event.target.value }))} placeholder="Your name" /></label><label className="wizard-field">Phone<input required value={contact.phone} onChange={event => setContact(current => ({ ...current, phone: event.target.value }))} placeholder="+1 312…" /></label><label className="wizard-field">Email<input required type="email" value={contact.email} onChange={event => setContact(current => ({ ...current, email: event.target.value }))} placeholder="you@example.com" /></label></div>{!profileValid && <small className="wizard-profile-help">Enter a valid name, phone number, and email to enable one-tap booking.</small>}</>}
           <div className="wizard-trip-options"><label className="wizard-field">Passengers<select value={contact.passengers} onChange={event => setContact(current => ({ ...current, passengers: event.target.value }))}>{Array.from({ length: selectedVehicle.capacity }, (_, index) => index + 1).map(number => <option key={number}>{number}</option>)}</select></label><label className="wizard-field">Notes<textarea value={contact.notes} onChange={event => setContact(current => ({ ...current, notes: event.target.value }))} placeholder="Luggage, accessibility, or itinerary notes…" /></label></div>
-          <div className="wizard-final-summary"><ShieldCheck /><div><b>{timing === "RIDE_NOW" ? "Pickup as soon as possible" : new Date(pickupAt).toLocaleString()}</b><span>{RATE_TIER_PRICING[tier].label} · {serviceType} · {route.pickup} → {route.destination}</span></div><strong>{selectedFare && money(finalFareCents)}</strong></div>
+           <div className="wizard-final-summary"><ShieldCheck /><div><b>{timing === "RIDE_NOW" ? "Pickup as soon as possible" : new Date(pickupAt).toLocaleString()}</b><span>{RATE_TIER_PRICING[tier].label} · {serviceType} · {route.pickup} → {route.destination}</span>{isPrivateFBO && <span>{fboDetails.fboName} · Tail {fboDetails.specificTailNumber} · Principal {fboDetails.principalName}</span>}</div><strong>{selectedFare && money(finalFareCents)}</strong></div>
           {savedPayment?.capability ? <><StripeCardSetup compact fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} /><label className="payment-choice"><input type="checkbox" checked={authorizeCard} onChange={event => setAuthorizeCard(event.target.checked)} /><span><b>Use saved card for this booking</b><small>{authorizeCard ? `Pre-authorize ${money(finalFareCents)} now.` : "Submit as pay later."}</small></span></label></> : <div className="wizard-pay-later"><ShieldCheck /><span><b>Book now, pay later</b><small>The Allen Limousine team will arrange payment after confirmation.</small></span></div>}
           {error && <p className="form-error">{error}</p>}
           <div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(2)}><ArrowLeft /> Back</button><button className="solid-button wizard-instant-book" disabled={submitState === "sending" || !canBook} onClick={submit}>{submitState === "sending" ? "Booking…" : <>Book in one tap · {money(finalFareCents)} <Check /></>}</button></div>
