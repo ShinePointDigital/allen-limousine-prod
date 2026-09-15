@@ -65,8 +65,8 @@ function PublicNav() {
 function ArrowUpRight() { return <ArrowDownRight style={{ transform: "rotate(-90deg)" }} />; }
 
 const BOOKING_DESTINATIONS = [
-  { code: "ORD", title: "O’Hare International", image: "/images/ord-aerial.jpg", destination: "O'Hare International Airport (ORD), Chicago, IL" },
-  { code: "MDW", title: "Midway International", image: "/images/mdw-airfield.jpg", destination: "Chicago Midway International Airport (MDW), Chicago, IL" },
+  { code: "ORD", title: "O’Hare International", image: "/images/ord-terminal-night-close.jpg", destination: "O'Hare International Airport (ORD), Chicago, IL" },
+  { code: "MDW", title: "Midway International", image: "/images/mdw-terminal-night-close.jpg", destination: "Chicago Midway International Airport (MDW), Chicago, IL" },
   { code: "CITY", title: "Downtown Chicago", image: "/images/chicago-night.jpg", destination: "Downtown Chicago, Chicago, IL" },
 ];
 
