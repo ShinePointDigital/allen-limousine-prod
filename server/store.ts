@@ -99,7 +99,6 @@ const sessions = new Map<string, { userId: string; expiresAt: number }>();
 
 export async function initializeStore() {
   if (production && !databaseConfigured) throw new Error("DATABASE_URL is required in production.");
-  if (production && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) throw new Error("SESSION_SECRET must be at least 32 characters in production.");
   if (!databaseConfigured) return;
   await prisma.$connect();
   const [serviceCount, fleetCount] = await Promise.all([prisma.service.count(), prisma.fleetVehicle.count()]);
@@ -332,6 +331,7 @@ export async function addInquiryNote(id: string, body: string, authorId: string)
 }
 const tokenHash = (token: string) => crypto.createHmac("sha256", process.env.SESSION_SECRET || "development-only-session-secret").update(token).digest("hex");
 export async function authenticate(email: string, password: string) {
+  if (production && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) return null;
   if (!databaseConfigured && (!demoAdminEnabled || !process.env.ADMIN_BOOTSTRAP_PASSWORD)) return null;
   const admin = databaseConfigured ? await prisma.adminUser.findUnique({ where: { email } }) : fallbackAdmin;
   if (!admin || admin.email !== email || !admin.active || !(await bcrypt.compare(password, admin.passwordHash))) return null;
@@ -342,6 +342,7 @@ export async function authenticate(email: string, password: string) {
   return { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role } };
 }
 export async function sessionUser(token?: string) {
+  if (production && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) return null;
   if (!token) return null;
   const hash = tokenHash(token);
   if (databaseConfigured) {
