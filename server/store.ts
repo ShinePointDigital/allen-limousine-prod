@@ -29,7 +29,8 @@ export type Ride = {
   driverLatitude: number | null; driverLongitude: number | null; driverHeading: number | null; locationUpdatedAt: string | null;
   quoteCents: number; depositCents: number; collectedCents: number; expenseCents: number;
   dispatchNotes: string | null; createdAt: string; updatedAt: string;
-  inquiry: Pick<Inquiry, "fullName" | "serviceType" | "pickupAt" | "pickup" | "destination" | "passengers" | "notes" | "isPrivateFBO" | "specificTailNumber" | "principalName" | "fboName" | "tarmacInstructions">;
+  inquiry: Pick<Inquiry, "fullName" | "serviceType" | "pickupAt" | "pickup" | "destination" | "passengers" | "notes" | "isPrivateFBO" | "specificTailNumber" | "principalName" | "fboName" | "tarmacInstructions">
+    & Partial<Pick<Inquiry, "email" | "estimatedFareCents" | "bookingRequestId" | "stripePaymentIntentId" | "paymentStatus">>;
   vehicle: Pick<FleetVehicle, "id" | "name" | "category" | "active"> | null;
   dispatchMessages: DispatchActivity[];
 };
@@ -85,7 +86,7 @@ const rides: Ride[] = [{
   id: "ride-001", inquiryId: "inq-003", status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null,
   quoteCents: 185000, depositCents: 50000, collectedCents: 50000, expenseCents: 42000,
   dispatchNotes: "Two-day itinerary attached in follow-up.", createdAt: "2026-08-27T15:40:00.000Z", updatedAt: "2026-08-27T15:40:00.000Z",
-  inquiry: { fullName: "Northstar Capital", serviceType: "Corporate Roadshows", pickupAt: "2026-09-11T13:00:00.000Z", pickup: "312 W. Chestnut St", destination: "Multiple stops", passengers: 8, notes: "Two-day itinerary attached in follow-up." },
+  inquiry: { fullName: "Northstar Capital", email: "travel@northstar.example", serviceType: "Corporate Roadshows", pickupAt: "2026-09-11T13:00:00.000Z", pickup: "312 W. Chestnut St", destination: "Multiple stops", passengers: 8, notes: "Two-day itinerary attached in follow-up.", estimatedFareCents: 185000, bookingRequestId: null, stripePaymentIntentId: null, paymentStatus: null },
   vehicle: null,
   dispatchMessages: [],
 }];
@@ -153,6 +154,8 @@ export async function updateInquiryPayment(bookingRequestId: string, data: {
     const item = inquiries.find(inquiry => inquiry.bookingRequestId === bookingRequestId);
     if (!item) return null;
     Object.assign(item, data, { updatedAt: new Date().toISOString() });
+    const ride = rides.find(value => value.inquiryId === item.id);
+    if (ride) Object.assign(ride.inquiry, data);
     return item;
   }
   const where: Prisma.InquiryWhereUniqueInput = { bookingRequestId };
@@ -168,11 +171,14 @@ export async function updateInquiryPaymentStatusByIntent(stripePaymentIntentId: 
     const item = inquiries.find(inquiry => inquiry.stripePaymentIntentId === stripePaymentIntentId);
     if (!item) return null;
     Object.assign(item, { paymentStatus, updatedAt: new Date().toISOString() });
+    const ride = rides.find(value => value.inquiryId === item.id);
+    if (ride) ride.inquiry.paymentStatus = paymentStatus;
     return item;
   }
-  const where: Prisma.InquiryWhereInput = { stripePaymentIntentId };
-  const item = await prisma.inquiry.updateMany({ where, data: { paymentStatus } });
-  return item.count;
+  const item = await prisma.inquiry.findFirst({ where: { stripePaymentIntentId } });
+  if (!item) return null;
+  const updated = await prisma.inquiry.update({ where: { id: item.id }, data: { paymentStatus }, include: { inquiryNotes: { include: { author: true } } } });
+  return mapInquiry(updated);
 }
 const setupSessions = new Map<string, { setupIntentId: string; customerId: string; email: string; expiresAt: Date; consumedAt: Date | null }>();
 const stripeCustomerProfiles = new Map<string, { email: string; fullName: string; stripeCustomerId: string }>();
@@ -313,6 +319,9 @@ export async function finalizeAuthorizedInquiry(bookingRequestId: string, tracki
 export async function updateInquiry(id: string, patch: Partial<Pick<Inquiry, "status" | "notes">>) {
   if (databaseConfigured) {
     const updated = await prisma.$transaction(async tx => {
+      const current = await tx.inquiry.findUnique({ where: { id } });
+      if (!current) throw new Error("Inquiry not found.");
+      if (current.status === "CANCELLED" && patch.status && patch.status !== "CANCELLED" && current.paymentStatus === "canceled") throw new Error("This cancelled booking needs a new card authorization before it can be reopened.");
       const item = await tx.inquiry.update({ where: { id }, data: patch, include: { inquiryNotes: { include: { author: true } } } });
       if (patch.status === "CONFIRMED") await tx.ride.upsert({
         where: { inquiryId: id },
@@ -327,6 +336,7 @@ export async function updateInquiry(id: string, patch: Partial<Pick<Inquiry, "st
   }
   const item = inquiries.find(i => i.id === id);
   if (!item) return null;
+  if (item.status === "CANCELLED" && patch.status && patch.status !== "CANCELLED" && item.paymentStatus === "canceled") throw new Error("This cancelled booking needs a new card authorization before it can be reopened.");
   Object.assign(item, patch, { updatedAt: new Date().toISOString() });
   if (patch.status === "CONFIRMED" && !rides.some(ride => ride.inquiryId === id)) {
     rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: item.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), inquiry: { fullName: item.fullName, serviceType: item.serviceType, pickupAt: item.pickupAt, pickup: item.pickup, destination: item.destination, passengers: item.passengers, notes: item.notes, isPrivateFBO: item.isPrivateFBO, specificTailNumber: item.specificTailNumber, principalName: item.principalName, fboName: item.fboName, tarmacInstructions: item.tarmacInstructions }, vehicle: null, dispatchMessages: [] });
@@ -432,6 +442,7 @@ const mapRide = (item: any): Ride => ({
   updatedAt: item.updatedAt instanceof Date ? item.updatedAt.toISOString() : item.updatedAt,
   inquiry: {
     fullName: item.inquiry.fullName,
+    email: item.inquiry.email,
     serviceType: item.inquiry.serviceType,
     pickupAt: item.inquiry.pickupAt instanceof Date ? item.inquiry.pickupAt.toISOString() : item.inquiry.pickupAt,
     pickup: item.inquiry.pickup,
@@ -443,6 +454,10 @@ const mapRide = (item: any): Ride => ({
     principalName: item.inquiry.principalName,
     fboName: item.inquiry.fboName,
     tarmacInstructions: item.inquiry.tarmacInstructions,
+    estimatedFareCents: item.inquiry.estimatedFareCents,
+    bookingRequestId: item.inquiry.bookingRequestId,
+    stripePaymentIntentId: item.inquiry.stripePaymentIntentId,
+    paymentStatus: item.inquiry.paymentStatus,
   },
   vehicle: item.vehicle ? { id: item.vehicle.id, name: item.vehicle.name, category: item.vehicle.category, active: item.vehicle.active } : null,
   dispatchMessages: (item.dispatchMessages || []).map((message: any) => ({
@@ -460,12 +475,28 @@ const mapRide = (item: any): Ride => ({
     reconciledByName: message.reconciledBy?.name || null,
   })),
 });
+const hydrateMemoryRide = (ride: Ride) => {
+  const inquiry = inquiries.find(item => item.id === ride.inquiryId);
+  if (!inquiry) return ride;
+  return {
+    ...ride,
+    inquiry: {
+      ...ride.inquiry,
+      email: inquiry.email,
+      estimatedFareCents: inquiry.estimatedFareCents,
+      bookingRequestId: inquiry.bookingRequestId,
+      stripePaymentIntentId: inquiry.stripePaymentIntentId,
+      paymentStatus: inquiry.paymentStatus,
+    },
+  };
+};
 
 export async function getRides(filters: { status?: string; date?: string; unassigned?: boolean } = {}) {
   if (!databaseConfigured) {
     return rides
       .filter(ride => (!filters.status || filters.status === "ALL" || ride.status === filters.status) && (!filters.date || ride.inquiry.pickupAt.startsWith(filters.date)) && (!filters.unassigned || (!["COMPLETED", "CANCELLED"].includes(ride.status) && (ride.status === "UNASSIGNED" || !ride.vehicleId))))
-      .sort((a, b) => +new Date(a.inquiry.pickupAt) - +new Date(b.inquiry.pickupAt));
+      .sort((a, b) => +new Date(a.inquiry.pickupAt) - +new Date(b.inquiry.pickupAt))
+      .map(hydrateMemoryRide);
   }
   const where: any = {};
   if (filters.status && filters.status !== "ALL") where.status = filters.status;
@@ -481,7 +512,10 @@ export async function getRides(filters: { status?: string; date?: string; unassi
 }
 
 export async function getRideByInquiryId(inquiryId: string) {
-  if (!databaseConfigured) return rides.find(ride => ride.inquiryId === inquiryId) || null;
+  if (!databaseConfigured) {
+    const ride = rides.find(item => item.inquiryId === inquiryId);
+    return ride ? hydrateMemoryRide(ride) : null;
+  }
   const result = await prisma.ride.findUnique({
     where: { inquiryId },
     include: { inquiry: true, vehicle: true },
@@ -489,11 +523,39 @@ export async function getRideByInquiryId(inquiryId: string) {
   return result ? mapRide(result) : null;
 }
 
-export async function updateRide(id: string, data: Partial<Pick<Ride, "status" | "driverName" | "driverPhone" | "vehicleId" | "quoteCents" | "depositCents" | "collectedCents" | "expenseCents" | "dispatchNotes" | "driverLatitude" | "driverLongitude" | "driverHeading" | "locationUpdatedAt">>) {
+type RideUpdate = Partial<Pick<Ride, "status" | "driverName" | "driverPhone" | "vehicleId" | "quoteCents" | "depositCents" | "collectedCents" | "expenseCents" | "dispatchNotes" | "driverLatitude" | "driverLongitude" | "driverHeading" | "locationUpdatedAt">>;
+
+export async function validateRideUpdate(id: string, data: RideUpdate) {
+  if (databaseConfigured) {
+    const current = await prisma.ride.findUnique({ where: { id }, include: { inquiry: true } });
+    if (!current) return false;
+    const next = { ...current, ...data };
+    if (next.depositCents > next.quoteCents || next.collectedCents > next.quoteCents) throw new Error("Deposit and collected amounts cannot exceed the quoted fare.");
+    if (next.depositCents > next.collectedCents) throw new Error("Total collected must include the recorded deposit.");
+    if (next.vehicleId && !await prisma.fleetVehicle.findFirst({ where: { id: next.vehicleId, active: true } })) throw new Error("Choose an active vehicle from the fleet.");
+    if (current.inquiry.paymentStatus === "canceled" && (data.status === undefined || !["CANCELLED", "COMPLETED"].includes(data.status))) throw new Error("This cancelled booking needs a new card authorization before it can be changed or reopened.");
+    if (next.status !== "UNASSIGNED" && !["CANCELLED", "COMPLETED"].includes(next.status) && (!next.vehicleId || !next.driverName)) throw new Error("Assign a vehicle and chauffeur before advancing this ride.");
+    return true;
+  }
+  const current = rides.find(item => item.id === id);
+  if (!current) return false;
+  const inquiry = inquiries.find(item => item.id === current.inquiryId);
+  const next = { ...current, ...data };
+  if (next.depositCents > next.quoteCents || next.collectedCents > next.quoteCents) throw new Error("Deposit and collected amounts cannot exceed the quoted fare.");
+  if (next.depositCents > next.collectedCents) throw new Error("Total collected must include the recorded deposit.");
+  if (next.vehicleId && !fleet.some(vehicle => vehicle.id === next.vehicleId && vehicle.active)) throw new Error("Choose an active vehicle from the fleet.");
+  if (inquiry?.paymentStatus === "canceled" && (data.status === undefined || !["CANCELLED", "COMPLETED"].includes(data.status))) throw new Error("This cancelled booking needs a new card authorization before it can be changed or reopened.");
+  if (next.status !== "UNASSIGNED" && !["CANCELLED", "COMPLETED"].includes(next.status) && (!next.vehicleId || !next.driverName)) throw new Error("Assign a vehicle and chauffeur before advancing this ride.");
+  return true;
+}
+
+export async function updateRide(id: string, data: RideUpdate) {
   if (databaseConfigured) {
     return prisma.$transaction(async tx => {
       const current = await tx.ride.findUnique({ where: { id } });
       if (!current) return null;
+      const inquiry = await tx.inquiry.findUnique({ where: { id: current.inquiryId } });
+      if (inquiry?.paymentStatus === "canceled" && (data.status === undefined || !["CANCELLED", "COMPLETED"].includes(data.status))) throw new Error("This cancelled booking needs a new card authorization before it can be changed or reopened.");
       const next = { ...current, ...data };
       if (next.depositCents > next.quoteCents || next.collectedCents > next.quoteCents) throw new Error("Deposit and collected amounts cannot exceed the quoted fare.");
       if (next.depositCents > next.collectedCents) throw new Error("Total collected must include the recorded deposit.");
@@ -507,6 +569,8 @@ export async function updateRide(id: string, data: Partial<Pick<Ride, "status" |
   }
   const ride = rides.find(item => item.id === id);
   if (!ride) return null;
+  const linkedInquiry = inquiries.find(item => item.id === ride.inquiryId);
+  if (linkedInquiry?.paymentStatus === "canceled" && (data.status === undefined || !["CANCELLED", "COMPLETED"].includes(data.status))) throw new Error("This cancelled booking needs a new card authorization before it can be changed or reopened.");
   const next = { ...ride, ...data };
   if (next.depositCents > next.quoteCents || next.collectedCents > next.quoteCents) throw new Error("Deposit and collected amounts cannot exceed the quoted fare.");
   if (next.depositCents > next.collectedCents) throw new Error("Total collected must include the recorded deposit.");
@@ -551,7 +615,10 @@ function formatDispatchDate(value: string) {
 }
 
 export async function getRideById(id: string) {
-  if (!databaseConfigured) return rides.find(ride => ride.id === id) || null;
+  if (!databaseConfigured) {
+    const ride = rides.find(item => item.id === id);
+    return ride ? hydrateMemoryRide(ride) : null;
+  }
   const item = await prisma.ride.findUnique({ where: { id }, include: { inquiry: true, vehicle: true, dispatchMessages: { include: { admin: { select: { name: true } }, reconciledBy: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 10 } } });
   return item ? mapRide(item) : null;
 }

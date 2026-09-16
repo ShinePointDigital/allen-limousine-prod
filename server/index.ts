@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finalizeAuthorizedInquiry, finishDispatchAttempt, getAdminContent, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, getStripeCustomerProfile, initializeStore, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, saveStripeCustomerProfile, sessionUser, updateAdmin, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent } from "./store.js";
+import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finalizeAuthorizedInquiry, finishDispatchAttempt, getAdminContent, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, getStripeCustomerProfile, initializeStore, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, saveStripeCustomerProfile, sessionUser, updateAdmin, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent, validateRideUpdate } from "./store.js";
 import { classifyTwilioMessageStatus, getDriverDispatchSms, sendDriverDispatchSms, TwilioRequestError } from "./twilio.js";
 import { estimateFare, reverseGeocode, searchLocations } from "./fare-estimate.js";
 import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "./stripe-client.js";
@@ -24,7 +24,11 @@ app.post("/api/webhooks/stripe", express.raw({ type: "application/json", limit: 
     const event = stripe.webhooks.constructEvent(req.body, signature, await getStripeWebhookSecret());
     if (event.type.startsWith("payment_intent.")) {
       const intent = event.data.object as { id: string; status: string };
-      await updateInquiryPaymentStatusByIntent(intent.id, intent.status);
+      const inquiry = await updateInquiryPaymentStatusByIntent(intent.id, intent.status);
+      if (intent.status === "canceled" && inquiry && "id" in inquiry) {
+        const ride = await getRideByInquiryId(inquiry.id);
+        if (ride && ride.status !== "CANCELLED") await updateRide(ride.id, { status: "CANCELLED" });
+      }
     }
     res.json({ received: true });
   } catch {
@@ -123,6 +127,8 @@ const rideUpdateSchema = z.object({
 }).superRefine((data, context) => {
   if (data.deposit !== undefined && data.quote !== undefined && data.deposit > data.quote) context.addIssue({ code: "custom", path: ["deposit"], message: "Deposit cannot exceed the quoted fare." });
   if (data.collected !== undefined && data.quote !== undefined && data.collected > data.quote) context.addIssue({ code: "custom", path: ["collected"], message: "Collected amount cannot exceed the quoted fare." });
+  if ((data.driverLatitude === null) !== (data.driverLongitude === null)) context.addIssue({ code: "custom", path: ["driverLatitude"], message: "Clear both driver coordinates together." });
+  if ((data.driverLatitude === undefined) !== (data.driverLongitude === undefined)) context.addIssue({ code: "custom", path: ["driverLatitude"], message: "Provide both driver latitude and longitude." });
 });
 async function captureAuthorizedPayment(bookingRequestId: string) {
   const inquiry = await getInquiryByBookingRequestId(bookingRequestId);
@@ -141,6 +147,21 @@ async function captureAuthorizedPayment(bookingRequestId: string) {
   );
   await updateInquiryPaymentStatusByIntent(captured.id, captured.status);
   return captured;
+}
+async function cancelAuthorizedPayment(bookingRequestId: string) {
+  const inquiry = await getInquiryByBookingRequestId(bookingRequestId);
+  if (!inquiry?.stripePaymentIntentId) throw new Error("No card authorization exists for this booking.");
+  const stripe = await getStripeClient();
+  const current = await stripe.paymentIntents.retrieve(inquiry.stripePaymentIntentId);
+  if (current.status === "canceled") {
+    await updateInquiryPaymentStatusByIntent(current.id, current.status);
+    return current;
+  }
+  if (current.status === "succeeded") throw new Error("This payment was already captured. Refund it in Stripe before cancelling the completed payment.");
+  if (current.status !== "requires_capture") throw new Error(`The authorization cannot be released while its status is ${current.status}.`);
+  const canceled = await stripe.paymentIntents.cancel(current.id, {}, { idempotencyKey: `cancel-${current.id}` });
+  await updateInquiryPaymentStatusByIntent(canceled.id, canceled.status);
+  return canceled;
 }
 async function activateAuthorizedBooking(bookingRequestId: string, token: string, pickupAt: string, paymentIntentId: string) {
   const pickupExpiry = new Date(pickupAt).getTime() + 24 * 60 * 60 * 1000;
@@ -435,12 +456,10 @@ app.post("/api/admin/payments/:bookingRequestId/cancel", admin, async (req, res)
     const bookingRequestId = Array.isArray(req.params.bookingRequestId) ? req.params.bookingRequestId[0] : req.params.bookingRequestId;
     const inquiry = await getInquiryByBookingRequestId(bookingRequestId);
     if (!inquiry?.stripePaymentIntentId) return res.status(404).json({ error: "No card authorization exists for this booking." });
-    const stripe = await getStripeClient();
-    const current = await stripe.paymentIntents.retrieve(inquiry.stripePaymentIntentId);
-    if (current.status === "canceled") return res.json({ paymentIntentId: current.id, status: current.status });
-    if (current.status === "succeeded") return res.status(409).json({ error: "This payment was already captured and cannot be cancelled." });
-    const intent = await stripe.paymentIntents.cancel(inquiry.stripePaymentIntentId, {}, { idempotencyKey: `cancel-${inquiry.stripePaymentIntentId}` });
-    await updateInquiryPaymentStatusByIntent(intent.id, intent.status);
+    const intent = await cancelAuthorizedPayment(bookingRequestId);
+    const ride = await getRideByInquiryId(inquiry.id);
+    if (ride && ride.status !== "CANCELLED") await updateRide(ride.id, { status: "CANCELLED" });
+    else if (!ride && inquiry.status !== "CANCELLED") await updateInquiry(inquiry.id, { status: "CANCELLED" });
     res.json({ paymentIntentId: intent.id, status: intent.status });
   } catch (error) {
     res.status(422).json({ error: error instanceof Error ? error.message : "The authorization could not be cancelled." });
@@ -592,9 +611,9 @@ app.get("/api/tracking/:token", publicReadLimiter, async (req, res) => {
       vehicle: ride?.vehicle?.name || null,
       driverName: ride?.driverName || null,
       driverPhone: ride?.driverPhone || null,
-      driverLatitude: ride?.driverLatitude || null,
-      driverLongitude: ride?.driverLongitude || null,
-      driverHeading: ride?.driverHeading || null,
+      driverLatitude: ride?.driverLatitude ?? null,
+      driverLongitude: ride?.driverLongitude ?? null,
+      driverHeading: ride?.driverHeading ?? null,
       locationUpdatedAt: ride?.locationUpdatedAt || null,
       updatedAt: ride?.updatedAt || inquiry.updatedAt,
     },
@@ -622,11 +641,22 @@ app.patch("/api/admin/rides/:id", admin, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid ride update." });
   const { quote, deposit, collected, expense, driverPhone, ...rest } = parsed.data;
   try {
-    const rideData = { ...rest, ...(driverPhone !== undefined ? { driverPhone: normalizePhone(driverPhone) } : {}), ...(quote !== undefined ? { quoteCents: quote } : {}), ...(deposit !== undefined ? { depositCents: deposit } : {}), ...(collected !== undefined ? { collectedCents: collected } : {}), ...(expense !== undefined ? { expenseCents: expense } : {}) };
+    const locationChanged = rest.driverLatitude !== undefined || rest.driverLongitude !== undefined;
+    const rideData = { ...rest, ...(locationChanged ? { locationUpdatedAt: rest.driverLatitude === null ? null : new Date().toISOString() } : {}), ...(driverPhone !== undefined ? { driverPhone: normalizePhone(driverPhone) } : {}), ...(quote !== undefined ? { quoteCents: quote } : {}), ...(deposit !== undefined ? { depositCents: deposit } : {}), ...(collected !== undefined ? { collectedCents: collected } : {}), ...(expense !== undefined ? { expenseCents: expense } : {}) };
     const { status, ...preCompletionUpdate } = rideData;
-    const item = status === "COMPLETED"
-      ? await completeRideWithCapture(String(req.params.id), preCompletionUpdate)
-      : await updateRide(String(req.params.id), rideData);
+    let item;
+    if (status === "COMPLETED") item = await completeRideWithCapture(String(req.params.id), preCompletionUpdate);
+    else {
+      if (status === "CANCELLED") {
+        const currentRide = await getRideById(String(req.params.id));
+        if (!currentRide) return res.status(404).json({ error: "Ride not found." });
+        await validateRideUpdate(currentRide.id, rideData);
+        if (currentRide.inquiry.bookingRequestId && currentRide.inquiry.stripePaymentIntentId) await cancelAuthorizedPayment(currentRide.inquiry.bookingRequestId);
+        item = await updateRide(currentRide.id, rideData);
+      } else {
+        item = await updateRide(String(req.params.id), rideData);
+      }
+    }
     if (!item) return res.status(404).json({ error: "Ride not found." });
     res.json({ ride: item });
   } catch (error) {
@@ -713,6 +743,7 @@ app.post("/api/admin/rides/:id/dispatch", admin, dispatchLimiter, async (req, re
   const ride = await getRideById(String(req.params.id));
   if (!ride) return res.status(404).json({ error: "Ride not found." });
   if (!ride.driverPhone) return res.status(400).json({ code: "MISSING_PHONE", error: "Add a driver phone number before sending the dispatch brief." });
+  if (ride.inquiry.paymentStatus === "canceled") return res.status(409).json({ code: "PAYMENT_CANCELLED", error: "This booking’s card authorization was cancelled. Create a new authorization before dispatching it." });
   if (["COMPLETED", "CANCELLED"].includes(ride.status)) return res.status(409).json({ code: "RIDE_NOT_ACTIVE", error: "Dispatch messages cannot be sent for completed or cancelled rides." });
   if (!ride.vehicleId || !ride.vehicle?.active || !ride.driverName) return res.status(400).json({ code: "INCOMPLETE_ASSIGNMENT", error: "Assign an active vehicle and chauffeur before sending the dispatch brief." });
   const parsed = z.object({ message: z.string().trim().min(20).max(1600).optional() }).safeParse(req.body);
@@ -784,6 +815,20 @@ app.patch("/api/admin/inquiries/:id", admin, async (req, res) => {
     }
     const item = (await getInquiries()).find(value => value.id === inquiry.id);
     return res.json({ inquiry: item });
+  }
+  if (parsed.data.status === "CANCELLED") {
+    const inquiry = (await getInquiries()).find(item => item.id === String(req.params.id));
+    if (!inquiry) return res.status(404).json({ error: "Inquiry not found." });
+    try {
+      if (inquiry.bookingRequestId && inquiry.stripePaymentIntentId) await cancelAuthorizedPayment(inquiry.bookingRequestId);
+      const ride = await getRideByInquiryId(inquiry.id);
+      if (ride) await updateRide(ride.id, { status: "CANCELLED" });
+      else await updateInquiry(inquiry.id, parsed.data);
+      const item = (await getInquiries()).find(value => value.id === inquiry.id);
+      return res.json({ inquiry: item });
+    } catch (error) {
+      return res.status(422).json({ error: error instanceof Error ? error.message : "The authorization could not be released." });
+    }
   }
   const item = await updateInquiry(String(req.params.id), parsed.data);
   if (!item) return res.status(404).json({ error: "Inquiry not found." });
