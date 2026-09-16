@@ -175,6 +175,25 @@ export async function updateInquiryPaymentStatusByIntent(stripePaymentIntentId: 
   return item.count;
 }
 const setupSessions = new Map<string, { setupIntentId: string; customerId: string; email: string; expiresAt: Date; consumedAt: Date | null }>();
+const stripeCustomerProfiles = new Map<string, { email: string; fullName: string; stripeCustomerId: string }>();
+export async function getStripeCustomerProfile(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!databaseConfigured) return stripeCustomerProfiles.get(normalizedEmail) || null;
+  return prisma.stripeCustomerProfile.findUnique({ where: { email: normalizedEmail } });
+}
+export async function saveStripeCustomerProfile(input: { email: string; fullName: string; stripeCustomerId: string }) {
+  const normalizedEmail = input.email.trim().toLowerCase();
+  if (!databaseConfigured) {
+    const profile = { ...input, email: normalizedEmail };
+    stripeCustomerProfiles.set(normalizedEmail, profile);
+    return profile;
+  }
+  return prisma.stripeCustomerProfile.upsert({
+    where: { email: normalizedEmail },
+    update: { fullName: input.fullName, stripeCustomerId: input.stripeCustomerId },
+    create: { ...input, email: normalizedEmail },
+  });
+}
 export async function createStripeSetupSession(input: {
   tokenHash: string;
   setupIntentId: string;

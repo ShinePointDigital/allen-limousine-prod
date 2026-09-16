@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finalizeAuthorizedInquiry, finishDispatchAttempt, getAdminContent, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, initializeStore, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, sessionUser, updateAdmin, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent } from "./store.js";
+import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finalizeAuthorizedInquiry, finishDispatchAttempt, getAdminContent, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, getStripeCustomerProfile, initializeStore, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, saveStripeCustomerProfile, sessionUser, updateAdmin, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent } from "./store.js";
 import { classifyTwilioMessageStatus, getDriverDispatchSms, sendDriverDispatchSms, TwilioRequestError } from "./twilio.js";
 import { estimateFare, reverseGeocode, searchLocations } from "./fare-estimate.js";
 import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "./stripe-client.js";
@@ -91,7 +91,6 @@ const trackingTokenHash = (token: string) => crypto.createHash("sha256").update(
 const stripeProfileSchema = z.object({
   fullName: z.string().trim().min(2).max(100),
   email: z.string().trim().email(),
-  customerId: z.string().regex(/^cus_[A-Za-z0-9]+$/).optional(),
 });
 const finalizeSetupSchema = z.object({
   setupIntentId: z.string().regex(/^seti_[A-Za-z0-9]+$/),
@@ -281,19 +280,31 @@ app.post("/api/create-setup-intent", inquiryLimiter, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Enter a valid name and email before adding a card." });
   try {
     const stripe = await getStripeClient();
-    let customerId = parsed.data.customerId;
-    if (customerId) {
-      const existing = await stripe.customers.retrieve(customerId);
-      if (existing.deleted || existing.email?.toLowerCase() !== parsed.data.email.toLowerCase()) customerId = undefined;
+    const email = parsed.data.email.toLowerCase();
+    const profile = await getStripeCustomerProfile(email);
+    let customerId: string | undefined;
+    if (profile) {
+      const existing = await stripe.customers.retrieve(profile.stripeCustomerId);
+      if (!existing.deleted && existing.email?.toLowerCase() === email) {
+        customerId = existing.id;
+        if (existing.name !== parsed.data.fullName) {
+          await stripe.customers.update(existing.id, { name: parsed.data.fullName });
+        }
+      }
     }
     if (!customerId) {
-      const customer = await stripe.customers.create({ name: parsed.data.fullName, email: parsed.data.email.toLowerCase(), metadata: { source: "allen-limousine-pwa" } });
+      const customer = await stripe.customers.create({
+        name: parsed.data.fullName,
+        email,
+        metadata: { source: "allen-limousine-pwa", customer_key: email },
+      });
       customerId = customer.id;
     }
+    await saveStripeCustomerProfile({ email, fullName: parsed.data.fullName, stripeCustomerId: customerId });
     const setupIntent = await stripe.setupIntents.create({
       customer: customerId,
       usage: "off_session",
-      automatic_payment_methods: { enabled: true },
+      payment_method_types: ["card"],
       metadata: { source: "allen-limousine-pwa" },
     });
     const setupToken = crypto.randomBytes(32).toString("base64url");
@@ -301,7 +312,7 @@ app.post("/api/create-setup-intent", inquiryLimiter, async (req, res) => {
       tokenHash: crypto.createHash("sha256").update(setupToken).digest("hex"),
       setupIntentId: setupIntent.id,
       customerId,
-      email: parsed.data.email.toLowerCase(),
+      email,
       expiresAt: new Date(Date.now() + 15 * 60 * 1000),
     });
     res.json({ clientSecret: setupIntent.client_secret, setupIntentId: setupIntent.id, customerId, setupToken });
