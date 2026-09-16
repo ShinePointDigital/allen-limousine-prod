@@ -14,11 +14,13 @@ export default async function handler(request: Request, response: Response) {
   }
   request.url = `${pathname}${search.size ? `?${search}` : ""}`;
 
-  const publicLocationRequest =
+  const databaseIndependentRequest =
+    pathname === "/api/content" ||
+    pathname === "/api/stripe/config" ||
     pathname === "/api/reverse-geocode" ||
     pathname === "/api/location-search" ||
     pathname === "/api/fare/calculate" ||
     pathname === "/api/fare-estimate";
-  if (!publicLocationRequest) await prepareApp();
+  if (!databaseIndependentRequest) await prepareApp();
   return app(request, response);
 }
