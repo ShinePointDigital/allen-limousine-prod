@@ -1,0 +1,51 @@
+18:17:17.309 Running build in Washington, D.C., USA (East) – iad1
+18:17:17.310 Build machine configuration: 2 cores, 8 GB
+18:17:17.433 Cloning github.com/ShinePointDigital/allen-limousine-prod (Branch: main, Commit: d785778)
+18:17:19.604 Cloning completed: 2.171s
+18:17:19.844 Restored build cache from previous deployment (DwbDgJAzxJj4mAjyC4KdGANuL9ru)
+18:17:20.853 Running "vercel build"
+18:17:20.899 Vercel CLI 59.16.0
+18:17:22.331 Installing dependencies...
+18:17:24.439 
+18:17:24.440 up to date in 2s
+18:17:24.441 
+18:17:24.441 52 packages are looking for funding
+18:17:24.441   run `npm fund` for details
+18:17:24.441 npm warn allow-scripts 4 packages have install scripts not yet covered by allowScripts:
+18:17:24.441 npm warn allow-scripts   @prisma/client@6.19.1 (postinstall: node scripts/postinstall.js)
+18:17:24.441 npm warn allow-scripts   @prisma/engines@6.19.1 (postinstall: node scripts/postinstall.js)
+18:17:24.441 npm warn allow-scripts   esbuild@0.28.2 (postinstall: node install.js)
+18:17:24.442 npm warn allow-scripts   prisma@6.19.1 (preinstall: node scripts/preinstall-entry.js)
+18:17:24.443 npm warn allow-scripts
+18:17:24.443 npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.
+18:17:24.742 
+18:17:24.743 > allan-livery@1.0.0 build
+18:17:24.743 > prisma generate && tsc -p tsconfig.json --noEmit && vite build
+18:17:24.743 
+18:17:26.146 Prisma schema loaded from prisma/schema.prisma
+18:17:27.056 
+18:17:27.057 ✔ Generated Prisma Client (v6.19.1) to ./node_modules/@prisma/client in 693ms
+18:17:27.058 
+18:17:27.058 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+18:17:27.058 
+18:17:27.058 Tip: Interested in query caching in just a few lines of code? Try Accelerate today! https://pris.ly/tip-3-accelerate
+18:17:27.058 
+18:17:35.263 vite v8.2.2 building client environment for production...
+18:17:35.282 transforming...
+18:17:36.122 ✓ 1840 modules transformed.
+18:17:36.284 rendering chunks...
+18:17:36.405 computing gzip size...
+18:17:36.413 dist/index.html                                          2.64 kB │ gzip:   1.22 kB
+18:17:36.414 dist/assets/hero-cadillac-downtown-night-M7ZAhMQu.jpg  152.82 kB
+18:17:36.415 dist/assets/index-qII142za.css                         122.48 kB │ gzip:  23.65 kB
+18:17:36.415 dist/assets/index-Cn_762z0.js                          387.81 kB │ gzip: 116.50 kB
+18:17:36.415 
+18:17:36.416 ✓ built in 1.15s
+18:17:36.863 Using TypeScript 5.9.3 (local user-provided)
+18:17:51.550 Build Completed in /vercel/output [29s]
+18:17:51.649 Deploying outputs...
+18:18:00.831 Deployment completed
+18:18:00.837 Creating build cache...
+18:18:13.665 Created build cache: 13s
+18:18:13.665 Uploading build cache [106.86 MB]
+18:18:15.754 Build cache uploaded: 2.089s
