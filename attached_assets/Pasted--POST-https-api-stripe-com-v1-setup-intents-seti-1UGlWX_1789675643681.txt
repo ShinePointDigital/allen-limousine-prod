@@ -1,0 +1,55 @@
+ 
+ POST https://api.stripe.com/v1/setup_intents/seti_1UGlWXRd63W8kGUypIhDjATh/confirm 400 (Bad Request)
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+e	@	shared-03cde0645162a…038974a831c804.js:1
+p	@	shared-03cde0645162a…038974a831c804.js:1
+u	@	shared-03cde0645162a…038974a831c804.js:1
+s	@	shared-03cde0645162a…038974a831c804.js:1
+e	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+n	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+a	@	shared-03cde0645162a…038974a831c804.js:1
+i	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+m	@	shared-03cde0645162a…038974a831c804.js:1
+confirm	@	controller-with-prec…b4556621aea1d5.js:1
+(anonymous)	@	controller-with-prec…b4556621aea1d5.js:1
+n	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+a	@	shared-03cde0645162a…038974a831c804.js:1
+i	@	shared-03cde0645162a…038974a831c804.js:1
+Promise.then		
+a	@	shared-03cde0645162a…038974a831c804.js:1
+i	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	controller-with-prec…b4556621aea1d5.js:1
+Promise.then		
+(anonymous)	@	controller-with-prec…b4556621aea1d5.js:1
+n	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+a	@	shared-03cde0645162a…038974a831c804.js:1
+i	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	controller-with-prec…b4556621aea1d5.js:1
+(anonymous)	@	controller-with-prec…b4556621aea1d5.js:1
+n	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+a	@	shared-03cde0645162a…038974a831c804.js:1
+i	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	shared-03cde0645162a…038974a831c804.js:1
+(anonymous)	@	controller-with-prec…b4556621aea1d5.js:1
+value	@	controller-with-prec…b4556621aea1d5.js:1
+(anonymous)	@	controller-with-prec…b4556621aea1d5.js:1
+
+﻿
+

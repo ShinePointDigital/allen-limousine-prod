@@ -27,11 +27,16 @@ async function connectorCredentials(): Promise<StripeCredentials | null> {
 }
 
 export async function getStripeCredentials(): Promise<StripeCredentials> {
+  const connected = await connectorCredentials();
+  if (connected) {
+    return {
+      ...connected,
+      webhookSecret: connected.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET,
+    };
+  }
   const secretKey = process.env.STRIPE_SECRET_KEY;
   const publishableKey = process.env.STRIPE_PUBLISHABLE_KEY || process.env.VITE_STRIPE_PUBLISHABLE_KEY;
   if (secretKey && publishableKey) return { secretKey, publishableKey, webhookSecret: process.env.STRIPE_WEBHOOK_SECRET };
-  const connected = await connectorCredentials();
-  if (connected) return connected;
   throw new Error("Stripe is not configured yet.");
 }
 
