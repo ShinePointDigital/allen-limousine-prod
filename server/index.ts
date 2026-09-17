@@ -151,6 +151,26 @@ const paymentMethodAccessSchema = z.object({
 const deletePaymentMethodSchema = paymentMethodAccessSchema.extend({
   paymentMethodId: z.string().regex(/^pm_[A-Za-z0-9]+$/),
 });
+const flightLookupSchema = z.object({
+  flightNumber: z.string().trim().max(20),
+});
+const flightRouteAirportSchema = z.object({
+  iata_code: z.string().regex(/^[A-Za-z]{3}$/).optional(),
+  name: z.string().max(200).optional(),
+});
+const flightRouteResponseSchema = z.object({
+  response: z.object({
+    flightroute: z.object({
+      callsign_iata: z.string().optional(),
+      airline: z.object({
+        name: z.string().max(160).optional(),
+        iata: z.string().regex(/^[A-Za-z0-9]{2,3}$/).optional(),
+      }).optional(),
+      origin: flightRouteAirportSchema.optional(),
+      destination: flightRouteAirportSchema.optional(),
+    }).optional(),
+  }).optional(),
+});
 const authSchema = z.object({ email: z.string().email(), password: z.string().min(8).max(200) });
 const moneyCents = z.coerce.number().finite().min(0).max(10000000).transform(value => Math.round(value * 100));
 const rideUpdateSchema = z.object({
@@ -311,6 +331,75 @@ function verifyPaymentCapability(token: string): PaymentCapability | null {
 const superAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (res.locals.user?.role !== "SUPER_ADMIN") return res.status(403).json({ error: "Super-admin access is required." });
   next();
+};
+type FlightLookupResult = {
+  found: true;
+  flightNumber: string;
+  airline: string;
+  originAirportCode: string;
+  destinationAirportCode: string;
+  arrivalTerminal: string | null;
+};
+const flightLookupCache = new Map<string, { expiresAt: number; result: FlightLookupResult | null }>();
+const chicagoArrivalTerminals: Record<string, Record<string, string>> = {
+  ORD: {
+    UA: "Terminal 1",
+    AC: "Terminal 2",
+    AA: "Terminal 3",
+    AS: "Terminal 3",
+    NK: "Terminal 3",
+    DL: "Terminal 5",
+    BA: "Terminal 5",
+    LH: "Terminal 5",
+  },
+  MDW: {
+    WN: "Concourse B",
+    F9: "Concourse A",
+    PD: "Concourse A",
+  },
+};
+const normalizedFlightNumber = (value: string) => {
+  const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const match = normalized.match(/^([A-Z]{2}|[A-Z]\d|[A-Z]{3})(\d{1,4}[A-Z]?)$/);
+  return match ? `${match[1]} ${match[2]}` : "";
+};
+const getFlightLookup = async (flightNumber: string): Promise<FlightLookupResult | null> => {
+  const normalized = normalizedFlightNumber(flightNumber);
+  if (!normalized) return null;
+  const cached = flightLookupCache.get(normalized);
+  if (cached && cached.expiresAt > Date.now()) return cached.result;
+  try {
+    const response = await fetch(`https://api.adsbdb.com/v0/callsign/${encodeURIComponent(normalized.replace(" ", ""))}`, {
+      headers: { Accept: "application/json", "User-Agent": "ALLAN-Livery/1.0 flight lookup" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) {
+      flightLookupCache.set(normalized, { expiresAt: Date.now() + 60_000, result: null });
+      return null;
+    }
+    const parsed = flightRouteResponseSchema.safeParse(await response.json());
+    const route = parsed.success ? parsed.data.response?.flightroute : undefined;
+    const originAirportCode = route?.origin?.iata_code?.toUpperCase() || "";
+    const destinationAirportCode = route?.destination?.iata_code?.toUpperCase() || "";
+    if (!/^[A-Z]{3}$/.test(originAirportCode) || !/^[A-Z]{3}$/.test(destinationAirportCode)) {
+      flightLookupCache.set(normalized, { expiresAt: Date.now() + 60_000, result: null });
+      return null;
+    }
+    const airlineCode = route?.airline?.iata?.toUpperCase() || "";
+    const result: FlightLookupResult = {
+      found: true,
+      flightNumber: route?.callsign_iata || normalized,
+      airline: route?.airline?.name || airlineCode || normalized.split(" ")[0],
+      originAirportCode,
+      destinationAirportCode,
+      arrivalTerminal: chicagoArrivalTerminals[destinationAirportCode]?.[airlineCode] || null,
+    };
+    flightLookupCache.set(normalized, { expiresAt: Date.now() + 5 * 60_000, result });
+    return result;
+  } catch {
+    flightLookupCache.set(normalized, { expiresAt: Date.now() + 60_000, result: null });
+    return null;
+  }
 };
 
 app.post("/api/webhooks/twilio/status", webhookLimiter, async (req, res) => {
@@ -605,6 +694,12 @@ app.get("/api/location-search", publicReadLimiter, async (req, res) => {
   } catch (error) {
     res.status(422).json({ error: error instanceof Error ? error.message : "Location suggestions are temporarily unavailable." });
   }
+});
+app.get("/api/flight-lookup", publicReadLimiter, async (req, res) => {
+  const parsed = flightLookupSchema.safeParse({ flightNumber: String(req.query.flightNumber || "") });
+  if (!parsed.success) return res.status(400).json({ found: false });
+  const result = await getFlightLookup(parsed.data.flightNumber);
+  res.json(result ? result : { found: false });
 });
 app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
   const parsed = inquirySchema.safeParse(req.body);
