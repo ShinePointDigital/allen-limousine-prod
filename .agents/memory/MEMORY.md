@@ -2,3 +2,4 @@
 - [Customer tracking access](customer-tracking-access.md) — use expiring hashed capabilities separate from booking IDs; never fabricate operational details.
 - [PWA cache recovery](pwa-cache-recovery.md) — bypass Cache Storage for range/206 responses, and keep recovery code inline so it runs when bundles are blocked.
 - [Manual-capture booking lifecycle](manual-capture-booking-lifecycle.md) — activate bookings only after a Stripe hold; all completion paths must share idempotent capture.
+- [Replit production runtime](replit-production-runtime.md) — explicitly set production mode and republish after secret or environment changes.
