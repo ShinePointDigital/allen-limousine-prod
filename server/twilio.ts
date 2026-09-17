@@ -48,7 +48,7 @@ async function getAccountSid() {
   return accountSidPromise;
 }
 
-export async function sendDriverDispatchSms(to: string, body: string) {
+export async function sendSms(to: string, body: string) {
   const from = process.env.TWILIO_FROM_NUMBER;
   if (!from) throw new TwilioRequestError("SMS is not configured. Set TWILIO_FROM_NUMBER for the connected Twilio account.", true);
   let accountSid: string;
@@ -77,6 +77,8 @@ export async function sendDriverDispatchSms(to: string, body: string) {
   }
   return { providerMessageId: payload.sid || null, providerStatus: payload.status || null };
 }
+
+export const sendDriverDispatchSms = sendSms;
 
 export async function getDriverDispatchSms(providerMessageId: string) {
   if (!/^SM[0-9a-f]{32}$/i.test(providerMessageId)) throw new Error("Enter the Twilio message SID that begins with SM.");

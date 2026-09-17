@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finalizeAuthorizedInquiry, finishDispatchAttempt, getAdminContent, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, getStripeCustomerProfile, initializeStore, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, saveStripeCustomerProfile, sessionUser, updateAdmin, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent, validateRideUpdate } from "./store.js";
-import { classifyTwilioMessageStatus, getDriverDispatchSms, sendDriverDispatchSms, TwilioRequestError } from "./twilio.js";
+import { classifyTwilioMessageStatus, getDriverDispatchSms, sendSms, sendDriverDispatchSms, TwilioRequestError } from "./twilio.js";
 import { estimateFare, reverseGeocode, searchLocations } from "./fare-estimate.js";
 import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "./stripe-client.js";
 
@@ -92,6 +92,41 @@ const coordinatesSchema = z.object({
   lon: z.coerce.number().finite().min(-180).max(180),
 });
 const trackingTokenHash = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
+const trustedPublicHosts = new Set([
+  "allanlimousine.com",
+  "www.allanlimousine.com",
+  ...(process.env.REPLIT_DOMAINS || "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean),
+  ...(process.env.REPLIT_DEV_DOMAIN || "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean),
+]);
+const publicOrigin = (req: express.Request) => {
+  const configured = process.env.PUBLIC_APP_ORIGIN?.trim();
+  if (configured) {
+    const parsed = new URL(configured);
+    if (parsed.username || parsed.password || parsed.search || parsed.hash || (process.env.NODE_ENV === "production" && parsed.protocol !== "https:")) {
+      throw new Error("PUBLIC_APP_ORIGIN must be an HTTPS origin without credentials or query parameters.");
+    }
+    return parsed.origin;
+  }
+  const host = (req.get("host") || "").split(",")[0].trim().toLowerCase();
+  const hostname = host.replace(/:\d+$/, "");
+  const isKnownReplitHost = hostname.endsWith(".replit.app") || hostname.endsWith(".replit.dev");
+  const isLocalHost = ["localhost", "127.0.0.1"].includes(hostname);
+  if (!host || (!trustedPublicHosts.has(hostname) && !isKnownReplitHost && !(process.env.NODE_ENV !== "production" && isLocalHost))) {
+    throw new Error("No trusted public app origin is configured for booking links.");
+  }
+  if (process.env.NODE_ENV === "production" || !isLocalHost) return `https://${host}`;
+  return `${req.protocol}://${host}`;
+};
+const bookingTrackingUrl = (req: express.Request, token: string) => {
+  const url = new URL("/", publicOrigin(req));
+  url.searchParams.set("tracking", token);
+  return url.toString();
+};
+const sendBookingTrackingSms = async (req: express.Request, inquiry: { id: string; phone: string; estimatedFareCents?: number | null }, trackingToken: string) => {
+  const link = bookingTrackingUrl(req, trackingToken);
+  const fare = inquiry.estimatedFareCents == null ? "" : ` Estimated fare: $${Math.round(inquiry.estimatedFareCents / 100)}.`;
+  await sendSms(inquiry.phone, `ALLAN Livery: Booking ${inquiry.id.slice(-6).toUpperCase()} received.${fare} Follow your reservation and driver updates: ${link}`);
+};
 const stripeProfileSchema = z.object({
   fullName: z.string().trim().min(2).max(100),
   email: z.string().trim().email(),
@@ -404,8 +439,8 @@ app.post("/api/create-payment-intent", inquiryLimiter, async (req, res) => {
       if (!["canceled", "requires_payment_method"].includes(existing.status)) {
         if (existing.status === "requires_capture") {
           const activation = await activateAuthorizedBooking(parsed.data.bookingRequestId, parsed.data.trackingToken, inquiry.pickupAt, existing.id);
-          if (activation?.activatedNow) void sendDriverDispatchSms(inquiry.phone, `ALLAN Livery: Your booking request ${inquiry.id.slice(-6).toUpperCase()} was received. Estimated fare: $${Math.round(inquiry.estimatedFareCents / 100)}. We will confirm your chauffeur shortly.`)
-            .catch(error => console.warn("Booking authorized, but confirmation SMS was not sent:", error instanceof Error ? error.message : error));
+          if (activation?.activatedNow) void sendBookingTrackingSms(req, inquiry, parsed.data.trackingToken)
+            .catch(error => console.warn("Booking authorized, but confirmation SMS outcome could not be confirmed:", error instanceof Error ? error.message : error));
         }
         return res.json({ paymentIntentId: existing.id, status: existing.status, amount: existing.amount, trackingToken: parsed.data.trackingToken });
       }
@@ -434,8 +469,8 @@ app.post("/api/create-payment-intent", inquiryLimiter, async (req, res) => {
     });
     if (intent.status !== "requires_capture") throw new Error("The card authorization hold was not completed.");
     const activation = await activateAuthorizedBooking(parsed.data.bookingRequestId, parsed.data.trackingToken, inquiry.pickupAt, intent.id);
-    if (activation?.activatedNow) void sendDriverDispatchSms(inquiry.phone, `ALLAN Livery: Your booking request ${inquiry.id.slice(-6).toUpperCase()} was received. Estimated fare: $${Math.round(inquiry.estimatedFareCents / 100)}. We will confirm your chauffeur shortly.`)
-      .catch(error => console.warn("Booking authorized, but confirmation SMS was not sent:", error instanceof Error ? error.message : error));
+    if (activation?.activatedNow) void sendBookingTrackingSms(req, inquiry, parsed.data.trackingToken)
+      .catch(error => console.warn("Booking authorized, but confirmation SMS outcome could not be confirmed:", error instanceof Error ? error.message : error));
     res.json({ paymentIntentId: intent.id, status: intent.status, amount: intent.amount, trackingToken: parsed.data.trackingToken });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Card authorization was unsuccessful.";
@@ -616,6 +651,10 @@ app.get("/api/tracking/:token", publicReadLimiter, async (req, res) => {
       driverHeading: ride?.driverHeading ?? null,
       locationUpdatedAt: ride?.locationUpdatedAt || null,
       updatedAt: ride?.updatedAt || inquiry.updatedAt,
+       pickupLatitude: null,
+       pickupLongitude: null,
+       destinationLatitude: null,
+       destinationLongitude: null,
     },
   });
 });
