@@ -501,3 +501,176 @@
     gap: 10px;
   }
 }
+
+/* High-readability admin typography. */
+.admin-app {
+  --admin-text: #000;
+  --admin-muted: #000;
+  --admin-subtle: #000;
+  --admin-primary-dark: #000;
+  color: #000;
+}
+
+.admin-app :where(h1, h2, h3, h4, p, a, button, label, input, select, textarea, span, small, b, strong, time, th, td) {
+  color: #000 !important;
+}
+
+.admin-app :where(p, a, button, label, input, select, textarea, span, time, th, td) {
+  font-size: 20px !important;
+}
+
+.admin-app small {
+  font-size: 18px !important;
+}
+
+.admin-app :where(b, strong) {
+  font-size: 22px !important;
+}
+
+.admin-app h2 {
+  font-size: 36px !important;
+}
+
+.admin-app h3 {
+  font-size: 28px !important;
+}
+
+.admin-app .admin-sidebar {
+  width: 360px;
+}
+
+.admin-app .admin-main {
+  width: calc(100% - 360px);
+  margin-left: 360px;
+}
+
+.admin-app .admin-nav-label,
+.admin-app .breadcrumbs,
+.admin-app .topbar-right,
+.admin-app .eyebrow {
+  font-size: 20px;
+}
+
+.admin-app .admin-sidebar nav a {
+  min-height: 58px;
+  font-size: 24px;
+}
+
+.admin-app .profile-chip b,
+.admin-app .logout-button {
+  font-size: 22px;
+}
+
+.admin-app .profile-chip small {
+  font-size: 18px;
+}
+
+.admin-app .admin-page-header h1 {
+  font-size: clamp(60px, 6vw, 80px);
+}
+
+.admin-app .panel-header h2 {
+  font-size: 36px;
+}
+
+.admin-app .panel-header > a,
+.admin-app .text-button,
+.admin-app .outline-button,
+.admin-app .solid-button {
+  font-size: 20px;
+}
+
+.admin-app .stat-top,
+.admin-app .operation-callout b,
+.admin-app .ride-client b,
+.admin-app .ride-assignment b,
+.admin-app .inquiry-person b {
+  font-size: 22px;
+}
+
+.admin-app .stat-card strong {
+  font-size: 60px !important;
+}
+
+.admin-app .stat-card small,
+.admin-app .operation-callout small {
+  font-size: 20px;
+}
+
+.admin-app .ride-list-head,
+.admin-app .inquiry-list-head {
+  font-size: 16px;
+}
+
+.admin-app .ride-date b {
+  font-size: 32px;
+}
+
+.admin-app .ride-date span {
+  font-size: 14px !important;
+}
+
+.admin-app .ride-client small,
+.admin-app .ride-assignment small,
+.admin-app .inquiry-person small,
+.admin-app .inquiry-location small {
+  font-size: 18px;
+}
+
+.admin-app .ride-value {
+  font-size: 26px;
+}
+
+.admin-app .inquiry-date {
+  font-size: 18px;
+}
+
+.admin-app .filter-tabs button,
+.admin-app .search-box input,
+.admin-app .dispatch-filters input,
+.admin-app .assignment-toggle {
+  font-size: 20px;
+}
+
+.admin-app .status {
+  font-size: 16px !important;
+}
+
+.admin-app .toolbar,
+.admin-app .dispatch-toolbar {
+  flex-wrap: wrap;
+}
+
+.admin-app .search-box {
+  flex-basis: 440px;
+}
+
+@media (max-width: 1100px) {
+  .admin-app .admin-sidebar {
+    width: 300px;
+  }
+
+  .admin-app .admin-main {
+    width: calc(100% - 300px);
+    margin-left: 300px;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-app .admin-sidebar {
+    width: min(88vw, 360px);
+  }
+
+  .admin-app .admin-main {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .admin-app .admin-page-header h1 {
+    font-size: 60px;
+  }
+
+  .admin-app .search-box {
+    flex-basis: 100%;
+  }
+}
