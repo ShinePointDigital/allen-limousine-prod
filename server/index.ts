@@ -1012,8 +1012,23 @@ async function start() {
   await prepareApp();
   if (process.env.NODE_ENV === "production") {
     const dist = path.resolve(__dirname, "../dist");
-    app.use(express.static(dist, { maxAge: "1h" }));
-    app.get("*splat", (_req, res) => res.sendFile(path.join(dist, "index.html")));
+    app.use(express.static(dist, {
+      maxAge: "1h",
+      setHeaders: (res, filePath) => {
+        const fileName = path.basename(filePath);
+        if (fileName === "index.html" || fileName === "sw.js") {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        } else if (fileName === "manifest.json") {
+          res.setHeader("Cache-Control", "no-cache");
+        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    }));
+    app.get("*splat", (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.sendFile(path.join(dist, "index.html"));
+    });
   } else {
     const { createServer } = await import("vite");
     const vite = await createServer({

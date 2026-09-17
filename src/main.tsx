@@ -14,6 +14,7 @@ import "./pwa-gate.css";
 import "./pwa-navigation.css";
 import "./bloom.css";
 
+declare const __ALLAN_BUILD_ID__: string;
 const LEGACY_SERVICE_WORKER_RESET = "allen-sw-reset-2026-09-v4";
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
@@ -36,7 +37,26 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
       return;
     }
 
-    await navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    let reloadingForUpdate = false;
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController || reloadingForUpdate) return;
+      reloadingForUpdate = true;
+      window.location.reload();
+    });
+
+    const registration = await navigator.serviceWorker.register(
+      `/sw.js?build=${encodeURIComponent(__ALLAN_BUILD_ID__)}`,
+      { updateViaCache: "none" },
+    ).catch(() => null);
+    if (!registration) return;
+
+    const checkForUpdate = () => registration.update().catch(() => undefined);
+    window.addEventListener("online", checkForUpdate);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") void checkForUpdate();
+    });
+    window.setInterval(checkForUpdate, 15 * 60 * 1000);
   });
 }
 

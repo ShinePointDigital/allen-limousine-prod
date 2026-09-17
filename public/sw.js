@@ -1,24 +1,37 @@
-const CACHE = "allen-limo-shell-v4";
-const SHELL = ["/", "/manifest.json", "/allen-limousine-logo.png", "/pwa-icon-192.png", "/pwa-icon-512.png", "/pwa-icon-maskable-512.png", "/apple-touch-icon.png"];
+const BUILD_ID = "__ALLAN_BUILD_ID__";
+const CACHE_PREFIX = "allen-limo-shell-";
+const CACHE = `${CACHE_PREFIX}${BUILD_ID}`;
+const SHELL = ["/manifest.json", "/allen-limousine-logo.png", "/pwa-icon-192.png", "/pwa-icon-512.png", "/pwa-icon-maskable-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE).then(async cache => {
-    await Promise.allSettled(SHELL.map(asset => cache.add(asset)));
-    const html = await fetch("/");
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    const html = await fetch(new Request("/", { cache: "reload" }));
+    if (!html.ok) throw new Error(`Unable to cache the current application shell (${html.status}).`);
     const text = await html.clone().text();
     const assets = [...text.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(match => match[1]);
     await cache.put("/", html);
-    await Promise.allSettled([...new Set(assets)].map(asset => cache.add(asset)));
-  }));
-  self.skipWaiting();
+    await Promise.all(
+      [...new Set(assets)].map(asset => cache.add(new Request(asset, { cache: "reload" }))),
+    );
+    await Promise.allSettled(
+      SHELL.map(asset => cache.add(new Request(asset, { cache: "reload" }))),
+    );
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener("activate", event => {
   event.waitUntil((async () => {
-    await Promise.all((await caches.keys()).filter(key => key !== CACHE).map(key => caches.delete(key)));
+    const staleCaches = (await caches.keys()).filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE);
+    await Promise.all(staleCaches.map(key => caches.delete(key)));
     if ("navigationPreload" in self.registration) await self.registration.navigationPreload.enable();
+    await self.clients.claim();
+    if (staleCaches.length) {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      await Promise.all(windows.map(client => client.navigate(client.url).catch(() => undefined)));
+    }
   })());
-  self.clients.claim();
 });
 
 self.addEventListener("message", event => {
@@ -36,7 +49,7 @@ self.addEventListener("fetch", event => {
   event.respondWith((async () => {
     try {
       const preload = await event.preloadResponse;
-      const response = preload || await fetch(request);
+       const response = preload || await fetch(request, request.mode === "navigate" ? { cache: "no-store" } : undefined);
       if (response.ok && response.status !== 206 && (response.type === "basic" || response.type === "default")) {
         const copy = response.clone();
         event.waitUntil(

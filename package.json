@@ -10,6 +10,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "test:pwa": "node scripts/test-pwa-update.mjs",
     "typecheck": "tsc --noEmit"
   },
   "type": "module",
