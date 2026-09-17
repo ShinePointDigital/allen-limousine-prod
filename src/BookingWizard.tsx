@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, CalendarDays, CarFront, Check, Clock3, LocateFix
 import { RATE_TIER_PRICING, type RateTier } from "../shared/pricing.js";
 import StripeCardSetup, { type SavedPayment } from "./StripeCardSetup.js";
 import DispatchTrackingStep, { type ActiveReservation } from "./DispatchTrackingStep.js";
+import { readSavedPayment, rememberPwaTrip, saveSavedPayment } from "./pwa-state.js";
 
 type Point = { latitude: number; longitude: number };
 type Suggestion = Point & { label: string };
@@ -34,14 +35,6 @@ const AIRLINE_RULES: Record<string, AirlineRule> = {
 };
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
 const hasWelcomePromo = (code: string | null | undefined) => code === "WELCOME15" || code === "FIRST15";
-const readSavedPayment = (): SavedPayment | null => {
-  try {
-    const value = localStorage.getItem("allen-saved-payment");
-    return value ? JSON.parse(value) : null;
-  } catch {
-    return null;
-  }
-};
 const localDateTime = (offsetMinutes = 0) => {
   const value = new Date(Date.now() + offsetMinutes * 60_000);
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -143,11 +136,7 @@ export default function BookingWizard() {
   const [trackingLinkState, setTrackingLinkState] = useState<"idle" | "loading" | "ready" | "error">(trackingTokenFromUrl ? "loading" : "idle");
   const [activeReservation, setActiveReservation] = useState<ActiveReservation | null>(null);
   const savePayment = (payment: SavedPayment) => {
-    localStorage.setItem("allen-saved-payment", JSON.stringify(payment));
-    localStorage.setItem("stripe_customer_id", payment.customerId);
-    localStorage.setItem("default_payment_method_id", payment.paymentMethodId);
-    localStorage.setItem("card_brand", payment.cardBrand);
-    localStorage.setItem("card_last4", payment.cardLast4);
+    saveSavedPayment(payment);
     setSavedPayment(payment);
   };
 
@@ -169,6 +158,11 @@ export default function BookingWizard() {
     } catch { setContact(current => ({ ...current, ...riderProfile })); }
     else setContact(current => ({ ...current, ...riderProfile }));
     if (!needsOnboarding) useCurrentLocation();
+  }, []);
+  useEffect(() => {
+    const updatePayment = () => setSavedPayment(readSavedPayment());
+    window.addEventListener("allan-wallet-changed", updatePayment);
+    return () => window.removeEventListener("allan-wallet-changed", updatePayment);
   }, []);
   useEffect(() => {
     if (!trackingTokenFromUrl) return;
@@ -193,6 +187,16 @@ export default function BookingWizard() {
           flightNumber: reservation.flightNumber || undefined,
           pickupPoint: reservation.pickupLatitude != null && reservation.pickupLongitude != null ? { latitude: reservation.pickupLatitude, longitude: reservation.pickupLongitude } : undefined,
           destinationPoint: reservation.destinationLatitude != null && reservation.destinationLongitude != null ? { latitude: reservation.destinationLatitude, longitude: reservation.destinationLongitude } : undefined,
+          createdAt: reservation.updatedAt || new Date().toISOString(),
+        });
+        rememberPwaTrip({
+          trackingToken: trackingTokenFromUrl,
+          reference: reservation.reference,
+          pickupAt: reservation.pickupAt,
+          pickup: reservation.pickup,
+          destination: reservation.destination,
+          fareCents: reservation.fareCents || 0,
+          status: reservation.status || "NEW",
           createdAt: reservation.updatedAt || new Date().toISOString(),
         });
         setTrackingLinkState("ready");
@@ -371,6 +375,16 @@ export default function BookingWizard() {
       }
       if (!isPrivateFBO && !hasWelcomePromo(result.inquiry?.promoCode)) localStorage.removeItem("allan_first_ride_promo");
       setPaymentNotice(finalPaymentNotice);
+       rememberPwaTrip({
+         trackingToken,
+         reference: result.inquiry.id.slice(-6).toUpperCase(),
+         pickupAt: effectivePickupAt,
+         pickup: route.pickup,
+         destination: route.destination,
+         fareCents: result.inquiry.estimatedFareCents || 0,
+         status: "NEW",
+         createdAt: new Date().toISOString(),
+       });
       setSubmitState("success");
       setPendingTrackingToken("");
       setRideNowPickupAt("");

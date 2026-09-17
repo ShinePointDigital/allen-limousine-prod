@@ -11,6 +11,7 @@ import "./booking-wizard.css";
 import "./tracking.css";
 import "./tracking-recovery.css";
 import "./pwa-gate.css";
+import "./pwa-navigation.css";
 import "./bloom.css";
 
 const LEGACY_SERVICE_WORKER_RESET = "allen-sw-reset-2026-09-v4";

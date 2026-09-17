@@ -8,6 +8,8 @@ export type SavedPayment = {
   paymentMethodId: string;
   cardBrand: string;
   cardLast4: string;
+  cardExpMonth?: number;
+  cardExpYear?: number;
   capability: string;
 };
 

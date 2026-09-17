@@ -8,7 +8,7 @@ import {
 import "./dispatch.css";
 import { RATE_TIER_PRICING, type RateTier } from "../shared/pricing.js";
 import BookingWizard from "./BookingWizard";
-import { PWABottomNav } from "./PWAInstallBanner";
+import { PWABottomNav } from "./PWANavigation";
 import PWAInstallGate from "./PWAInstallGate";
 import heroCadillac from "./assets/hero-cadillac-downtown-night.jpg";
 

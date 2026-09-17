@@ -143,6 +143,14 @@ const paymentIntentSchema = z.object({
   capability: z.string().min(40).max(2000),
   trackingToken: z.string().regex(/^[a-f0-9]{64}$/),
 });
+const paymentMethodAccessSchema = z.object({
+  customerId: z.string().regex(/^cus_[A-Za-z0-9]+$/),
+  email: z.string().trim().email(),
+  capability: z.string().min(40).max(2000),
+});
+const deletePaymentMethodSchema = paymentMethodAccessSchema.extend({
+  paymentMethodId: z.string().regex(/^pm_[A-Za-z0-9]+$/),
+});
 const authSchema = z.object({ email: z.string().email(), password: z.string().min(8).max(200) });
 const moneyCents = z.coerce.number().finite().min(0).max(10000000).transform(value => Math.round(value * 100));
 const rideUpdateSchema = z.object({
@@ -404,6 +412,8 @@ app.post("/api/finalize-setup-intent", inquiryLimiter, async (req, res) => {
       paymentMethodId: paymentMethod.id,
       cardBrand: paymentMethod.card.brand,
       cardLast4: paymentMethod.card.last4,
+      cardExpMonth: paymentMethod.card.exp_month,
+      cardExpYear: paymentMethod.card.exp_year,
       capability: createPaymentCapability({
         customerId: parsed.data.customerId,
         paymentMethodId: paymentMethod.id,
@@ -475,6 +485,55 @@ app.post("/api/create-payment-intent", inquiryLimiter, async (req, res) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Card authorization was unsuccessful.";
     res.status(message === "Stripe is not configured yet." ? 503 : 402).json({ error: message });
+  }
+});
+const verifyPaymentMethodAccess = (data: z.infer<typeof paymentMethodAccessSchema>) => {
+  const capability = verifyPaymentCapability(data.capability);
+  return capability
+    && capability.customerId === data.customerId
+    && capability.email === data.email.toLowerCase()
+    ? capability
+    : null;
+};
+app.post("/api/payment-methods/list", inquiryLimiter, async (req, res) => {
+  const parsed = paymentMethodAccessSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid wallet access." });
+  if (!verifyPaymentMethodAccess(parsed.data)) return res.status(403).json({ error: "This wallet session is no longer authorized." });
+  try {
+    const stripe = await getStripeClient();
+    const customer = await stripe.customers.retrieve(parsed.data.customerId);
+    if (customer.deleted) return res.status(404).json({ error: "The payment profile is no longer available." });
+    const defaultPaymentMethod = typeof customer.invoice_settings.default_payment_method === "string"
+      ? customer.invoice_settings.default_payment_method
+      : customer.invoice_settings.default_payment_method?.id;
+    const methods = await stripe.paymentMethods.list({ customer: parsed.data.customerId, type: "card" });
+    res.json({
+      cards: methods.data.filter(method => method.card).map(method => ({
+        paymentMethodId: method.id,
+        brand: method.card!.brand,
+        last4: method.card!.last4,
+        expMonth: method.card!.exp_month,
+        expYear: method.card!.exp_year,
+        isDefault: method.id === defaultPaymentMethod,
+      })),
+    });
+  } catch (error) {
+    res.status(422).json({ error: error instanceof Error ? error.message : "Saved cards could not be loaded." });
+  }
+});
+app.post("/api/payment-methods/delete", inquiryLimiter, async (req, res) => {
+  const parsed = deletePaymentMethodSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid card removal request." });
+  if (!verifyPaymentMethodAccess(parsed.data)) return res.status(403).json({ error: "This wallet session is no longer authorized." });
+  try {
+    const stripe = await getStripeClient();
+    const paymentMethod = await stripe.paymentMethods.retrieve(parsed.data.paymentMethodId);
+    const methodCustomer = typeof paymentMethod.customer === "string" ? paymentMethod.customer : paymentMethod.customer?.id;
+    if (methodCustomer !== parsed.data.customerId) return res.status(403).json({ error: "That card does not belong to this wallet." });
+    await stripe.paymentMethods.detach(parsed.data.paymentMethodId);
+    res.json({ removed: parsed.data.paymentMethodId });
+  } catch (error) {
+    res.status(422).json({ error: error instanceof Error ? error.message : "That card could not be removed." });
   }
 });
 app.post("/api/admin/payments/:bookingRequestId/capture", admin, async (req, res) => {
