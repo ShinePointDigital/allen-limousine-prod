@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, Check, CreditCard, Headphones, LoaderCircle, Mail, MapPin, Phone, Plus, ShieldCheck, Trash2, WalletCards, X } from "lucide-react";
 import StripeCardSetup, { type SavedPayment } from "./StripeCardSetup.js";
-import { forgetPwaTrip, readPwaTrips, readSavedPayment, readWalletPayments, rememberPwaTrip, removeWalletPayment, replacePwaTrips, saveSavedPayment, type PwaTrip } from "./pwa-state.js";
+import { forgetPwaTrip, readPwaTrips, readSavedPayment, readWalletPayments, removeWalletPayment, replacePwaTrips, saveSavedPayment, type PwaTrip } from "./pwa-state.js";
 
 type Panel = "trips" | "wallet" | "support" | null;
 type StripeCard = {
