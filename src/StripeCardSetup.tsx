@@ -168,7 +168,9 @@ export default function StripeCardSetup({ fullName, email, savedPayment, onSaved
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => { api("/api/stripe/config").then(setConfig).catch(() => setConfig({ configured: false, publishableKey: null })); }, []);
-  const stripePromise = useMemo(() => config?.publishableKey ? loadStripe(config.publishableKey) : null, [config?.publishableKey]);
+  const stripePromise = useMemo(() => config?.publishableKey ? loadStripe(config.publishableKey, {
+    developerTools: { assistant: { enabled: false } },
+  }) : null, [config?.publishableKey]);
   const elementsOptions = useMemo<StripeElementsOptions | undefined>(() => intent ? ({
     clientSecret: intent.clientSecret,
     appearance: {
