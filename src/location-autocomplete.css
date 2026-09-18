@@ -1,0 +1,104 @@
+.location-autocomplete {
+  isolation: isolate;
+}
+
+.location-quick-picks {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.location-quick-picks > span {
+  color: #8f918a;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.location-quick-picks > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.location-quick-picks button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(201, 165, 106, .3);
+  background: rgba(201, 165, 106, .055);
+  padding: 8px 9px;
+  color: var(--bone);
+  text-align: left;
+  transition: border-color .18s ease, background-color .18s ease, transform .18s ease;
+}
+
+.location-quick-picks button:hover,
+.location-quick-picks button:focus-visible {
+  border-color: rgba(201, 165, 106, .8);
+  background: rgba(201, 165, 106, .13);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.location-quick-picks button > svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--brass-light);
+}
+
+.location-quick-picks button span,
+.location-quick-picks button b,
+.location-quick-picks button small {
+  display: block;
+  min-width: 0;
+}
+
+.location-quick-picks button b {
+  color: var(--bone);
+  font-size: 9px;
+  letter-spacing: .08em;
+}
+
+.location-quick-picks button small {
+  margin-top: 1px;
+  color: #94968f;
+  font-size: 7px;
+  letter-spacing: .04em;
+  text-transform: none;
+}
+
+.wizard-location > .location-quick-picks {
+  display: grid;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.wizard-location > section > .location-searching {
+  display: block;
+  padding: 12px;
+  color: var(--bone-dim);
+}
+
+.location-field .location-quick-picks > div {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.location-field .location-suggestions {
+  top: calc(100% + 7px);
+}
+
+@media(max-width:700px) {
+  .location-quick-picks > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .location-quick-picks button {
+    min-height: 43px;
+    padding: 8px 10px;
+  }
+}

@@ -8,6 +8,7 @@ import "./operations.css";
 import "./admin-comfort.css";
 import "./reservation-pricing.css";
 import "./booking-wizard.css";
+import "./location-autocomplete.css";
 import "./tracking.css";
 import "./tracking-recovery.css";
 import "./pwa-gate.css";

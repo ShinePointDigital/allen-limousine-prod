@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  ArrowDownRight, ArrowRight, Bell, CalendarDays, CarFront, Check, ChevronDown, ChevronLeft, LocateFixed, MapPin,
+  ArrowDownRight, ArrowRight, Bell, CalendarDays, CarFront, Check, ChevronDown, ChevronLeft, MapPin,
   CircleDollarSign, Clock3, FileDown, LayoutDashboard, LogOut, Menu, MessageSquareText, Minus,
   Pencil, Plane, Plus, Search, Settings, ShieldCheck, Sparkles, UserRound, Trash2, WalletCards, X, Navigation, RefreshCw,
 } from "lucide-react";
 import "./dispatch.css";
 import { RATE_TIER_PRICING, type RateTier } from "../shared/pricing.js";
 import BookingWizard from "./BookingWizard";
+import LocationAutocomplete from "./LocationAutocomplete";
 import { PWABottomNav } from "./PWANavigation";
 import PWAInstallGate from "./PWAInstallGate";
 import heroCadillac from "./assets/hero-cadillac-downtown-night.jpg";
@@ -148,112 +149,12 @@ function Home() {
   </main>;
 }
 
-type LocationSuggestion = { label: string; latitude: number; longitude: number };
 type LocationCoordinates = { latitude: number; longitude: number };
-
-let googlePlacesLoader: Promise<boolean> | null = null;
-function loadGooglePlaces() {
-  const googleWindow = window as Window & { google?: any };
-  if (googleWindow.google?.maps?.places) return Promise.resolve(true);
-  const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-  if (!key) return Promise.resolve(false);
-  if (googlePlacesLoader) return googlePlacesLoader;
-  googlePlacesLoader = new Promise(resolve => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-allan-google-places="true"]');
-    if (existing) {
-      existing.addEventListener("load", () => resolve(Boolean(googleWindow.google?.maps?.places)), { once: true });
-      existing.addEventListener("error", () => resolve(false), { once: true });
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&loading=async`;
-    script.async = true;
-    script.dataset.allanGooglePlaces = "true";
-    script.onload = () => resolve(Boolean(googleWindow.google?.maps?.places));
-    script.onerror = () => resolve(false);
-    document.head.appendChild(script);
-  });
-  return googlePlacesLoader;
-}
 
 const currentLocalDateTime = () => {
   const now = new Date();
   return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
-
-function LocationField({ id, label, value, placeholder, onChange, onSelect, onUseLocation, locationState }: {
-  id: string;
-  label: string;
-  value: string;
-  placeholder: string;
-  onChange: (value: string) => void;
-  onSelect: (value: string, coordinates: LocationCoordinates) => void;
-  onUseLocation?: () => void;
-  locationState?: "idle" | "locating" | "live" | "manual" | "unavailable";
-}) {
-  const [focused, setFocused] = useState(false);
-  const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [usingGooglePlaces, setUsingGooglePlaces] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    let listener: { remove?: () => void } | undefined;
-    let active = true;
-    loadGooglePlaces().then(available => {
-      if (!active || !available || !inputRef.current) return;
-      const googleWindow = window as Window & { google?: any };
-      const autocomplete = new googleWindow.google.maps.places.Autocomplete(inputRef.current, {
-        componentRestrictions: { country: "us" },
-        fields: ["formatted_address", "geometry", "name"],
-      });
-      listener = autocomplete.addListener("place_changed", () => {
-        const place = autocomplete.getPlace();
-        const latitude = place.geometry?.location?.lat();
-        const longitude = place.geometry?.location?.lng();
-        const selectedValue = place.formatted_address || place.name;
-        if (selectedValue && Number.isFinite(latitude) && Number.isFinite(longitude)) {
-          onSelect(selectedValue, { latitude, longitude });
-          setFocused(false);
-        }
-      });
-      setUsingGooglePlaces(true);
-    });
-    return () => { active = false; listener?.remove?.(); };
-  }, []);
-
-  useEffect(() => {
-    const query = value.trim();
-    if (usingGooglePlaces || !focused || query.length < 3) { setSuggestions([]); setSearching(false); return; }
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setSearching(true);
-      try {
-        const result = await api(`/api/location-search?q=${encodeURIComponent(query)}`, { signal: controller.signal });
-        setSuggestions(result.locations || []);
-      } catch {
-        if (!controller.signal.aborted) setSuggestions([]);
-      } finally {
-        if (!controller.signal.aborted) setSearching(false);
-      }
-    }, 450);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [focused, usingGooglePlaces, value]);
-
-  return <div className="location-field">
-    <label htmlFor={id}>{label}</label>
-    <div className="location-input-wrap">
-      <MapPin aria-hidden="true" />
-      <input ref={inputRef} id={id} required value={value} onFocus={() => setFocused(true)} onChange={event => onChange(event.target.value)} placeholder={placeholder} autoComplete="off" />
-      {onUseLocation && <button type="button" className="use-location-button" onClick={onUseLocation} disabled={locationState === "locating"} aria-label="Use my current location" title="Use my current location"><LocateFixed /></button>}
-    </div>
-    {locationState && <small className={`location-status location-${locationState}`}>{locationState === "locating" ? "Finding your current location…" : locationState === "live" ? "Current location added" : locationState === "unavailable" ? "Location unavailable—enter your pickup manually" : locationState === "manual" ? "Manual pickup location" : ""}</small>}
-    {focused && (searching || suggestions.length > 0) && <div className="location-suggestions" role="listbox">
-      {searching && <span>Finding locations…</span>}
-      {!searching && suggestions.map(suggestion => <button type="button" key={`${suggestion.latitude}-${suggestion.longitude}`} onClick={() => { onSelect(suggestion.label, suggestion); setFocused(false); setSuggestions([]); }}><MapPin /> <span>{suggestion.label}</span></button>)}
-    </div>}
-  </div>;
-}
 
 type AirportCode = "ORD" | "MDW";
 const AIRPORT_TERMINALS: Record<AirportCode, { value: string; label: string }[]> = {
@@ -412,8 +313,8 @@ function Reservation({ services }: { services: Service[] }) {
             <div className="form-row"><label>Name<input required value={form.fullName} onChange={event => update("fullName", event.target.value)} placeholder="Your name" /></label><label>Email<input required type="email" value={form.email} onChange={event => update("email", event.target.value)} placeholder="you@company.com" /></label></div>
             <div className="form-row"><label>Service date<span className="date-input-wrap"><CalendarDays /><input required type="datetime-local" min={initialPickupAt} value={form.pickupAt} onChange={event => update("pickupAt", event.target.value)} /></span></label><label>Service type<select value={form.serviceType} onChange={event => update("serviceType", event.target.value)}>{services.map(service => <option key={service.id}>{service.title}</option>)}{!services.some(service => service.title === "Hourly Charter") && <option>Hourly Charter</option>}</select></label></div>
             <div className="form-row">
-              <LocationField id="pickup-location" label="Pick-up location" value={form.pickup} onChange={value => { update("pickup", value); setPickupLocationState("manual"); setLocationCoordinates(current => ({ ...current, pickup: undefined })); }} onSelect={(value, coordinates) => { update("pickup", value); setPickupLocationState("manual"); setLocationCoordinates(current => ({ ...current, pickup: coordinates })); }} onUseLocation={useLivePickup} locationState={pickupLocationState} placeholder="Use current location or search" />
-              <LocationField id="destination-location" label="Drop-off location" value={form.destination} onChange={value => { update("destination", value); setLocationCoordinates(current => ({ ...current, destination: undefined })); }} onSelect={(value, coordinates) => { update("destination", value); setLocationCoordinates(current => ({ ...current, destination: coordinates })); }} placeholder="Search address, airport, or landmark" />
+              <LocationAutocomplete variant="reservation" id="pickup-location" label="Pick-up location" value={form.pickup} onChange={value => { update("pickup", value); setPickupLocationState("manual"); setLocationCoordinates(current => ({ ...current, pickup: undefined })); }} onSelect={(value, coordinates) => { update("pickup", value); setPickupLocationState("manual"); setLocationCoordinates(current => ({ ...current, pickup: coordinates })); }} onUseLocation={useLivePickup} locationState={pickupLocationState} placeholder="Use current location or search" />
+              <LocationAutocomplete variant="reservation" id="destination-location" label="Drop-off location" value={form.destination} onChange={value => { update("destination", value); setLocationCoordinates(current => ({ ...current, destination: undefined })); }} onSelect={(value, coordinates) => { update("destination", value); setLocationCoordinates(current => ({ ...current, destination: coordinates })); }} placeholder="Search address, airport, or landmark" />
             </div>
             {airportDetailsVisible && <div className="airport-details-panel">
               <div className="airport-details-heading"><div><p className="eyebrow brass">Airport details</p><h4>Coordinate every arrival.</h4></div><span>{airportDetails.airportCode}</span></div>
