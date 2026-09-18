@@ -89,8 +89,21 @@ export default function DispatchTrackingStep({ reservation, onComplete }: { rese
   const [refreshing, setRefreshing] = useState(false);
   const [statusError, setStatusError] = useState("");
   const [mapFailed, setMapFailed] = useState(false);
+  const [mapAuthReady, setMapAuthReady] = useState(false);
   const mapsKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
   const mapsMapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID as string | undefined;
+  useEffect(() => {
+    const googleWindow = window as Window & { gm_authFailure?: () => void };
+    const previousAuthFailure = googleWindow.gm_authFailure;
+    googleWindow.gm_authFailure = () => {
+      setMapFailed(true);
+      previousAuthFailure?.();
+    };
+    setMapAuthReady(true);
+    return () => {
+      googleWindow.gm_authFailure = previousAuthFailure;
+    };
+  }, []);
   const fetchStatus = async () => {
     setRefreshing(true);
     try {
@@ -139,7 +152,7 @@ export default function DispatchTrackingStep({ reservation, onComplete }: { rese
     <div className="tracking-confirmation"><Check /><div><b>{statusCopy[0]}</b><span>{statusCopy[1]}</span></div><i>LIVE</i></div>
     {statusError && <div className="tracking-error"><span>{statusError}</span><button onClick={fetchStatus}>Try again</button><button onClick={onComplete}>Clear saved trip</button></div>}
     <div className="tracking-map">
-      {mapsKey && !mapFailed ? <APIProvider apiKey={mapsKey} onError={() => setMapFailed(true)}><LiveGoogleMap reservation={reservation} live={live} mapId={mapsMapId} /></APIProvider> : <StaticNightMap pickup={reservation.pickup} destination={reservation.destination} showDriver={hasDriverLocation} />}
+      {mapsKey && mapAuthReady && !mapFailed ? <APIProvider apiKey={mapsKey} onError={() => setMapFailed(true)}><LiveGoogleMap reservation={reservation} live={live} mapId={mapsMapId} /></APIProvider> : <StaticNightMap pickup={reservation.pickup} destination={reservation.destination} showDriver={hasDriverLocation} />}
       <div className="tracking-eta"><Navigation /><span><small>Pickup</small><b>{new Date(reservation.pickupAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</b></span></div>
     </div>
     <div className="tracking-grid">

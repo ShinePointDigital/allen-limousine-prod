@@ -16,7 +16,7 @@ import "./pwa-navigation.css";
 import "./bloom.css";
 
 declare const __ALLAN_BUILD_ID__: string;
-const LEGACY_SERVICE_WORKER_RESET = "allen-sw-reset-2026-09-v4";
+const LEGACY_SERVICE_WORKER_RESET = "allen-sw-reset-2026-09-v5";
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", async () => {
