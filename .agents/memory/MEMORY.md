@@ -4,3 +4,4 @@
 - [Manual-capture booking lifecycle](manual-capture-booking-lifecycle.md) — activate bookings only after a Stripe hold; all completion paths must share idempotent capture.
 - [Replit production runtime](replit-production-runtime.md) — explicitly set production mode and republish after secret or environment changes.
 - [Vercel deployment diagnostics](vercel-deployment-diagnostics.md) — GitHub status shows success/failure, but build details require an attached Vercel connection.
+- [GitHub connector publishing](github-connector-publishing.md) — when HTTPS Git auth is unavailable, publish a complete tree through the connected GitHub API and realign only after tree hashes match.
