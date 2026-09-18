@@ -131,7 +131,16 @@ function Home() {
     </section>
     <section id="services" className="services-section section-pad">
       <div className="section-heading services-heading"><div><p className="eyebrow brass">— The way we move</p><h2>Every mile,<br /><em>considered.</em></h2></div><div className="section-aside"><p>A private service calibrated to the rhythm of the city—and the people who have places to be.</p><a className="text-button services-booking-link" href="#reserve">Book your service <ArrowUpRight /></a></div></div>
-      <div className="service-list">{content.services.slice(0, 3).map((service, index) => <article className="service-row" key={service.id}><div className="service-row-copy"><h3>{index === 0 ? "Executive Travel" : index === 1 ? "Airport Transfers" : "Evenings & Events"}</h3><p>{service.description}</p></div><a className="service-badge" href="#reserve" aria-label={`Book ${index === 0 ? "Executive Travel" : index === 1 ? "Airport Transfers" : "Evenings and Events"}`}><ArrowUpRight /></a></article>)}</div>
+       <div className="service-list">{content.services.slice(0, 3).map((service, index) => {
+         const serviceTitle = index === 0 ? "Executive Travel" : index === 1 ? "Airport Transfers" : "Evenings & Events";
+         const serviceImage = index === 0 ? "/images/service-executive-downtown.jpg" : index === 1 ? "/images/service-airport-terminal.jpg" : "/images/service-evening-chicago.jpg";
+         return <article className="service-row" key={service.id}>
+           <div className="service-row-media" style={{ backgroundImage: `url("${serviceImage}")` }} aria-hidden="true" />
+           <div className="service-row-shade" aria-hidden="true" />
+           <div className="service-row-copy"><h3>{serviceTitle}</h3><p>{service.description}</p></div>
+           <a className="service-badge" href="#reserve" aria-label={`Book ${serviceTitle}`}><ArrowUpRight /></a>
+         </article>;
+       })}</div>
     </section>
     {!pwaMode && <BookingWizard />}
     <PWABottomNav />

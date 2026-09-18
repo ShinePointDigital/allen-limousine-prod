@@ -26,17 +26,20 @@
 .service-row p{color:var(--bone-dim)}
 .service-badge{border-color:rgba(201,165,106,.65);color:var(--brass-light)}
 .services-section .service-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;border-top:0}
-.services-section .service-row{position:relative;isolation:isolate;display:flex;min-height:390px;overflow:hidden;flex-direction:column;align-items:stretch;gap:28px;border:1px solid rgba(201,165,106,.24);background:linear-gradient(145deg,rgba(19,22,25,.94),rgba(5,6,6,.98));padding:28px;box-shadow:0 28px 70px rgba(0,0,0,.28);transition:transform .3s ease,border-color .3s ease,box-shadow .3s ease}
+.services-section .service-row{position:relative;isolation:isolate;display:flex;min-height:390px;overflow:hidden;flex-direction:column;align-items:stretch;gap:28px;border:1px solid rgba(201,165,106,.24);background:linear-gradient(145deg,rgba(19,22,25,.62),rgba(5,6,6,.78));padding:28px;box-shadow:0 28px 70px rgba(0,0,0,.28);transition:transform .3s ease,border-color .3s ease,box-shadow .3s ease}
+.services-section .service-row-media{position:absolute;z-index:-3;inset:-2px;background-position:center;background-size:cover;filter:saturate(.64) contrast(1.04);transform:scale(1.02);transition:transform .6s ease,filter .6s ease}
+.services-section .service-row-shade{position:absolute;z-index:-2;inset:0;background:linear-gradient(180deg,rgba(5,6,6,.46) 0%,rgba(5,6,6,.3) 38%,rgba(5,6,6,.94) 100%),linear-gradient(90deg,rgba(5,6,6,.28),transparent 72%);pointer-events:none}
 .services-section .service-row::before,.services-section .service-row::after{position:absolute;z-index:-1;border-radius:50%;content:"";pointer-events:none;filter:blur(6px);will-change:transform,opacity}
 .services-section .service-row::before{top:-38%;left:-44%;width:120%;aspect-ratio:1;background:radial-gradient(circle,rgba(var(--bloom-sapphire),.36),rgba(var(--bloom-sapphire),.09) 38%,transparent 69%);animation:card-sapphire-bloom 9s ease-in-out infinite alternate}
 .services-section .service-row::after{right:-48%;bottom:-42%;width:125%;aspect-ratio:1;background:radial-gradient(circle,rgba(var(--bloom-gold),.34),rgba(var(--bloom-gold),.08) 39%,transparent 70%);animation:card-gold-bloom 11s ease-in-out infinite alternate}
 .services-section .service-row:nth-child(2)::before{animation-delay:-3s;animation-duration:11s}.services-section .service-row:nth-child(2)::after{animation-delay:-6s;animation-duration:9s}.services-section .service-row:nth-child(3)::before{animation-delay:-7s;animation-duration:10s}.services-section .service-row:nth-child(3)::after{animation-delay:-2s;animation-duration:12s}
 .services-section .service-row:hover{transform:translateY(-7px);border-color:rgba(201,165,106,.6);box-shadow:0 34px 85px rgba(0,0,0,.4),0 0 45px rgba(var(--bloom-sapphire),.1),0 0 55px rgba(var(--bloom-gold),.08)}
+.services-section .service-row:hover .service-row-media{filter:saturate(.78) contrast(1.04);transform:scale(1.07)}
 .services-section .service-row .card-number{align-self:auto;padding:0;color:var(--brass);font-size:9px}
-.services-section .service-row-copy{display:flex;flex:1;flex-direction:column;align-items:flex-start;gap:22px}
-.services-section .service-row h3{max-width:260px;color:var(--bone);font-size:clamp(37px,3.5vw,54px);line-height:.92}
-.services-section .service-row p{max-width:330px;color:#a7a8a1;font-size:10px;line-height:1.85}
-.services-section .service-badge{align-self:flex-end;flex:0 0 auto;margin-top:auto;background:rgba(8,9,9,.48);backdrop-filter:blur(8px)}
+.services-section .service-row-copy{position:relative;z-index:1;display:flex;flex:1;flex-direction:column;align-items:flex-start;gap:22px}
+.services-section .service-row h3{max-width:260px;color:#fffdf7;font-size:clamp(37px,3.5vw,54px);line-height:.92;text-shadow:0 2px 18px rgba(0,0,0,.6)}
+.services-section .service-row p{max-width:330px;color:#f1eee5;font-size:10px;line-height:1.85;text-shadow:0 2px 12px rgba(0,0,0,.72)}
+.services-section .service-badge{position:relative;z-index:1;align-self:flex-end;flex:0 0 auto;margin-top:auto;background:rgba(8,9,9,.48);backdrop-filter:blur(8px)}
 .services-section .service-badge:hover{background:rgba(201,165,106,.14)}
 
 .about-section{position:relative;isolation:isolate;overflow:hidden;background:#050606;padding-top:140px;padding-bottom:140px;border-bottom:1px solid rgba(201,165,106,.16)}
