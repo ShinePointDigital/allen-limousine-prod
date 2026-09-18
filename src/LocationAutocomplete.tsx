@@ -244,15 +244,25 @@ export default function LocationAutocomplete({
     onSelect(location.address, location.point, location);
   };
 
-  const quickPicks = <nav className="location-quick-picks" aria-label={`${label} quick locations`}>
-    <span>Quick select</span>
+  const quickPicks = <label className="location-quick-select">
+    <span>Airport or FBO</span>
     <div>
-      {CHICAGO_QUICK_LOCATIONS.map(location => <button type="button" key={location.code} onClick={() => chooseQuickLocation(location)} title={location.label}>
-        <Plane aria-hidden="true" />
-        <span><b>{location.code}</b><small>{location.kind === "fbo" ? "Private" : "Airport"}</small></span>
-      </button>)}
+      <Plane aria-hidden="true" />
+      <select
+        value=""
+        aria-label={`Select ${label.toLowerCase()} airport or FBO`}
+        onChange={event => {
+          const location = CHICAGO_QUICK_LOCATIONS.find(item => item.code === event.target.value);
+          if (location) chooseQuickLocation(location);
+        }}
+      >
+        <option value="">Select airport or FBO</option>
+        {CHICAGO_QUICK_LOCATIONS.map(location => <option key={location.code} value={location.code}>
+          {location.code} — {location.label}
+        </option>)}
+      </select>
     </div>
-  </nav>;
+  </label>;
 
   const suggestionList = focused && (searching || suggestions.length > 0)
     ? variant === "wizard"

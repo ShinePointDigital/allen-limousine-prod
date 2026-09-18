@@ -224,13 +224,13 @@ function Reservation({ services }: { services: Service[] }) {
 
   useEffect(() => { if (services.length && !form.serviceType) setForm(current => ({ ...current, serviceType: services[0].title })); }, [services, form.serviceType]);
   useEffect(() => { useLivePickup(); }, []);
-  const detectedAirport = detectAirport(`${form.pickup} ${form.destination}`);
-  const airportDetailsVisible = form.serviceType.toLowerCase().includes("airport transfer") || Boolean(detectedAirport);
+  const pickupAirport = detectAirport(form.pickup);
+  const airportDetailsVisible = Boolean(pickupAirport);
   useEffect(() => {
-    if (detectedAirport && detectedAirport !== airportDetails.airportCode) {
-      setAirportDetails(current => ({ ...current, airportCode: detectedAirport, terminal: "" }));
+    if (pickupAirport && pickupAirport !== airportDetails.airportCode) {
+      setAirportDetails(current => ({ ...current, airportCode: pickupAirport, terminal: "" }));
     }
-  }, [detectedAirport, airportDetails.airportCode]);
+  }, [pickupAirport, airportDetails.airportCode]);
   useEffect(() => {
     const pickup = form.pickup.trim();
     const destination = form.destination.trim();
@@ -319,8 +319,8 @@ function Reservation({ services }: { services: Service[] }) {
             {airportDetailsVisible && <div className="airport-details-panel">
               <div className="airport-details-heading"><div><p className="eyebrow brass">Airport details</p><h4>Coordinate every arrival.</h4></div><span>{airportDetails.airportCode}</span></div>
               <div className="form-row">
-                <label>Airport<select value={airportDetails.airportCode} onChange={event => setAirportDetails(current => ({ ...current, airportCode: event.target.value as AirportCode, terminal: "" }))}><option value="ORD">O’Hare International Airport (ORD)</option><option value="MDW">Midway International Airport (MDW)</option></select></label>
-                <label>Terminal / concourse<select required value={airportDetails.terminal} onChange={event => setAirportDetails(current => ({ ...current, terminal: event.target.value }))}><option value="">Select terminal or concourse</option>{AIRPORT_TERMINALS[airportDetails.airportCode].map(terminal => <option key={terminal.value} value={terminal.value}>{terminal.label}</option>)}</select></label>
+                <label>Pickup airport<input readOnly value={`${airportDetails.airportCode} · ${airportDetails.airportCode === "ORD" ? "O’Hare International Airport" : "Midway International Airport"}`} /></label>
+                <label>Pickup terminal / concourse<select required value={airportDetails.terminal} onChange={event => setAirportDetails(current => ({ ...current, terminal: event.target.value }))}><option value="">Select pickup terminal or concourse</option>{AIRPORT_TERMINALS[airportDetails.airportCode].map(terminal => <option key={terminal.value} value={terminal.value}>{terminal.label}</option>)}</select></label>
               </div>
               <div className="form-row">
                 <label>Flight number<input required value={airportDetails.flightNumber} onChange={event => setAirportDetails(current => ({ ...current, flightNumber: event.target.value.toUpperCase() }))} placeholder="UA 1234" /></label>

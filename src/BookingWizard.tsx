@@ -5,6 +5,7 @@ import StripeCardSetup, { type SavedPayment } from "./StripeCardSetup.js";
 import DispatchTrackingStep, { type ActiveReservation } from "./DispatchTrackingStep.js";
 import { readSavedPayment, rememberPwaTrip, saveSavedPayment } from "./pwa-state.js";
 import LocationAutocomplete, { type QuickLocation } from "./LocationAutocomplete.js";
+import { bookingSuccessTransition, isPwaLaunch } from "./booking-success.js";
 
 type Point = { latitude: number; longitude: number };
 type Fare = { fareCents: number; miles: number; minutes: number; eventVenue?: { name: string } | null; eventSurchargeCents?: number };
@@ -44,8 +45,11 @@ const localDateTime = (offsetMinutes = 0) => {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
 const launchedAsPwa = () =>
-  window.matchMedia("(display-mode: standalone)").matches ||
-  Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+  isPwaLaunch(
+    window.location.search,
+    window.matchMedia("(display-mode: standalone)").matches,
+    Boolean((navigator as Navigator & { standalone?: boolean }).standalone),
+  );
 const detectAirport = (value: string): AirportCode | null => {
   const text = value.toLowerCase().replace(/[^a-z0-9]+/g, " ");
   if (text.includes("o hare") || text.includes("ohare") || /\bord\b/.test(text)) return "ORD";
@@ -119,8 +123,9 @@ export default function BookingWizard() {
 
   const pickup = typeof route.pickup === "string" ? route.pickup : "";
   const destination = typeof route.destination === "string" ? route.destination : "";
-  const routeAirport = detectAirport(`${pickup} ${destination}`);
-  const detectedAirport = routeAirport || airport.code;
+  const pickupAirport = detectAirport(pickup);
+  const routeAirport = pickupAirport || detectAirport(destination);
+  const detectedAirport = pickupAirport;
   useEffect(() => {
     try { localStorage.removeItem("allen_active_reservation"); } catch { /* Storage may be unavailable in private browsing. */ }
     const riderProfile = {
@@ -198,18 +203,18 @@ export default function BookingWizard() {
     return () => window.removeEventListener("allen-booking-prefill", prefill);
   }, []);
   useEffect(() => {
-    if (!routeAirport) {
+    if (!pickupAirport) {
       setAirport(current => current.code || current.originCode || current.destinationCode
         ? { code: null, terminal: "", flight: "", airline: "", originCode: "", destinationCode: "" }
         : current);
       return;
     }
     setAirport(current => {
-      if (current.code === routeAirport) return current;
-      const parsed = parseFlightNumber(current.flight, routeAirport);
-      return { ...current, code: routeAirport, terminal: parsed.terminal, airline: parsed.airline, originCode: "", destinationCode: "" };
+      if (current.code === pickupAirport) return current;
+      const parsed = parseFlightNumber(current.flight, pickupAirport);
+      return { ...current, code: pickupAirport, terminal: parsed.terminal, airline: parsed.airline, originCode: "", destinationCode: "" };
     });
-  }, [routeAirport]);
+  }, [pickupAirport]);
   useEffect(() => {
     const parsed = parseFlightNumber(airport.flight, routeAirport);
     if (!airport.flight || !parsed.valid) {
@@ -313,7 +318,10 @@ export default function BookingWizard() {
   const flightMatchesAirport = !detectedAirport || !parsedFlight.ruleAirport || parsedFlight.ruleAirport === detectedAirport;
   const flightReady = Boolean(parsedFlight.valid && flightMatchesAirport && airport.terminal);
   const fboReady = Object.values(fboDetails).every(value => value.trim().length > 1);
-  const canContinueRoute = pickup.trim().length > 2 && destination.trim().length > 2 && (!isPrivateFBO || fboReady);
+  const canContinueRoute = pickup.trim().length > 2
+    && destination.trim().length > 2
+    && (!isPrivateFBO || fboReady)
+    && (!pickupAirport || Boolean(airport.terminal));
   const profileValid = validRiderProfile(contact);
   const updateFlight = (value: string) => {
     const parsed = parseFlightNumber(value, routeAirport);
@@ -411,8 +419,8 @@ export default function BookingWizard() {
         setPromoCode("");
       }
       if (!isPrivateFBO && !hasWelcomePromo(result.inquiry?.promoCode)) localStorage.removeItem("allan_first_ride_promo");
-      setPaymentNotice(finalPaymentNotice);
-       rememberPwaTrip({
+       setPaymentNotice(finalPaymentNotice);
+       const activeTrip = {
          trackingToken,
          reference: result.inquiry.id.slice(-6).toUpperCase(),
          pickupAt: effectivePickupAt,
@@ -421,8 +429,28 @@ export default function BookingWizard() {
          fareCents: result.inquiry.estimatedFareCents || 0,
          status: "NEW",
          createdAt: new Date().toISOString(),
-       });
-      setSubmitState("success");
+        };
+       rememberPwaTrip(activeTrip);
+        const successTransition = bookingSuccessTransition(launchedAsPwa(), {
+           trackingToken,
+           inquiryId: result.inquiry.id,
+           pickupAt: effectivePickupAt,
+           pickup: route.pickup,
+           destination: route.destination,
+           fareCents: activeTrip.fareCents,
+           paymentNotice: finalPaymentNotice,
+           cardLast4: savedPayment.cardLast4,
+           flightNumber: airport.flight || undefined,
+           pickupPoint: points.pickup,
+           destinationPoint: points.destination,
+           createdAt: activeTrip.createdAt,
+         });
+        if (successTransition.view === "tracking") {
+          setActiveReservation(successTransition.reservation);
+         setSubmitState("idle");
+       } else {
+         setSubmitState("success");
+       }
       setPendingTrackingToken("");
       setRideNowPickupAt("");
     } catch (reason) {
@@ -470,9 +498,9 @@ export default function BookingWizard() {
           <LocationAutocomplete id="wizard-pickup-location" label="Pickup location" value={pickup} placeholder="Address, hotel, airport, or landmark" onUseLocation={useCurrentLocation} onChange={value => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: undefined })); }} onSelect={(value, point, quickLocation) => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: point })); applyQuickLocation(quickLocation); }} />
           <small className="wizard-location-status">{locationStatus}</small>
            <LocationAutocomplete id="wizard-destination-location" label="Drop-off location" value={destination} placeholder="Where should we take you?" onChange={value => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: undefined })); }} onSelect={(value, point, quickLocation) => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: point })); applyQuickLocation(quickLocation); }} />
-           {isPrivateFBO ? <div className="wizard-fbo-fields"><header><Plane /><div><b>Private aviation details</b><span>Required for ramp access and FBO coordination.</span></div></header><label className="wizard-field">Specific Tail Number<input required maxLength={40} value={fboDetails.specificTailNumber} onChange={event => setFboDetails(current => ({ ...current, specificTailNumber: event.target.value.toUpperCase() }))} placeholder="N123AB" autoComplete="off" /></label><label className="wizard-field">Passenger Name / Principal<input required maxLength={100} value={fboDetails.principalName} onChange={event => setFboDetails(current => ({ ...current, principalName: event.target.value }))} placeholder="Passenger or principal name" /></label><label className="wizard-field">FBO / Jet Center Name<input required maxLength={100} value={fboDetails.fboName} onChange={event => setFboDetails(current => ({ ...current, fboName: event.target.value }))} placeholder="Signature, Atlantic, Hawthorne…" autoComplete="off" /></label><label className="wizard-field wizard-fbo-instructions">Ramp/Tarmac Escort Instructions<textarea required maxLength={400} value={fboDetails.tarmacInstructions} onChange={event => setFboDetails(current => ({ ...current, tarmacInstructions: event.target.value }))} placeholder="Access contact, gate, escort procedure, or aircraft-side instructions…" /></label></div> : <><label className="wizard-field wizard-flight-field">Airline flight number<input value={airport.flight} onChange={event => updateFlight(event.target.value)} placeholder="UA 1234 or WN 567" inputMode="text" autoComplete="off" /><small>Enter the airline code and flight number. We’ll identify O’Hare or Midway and suggest the terminal.</small>{flightLookup.status === "loading" && <small className="wizard-flight-lookup">Looking up flight route…</small>}{flightLookup.status === "found" && <small className="wizard-flight-lookup success">{flightLookup.message}</small>}{flightLookup.status === "unavailable" && <small className="wizard-flight-lookup">{flightLookup.message}</small>}</label>{detectedAirport && <div className="wizard-airport"><header><Plane /><div><b>{AIRPORTS[detectedAirport].name}</b><span>{airport.airline ? `${airport.airline} · flight ${airport.flight}` : "Chicago airport detected from your route"}</span></div></header><label>Airport<input readOnly value={`${detectedAirport} · ${AIRPORTS[detectedAirport].name}`} /></label><label>Terminal / concourse<select required value={airport.terminal} onChange={event => setAirport(current => ({ ...current, terminal: event.target.value }))}><option value="">Select terminal</option>{AIRPORTS[detectedAirport].terminals.map(item => <option key={item}>{item}</option>)}</select></label></div>}{detectedAirport && airport.flight && (!parsedFlight.valid || !flightMatchesAirport) && <p className="form-error">{!parsedFlight.valid ? "Enter a valid airline code and flight number, such as UA 1234 or WN 567." : `${airport.airline || "This airline"} does not use ${AIRPORTS[detectedAirport].name}. Check the flight number or airport.`}</p>}</>}
+           {isPrivateFBO ? <div className="wizard-fbo-fields"><header><Plane /><div><b>Private aviation details</b><span>Required for ramp access and FBO coordination.</span></div></header><label className="wizard-field">Specific Tail Number<input required maxLength={40} value={fboDetails.specificTailNumber} onChange={event => setFboDetails(current => ({ ...current, specificTailNumber: event.target.value.toUpperCase() }))} placeholder="N123AB" autoComplete="off" /></label><label className="wizard-field">Passenger Name / Principal<input required maxLength={100} value={fboDetails.principalName} onChange={event => setFboDetails(current => ({ ...current, principalName: event.target.value }))} placeholder="Passenger or principal name" /></label><label className="wizard-field">FBO / Jet Center Name<input required maxLength={100} value={fboDetails.fboName} onChange={event => setFboDetails(current => ({ ...current, fboName: event.target.value }))} placeholder="Signature, Atlantic, Hawthorne…" autoComplete="off" /></label><label className="wizard-field wizard-fbo-instructions">Ramp/Tarmac Escort Instructions<textarea required maxLength={400} value={fboDetails.tarmacInstructions} onChange={event => setFboDetails(current => ({ ...current, tarmacInstructions: event.target.value }))} placeholder="Access contact, gate, escort procedure, or aircraft-side instructions…" /></label></div> : <><label className="wizard-field wizard-flight-field">Airline flight number<input value={airport.flight} onChange={event => updateFlight(event.target.value)} placeholder="UA 1234 or WN 567" inputMode="text" autoComplete="off" /><small>Flight number is optional. For airport pickups, select the terminal below so your chauffeur knows where to meet you.</small>{flightLookup.status === "loading" && <small className="wizard-flight-lookup">Looking up flight route…</small>}{flightLookup.status === "found" && <small className="wizard-flight-lookup success">{flightLookup.message}</small>}{flightLookup.status === "unavailable" && <small className="wizard-flight-lookup">{flightLookup.message}</small>}</label>{detectedAirport && <div className="wizard-airport"><header><Plane /><div><b>{AIRPORTS[detectedAirport].name}</b><span>{airport.airline ? `${airport.airline} · flight ${airport.flight}` : "Airport pickup selected"}</span></div></header><label>Pickup airport<input readOnly value={`${detectedAirport} · ${AIRPORTS[detectedAirport].name}`} /></label><label>Pickup terminal / concourse<select required value={airport.terminal} onChange={event => setAirport(current => ({ ...current, terminal: event.target.value }))}><option value="">Select pickup terminal</option>{AIRPORTS[detectedAirport].terminals.map(item => <option key={item}>{item}</option>)}</select></label></div>}{detectedAirport && airport.flight && (!parsedFlight.valid || !flightMatchesAirport) && <p className="form-error">{!parsedFlight.valid ? "Enter a valid airline code and flight number, such as UA 1234 or WN 567." : `${airport.airline || "This airline"} does not use ${AIRPORTS[detectedAirport].name}. Check the flight number or airport.`}</p>}</>}
            {fareState === "error" && <p className="form-error">We couldn’t calculate this route. Select an address suggestion or add a more specific address.</p>}
-           {detectedAirport && !flightReady && <small className="wizard-flight-note">Flight details are optional for fare review. Add an airline flight number and terminal when available for airport coordination.</small>}
+            {detectedAirport && !airport.terminal && <small className="wizard-flight-note">Select the pickup terminal or concourse before continuing so your chauffeur receives the correct meeting location.</small>}
           <button className="solid-button wizard-next" disabled={!canContinueRoute || fareState === "loading"} onClick={next}>{fareState === "loading" ? "Calculating route…" : <>See vehicles & fares <ArrowRight /></>}</button>
         </div>}
          {step === 2 && <div className="wizard-step"><div className="wizard-route-summary"><MapPin /><span>{route.pickup}</span><ArrowRight /><span>{route.destination}</span></div>{isPrivateFBO && <div className="wizard-fbo-rate-note"><Plane /><span><b>Private aviation rate</b><small>Includes dedicated FBO coordination and $35 tarmac handling. $150 minimum.</small></span></div>}<div className="wizard-vehicles">{availableVehicles.map(vehicle => { const fare = fares[vehicle.tier]; const discount = !isPrivateFBO && hasWelcomePromo(promoCode) && fare ? Math.min(1500, fare.fareCents) : 0; return <button type="button" key={vehicle.tier} className={tier === vehicle.tier ? "selected" : ""} onClick={() => { setTier(vehicle.tier); setContact(current => ({ ...current, passengers: String(Math.min(Number(current.passengers), vehicle.capacity)) })); }}><CarFront /><div><b>{vehicle.label}</b><span>{vehicle.detail}</span><small>Guaranteed Upfront Fare • Tolls &amp; Fees Included • Zero Surge</small></div>{fareState === "loading" ? <i className="fare-shimmer" /> : <strong>{fare ? <>{discount > 0 && <del>{money(fare.fareCents)}</del>}{money(fare.fareCents - discount)}</> : "Unavailable"}</strong>}</button>; })}</div><div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(1)}><ArrowLeft /> Back</button><button className="solid-button" disabled={!selectedFare} onClick={next}>Choose {RATE_TIER_PRICING[tier].label} <ArrowRight /></button></div></div>}
