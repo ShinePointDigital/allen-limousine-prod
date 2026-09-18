@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AdvancedMarker, APIProvider, Map, Pin, useMap } from "@vis.gl/react-google-maps";
+import { AdvancedMarker, APIProvider, Map, Marker, Pin, useMap } from "@vis.gl/react-google-maps";
 import { CalendarPlus, CarFront, Check, Clock3, MapPin, MessageSquareText, Navigation, Phone, Plane, RefreshCw, ShieldCheck, Star } from "lucide-react";
 
 export type ActiveReservation = {
@@ -65,16 +65,22 @@ function RouteLine({ points }: { points: google.maps.LatLngLiteral[] }) {
   return null;
 }
 
-function LiveGoogleMap({ reservation, live, mapId }: { reservation: ActiveReservation; live: LiveStatus; mapId: string }) {
+function LiveGoogleMap({ reservation, live, mapId }: { reservation: ActiveReservation; live: LiveStatus; mapId?: string }) {
   const pickup = reservation.pickupPoint ? { lat: reservation.pickupPoint.latitude, lng: reservation.pickupPoint.longitude } : { lat: 32.8998, lng: -97.0403 };
   const destination = reservation.destinationPoint ? { lat: reservation.destinationPoint.latitude, lng: reservation.destinationPoint.longitude } : { lat: 32.7767, lng: -96.797 };
   const driver = live.driverLatitude != null && live.driverLongitude != null ? { lat: live.driverLatitude, lng: live.driverLongitude } : null;
   const center = { lat: (pickup.lat + destination.lat) / 2, lng: (pickup.lng + destination.lng) / 2 };
-  return <Map defaultCenter={center} defaultZoom={10} disableDefaultUI gestureHandling="greedy" mapId={mapId}>
+  return <Map defaultCenter={center} defaultZoom={10} disableDefaultUI gestureHandling="greedy" {...(mapId ? { mapId } : { styles: NIGHT_STYLE })}>
     <RouteLine points={driver ? [driver, pickup, destination] : [pickup, destination]} />
-    {driver && <AdvancedMarker position={driver}><span className="google-driver-marker" style={{ transform: `rotate(${live.driverHeading || 0}deg)` }}><CarFront /></span></AdvancedMarker>}
-    <AdvancedMarker position={pickup}><Pin background="#D4AF37" borderColor="#0a0a0a" glyphColor="#0a0a0a" /></AdvancedMarker>
-    <AdvancedMarker position={destination}><Pin background="#f5f0e6" borderColor="#0a0a0a" glyphColor="#0a0a0a" /></AdvancedMarker>
+    {mapId ? <>
+      {driver && <AdvancedMarker position={driver}><span className="google-driver-marker" style={{ transform: `rotate(${live.driverHeading || 0}deg)` }}><CarFront /></span></AdvancedMarker>}
+      <AdvancedMarker position={pickup}><Pin background="#D4AF37" borderColor="#0a0a0a" glyphColor="#0a0a0a" /></AdvancedMarker>
+      <AdvancedMarker position={destination}><Pin background="#f5f0e6" borderColor="#0a0a0a" glyphColor="#0a0a0a" /></AdvancedMarker>
+    </> : <>
+      {driver && <Marker position={driver} title="Chauffeur" />}
+      <Marker position={pickup} title="Pickup" />
+      <Marker position={destination} title="Drop-off" />
+    </>}
   </Map>;
 }
 
@@ -133,7 +139,7 @@ export default function DispatchTrackingStep({ reservation, onComplete }: { rese
     <div className="tracking-confirmation"><Check /><div><b>{statusCopy[0]}</b><span>{statusCopy[1]}</span></div><i>LIVE</i></div>
     {statusError && <div className="tracking-error"><span>{statusError}</span><button onClick={fetchStatus}>Try again</button><button onClick={onComplete}>Clear saved trip</button></div>}
     <div className="tracking-map">
-      {mapsKey && mapsMapId && !mapFailed ? <APIProvider apiKey={mapsKey} onError={() => setMapFailed(true)}><LiveGoogleMap reservation={reservation} live={live} mapId={mapsMapId} /></APIProvider> : <StaticNightMap pickup={reservation.pickup} destination={reservation.destination} showDriver={hasDriverLocation} />}
+      {mapsKey && !mapFailed ? <APIProvider apiKey={mapsKey} onError={() => setMapFailed(true)}><LiveGoogleMap reservation={reservation} live={live} mapId={mapsMapId} /></APIProvider> : <StaticNightMap pickup={reservation.pickup} destination={reservation.destination} showDriver={hasDriverLocation} />}
       <div className="tracking-eta"><Navigation /><span><small>Pickup</small><b>{new Date(reservation.pickupAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</b></span></div>
     </div>
     <div className="tracking-grid">
