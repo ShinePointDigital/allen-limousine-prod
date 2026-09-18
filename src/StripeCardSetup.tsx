@@ -14,6 +14,14 @@ export type SavedPayment = {
   capability: string;
 };
 
+type WalletCard = {
+  paymentMethodId: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+};
+
 const api = async (url: string, body?: unknown) => {
   const response = await fetch(url, body === undefined ? undefined : {
     method: "POST",
@@ -166,6 +174,8 @@ export default function StripeCardSetup({ fullName, email, savedPayment, onSaved
   const [intent, setIntent] = useState<{ clientSecret: string; setupIntentId: string; customerId: string; setupToken: string } | null>(null);
   const [changing, setChanging] = useState(!savedPayment);
   const [loading, setLoading] = useState(false);
+  const [walletCards, setWalletCards] = useState<WalletCard[]>([]);
+  const [loadingWallet, setLoadingWallet] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => { api("/api/stripe/config").then(setConfig).catch(() => setConfig({ configured: false, publishableKey: null })); }, []);
   const stripePromise = useMemo(() => config?.publishableKey ? loadStripe(config.publishableKey, {
@@ -196,9 +206,54 @@ export default function StripeCardSetup({ fullName, email, savedPayment, onSaved
       setLoading(false);
     }
   };
+  const openPaymentPicker = () => {
+    setChanging(true);
+    setError("");
+    if (!intent) void begin();
+    if (!savedPayment) return;
+    setLoadingWallet(true);
+    api("/api/payment-methods/list", {
+      customerId: savedPayment.customerId,
+      email,
+      capability: savedPayment.capability,
+    }).then(data => {
+      setWalletCards(Array.isArray(data.cards) ? data.cards : []);
+    }).catch(reason => {
+      setError(reason instanceof Error ? reason.message : "Saved cards could not be loaded.");
+    }).finally(() => setLoadingWallet(false));
+  };
+  const selectWalletCard = async (card: WalletCard) => {
+    if (!savedPayment || card.paymentMethodId === savedPayment.paymentMethodId) {
+      setChanging(false);
+      setIntent(null);
+      return;
+    }
+    setLoadingWallet(true);
+    setError("");
+    try {
+      const payment = await api("/api/payment-methods/select", {
+        customerId: savedPayment.customerId,
+        email,
+        capability: savedPayment.capability,
+        paymentMethodId: card.paymentMethodId,
+      });
+      onSaved(payment);
+      setChanging(false);
+      setIntent(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "That card could not be selected.");
+    } finally {
+      setLoadingWallet(false);
+    }
+  };
   if (!config) return <div className="payment-skeleton" aria-label="Loading secure payments" />;
   if (!config.configured) return <div className="payment-unavailable"><LockKeyhole /><span><b>Secure card setup is unavailable</b><small>{requiredPayment ? "Payment authorization is required to finish this booking. Please try again when Stripe is connected." : "Add Stripe credentials later to enable card saving and pre-authorization. You can continue without a saved card."}</small></span></div>;
-  if (savedPayment && !changing) return <div className="saved-card-pill"><CreditCard /><span><small>Paying with saved card</small><b>{savedPayment.cardBrand.toUpperCase()} ending in {savedPayment.cardLast4}</b></span><Check /><button type="button" onClick={() => setChanging(true)}>Change</button></div>;
-  if (!intent) return <div className={compact ? "stripe-start compact" : "stripe-start"}><button type="button" className="outline-button" disabled={loading || !fullName || !email} onClick={begin}><CreditCard />{loading ? "Opening secure form…" : savedPayment ? "Use a different card" : "Add payment card"}</button>{error && <p className="form-error">{error}</p>}</div>;
-  return <Elements stripe={stripePromise} options={elementsOptions}><SetupForm {...intent} fullName={fullName} email={email} onSaved={payment => { onSaved(payment); setChanging(false); setIntent(null); }} /></Elements>;
+  if (savedPayment && !changing) return <div className="saved-card-pill"><CreditCard /><span><small>Paying with saved card</small><b>{savedPayment.cardBrand.toUpperCase()} ending in {savedPayment.cardLast4}</b></span><Check /><button type="button" onClick={openPaymentPicker}>Change payment</button></div>;
+  const walletPicker = savedPayment ? <div className="stripe-saved-picker">
+    <div className="stripe-picker-heading"><span><b>Choose a saved card</b><small>Or use Apple Pay, Google Pay, or a new card below.</small></span><button type="button" onClick={() => { setChanging(false); setIntent(null); }}>Cancel</button></div>
+    {loadingWallet && !walletCards.length ? <small>Loading your wallet…</small> : walletCards.map(card => <button type="button" className={card.paymentMethodId === savedPayment.paymentMethodId ? "selected" : ""} key={card.paymentMethodId} disabled={loadingWallet} onClick={() => void selectWalletCard(card)}><CreditCard /><span><b>{card.brand.toUpperCase()} ending in {card.last4}</b><small>Expires {String(card.expMonth).padStart(2, "0")}/{card.expYear}</small></span>{card.paymentMethodId === savedPayment.paymentMethodId && <Check />}</button>)}
+    {error && <p className="form-error">{error}</p>}
+  </div> : null;
+  if (!intent) return <div className={compact ? "stripe-start compact" : "stripe-start"}>{walletPicker}<button type="button" className="outline-button" disabled={loading || !fullName || !email} onClick={begin}><CreditCard />{loading ? "Opening secure payment options…" : savedPayment ? "Use wallet or a new card" : "Add payment card"}</button>{error && !savedPayment && <p className="form-error">{error}</p>}</div>;
+  return <div className="stripe-payment-picker">{walletPicker}<Elements stripe={stripePromise} options={elementsOptions}><SetupForm {...intent} fullName={fullName} email={email} onSaved={payment => { onSaved(payment); setChanging(false); setIntent(null); }} /></Elements></div>;
 }

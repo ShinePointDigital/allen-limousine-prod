@@ -148,6 +148,9 @@ const paymentMethodAccessSchema = z.object({
   email: z.string().trim().email(),
   capability: z.string().min(40).max(2000),
 });
+const selectPaymentMethodSchema = paymentMethodAccessSchema.extend({
+  paymentMethodId: z.string().regex(/^pm_[A-Za-z0-9]+$/),
+});
 const deletePaymentMethodSchema = paymentMethodAccessSchema.extend({
   paymentMethodId: z.string().regex(/^pm_[A-Za-z0-9]+$/),
 });
@@ -427,7 +430,24 @@ app.post("/api/webhooks/twilio/status", webhookLimiter, async (req, res) => {
 });
 
 app.get("/api/content", publicReadLimiter, async (_req, res) => res.json(await getPublicContent()));
-app.get("/api/stripe/config", publicReadLimiter, async (_req, res) => res.json(await getStripePublicConfig()));
+const registeredPaymentDomains = new Set<string>();
+app.get("/api/stripe/config", publicReadLimiter, async (req, res) => {
+  const config = await getStripePublicConfig();
+  const hostname = req.hostname.toLowerCase();
+  if (config.configured && hostname && !["localhost", "127.0.0.1"].includes(hostname) && !registeredPaymentDomains.has(hostname)) {
+    try {
+      const stripe = await getStripeClient();
+      const domains = await stripe.paymentMethodDomains.list({ limit: 100 });
+      if (!domains.data.some(domain => domain.domain_name === hostname)) {
+        await stripe.paymentMethodDomains.create({ domain_name: hostname });
+      }
+      registeredPaymentDomains.add(hostname);
+    } catch (error) {
+      console.warn("Stripe wallet domain registration was unsuccessful:", error instanceof Error ? error.message : error);
+    }
+  }
+  res.json(config);
+});
 app.post("/api/create-setup-intent", inquiryLimiter, async (req, res) => {
   const parsed = stripeProfileSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Enter a valid name and email before adding a card." });
@@ -608,6 +628,35 @@ app.post("/api/payment-methods/list", inquiryLimiter, async (req, res) => {
     });
   } catch (error) {
     res.status(422).json({ error: error instanceof Error ? error.message : "Saved cards could not be loaded." });
+  }
+});
+app.post("/api/payment-methods/select", inquiryLimiter, async (req, res) => {
+  const parsed = selectPaymentMethodSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid card selection request." });
+  if (!verifyPaymentMethodAccess(parsed.data)) return res.status(403).json({ error: "This wallet session is no longer authorized." });
+  try {
+    const stripe = await getStripeClient();
+    const paymentMethod = await stripe.paymentMethods.retrieve(parsed.data.paymentMethodId);
+    const methodCustomer = typeof paymentMethod.customer === "string" ? paymentMethod.customer : paymentMethod.customer?.id;
+    if (methodCustomer !== parsed.data.customerId || paymentMethod.type !== "card" || !paymentMethod.card) {
+      return res.status(403).json({ error: "That card does not belong to this wallet." });
+    }
+    await stripe.customers.update(parsed.data.customerId, { invoice_settings: { default_payment_method: paymentMethod.id } });
+    res.json({
+      customerId: parsed.data.customerId,
+      paymentMethodId: paymentMethod.id,
+      cardBrand: paymentMethod.card.brand,
+      cardLast4: paymentMethod.card.last4,
+      cardExpMonth: paymentMethod.card.exp_month,
+      cardExpYear: paymentMethod.card.exp_year,
+      capability: createPaymentCapability({
+        customerId: parsed.data.customerId,
+        paymentMethodId: paymentMethod.id,
+        email: parsed.data.email.toLowerCase(),
+      }),
+    });
+  } catch (error) {
+    res.status(422).json({ error: error instanceof Error ? error.message : "That card could not be selected." });
   }
 });
 app.post("/api/payment-methods/delete", inquiryLimiter, async (req, res) => {
