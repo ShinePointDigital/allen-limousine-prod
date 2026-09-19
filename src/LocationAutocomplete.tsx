@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { LocateFixed, MapPin, Plane } from "lucide-react";
+import { loadGoogleMaps } from "./google-maps";
 
 export type LocationPoint = { latitude: number; longitude: number };
 export type QuickLocation = {
@@ -55,34 +56,6 @@ export const CHICAGO_QUICK_LOCATIONS: QuickLocation[] = [
   },
 ];
 
-let googlePlacesLoader: Promise<boolean> | null = null;
-
-function loadGooglePlaces() {
-  const googleWindow = window as Window & { google?: any };
-  if (googleWindow.google?.maps?.places) return Promise.resolve(true);
-  const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-  if (!key) return Promise.resolve(false);
-  if (googlePlacesLoader) return googlePlacesLoader;
-
-  googlePlacesLoader = new Promise(resolve => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-allan-google-places="true"]');
-    if (existing) {
-      existing.addEventListener("load", () => resolve(Boolean(googleWindow.google?.maps?.places)), { once: true });
-      existing.addEventListener("error", () => resolve(false), { once: true });
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&loading=async&v=weekly`;
-    script.async = true;
-    script.dataset.allanGooglePlaces = "true";
-    script.onload = () => resolve(Boolean(googleWindow.google?.maps?.places));
-    script.onerror = () => resolve(false);
-    document.head.appendChild(script);
-  });
-
-  return googlePlacesLoader;
-}
-
 async function fallbackSuggestions(query: string, signal: AbortSignal): Promise<LocationSuggestion[]> {
   const response = await fetch(`/api/location-search?q=${encodeURIComponent(query)}`, { signal });
   if (!response.ok) throw new Error("Location search is unavailable.");
@@ -126,7 +99,7 @@ export default function LocationAutocomplete({
 
   useEffect(() => {
     let active = true;
-    void loadGooglePlaces().then(available => {
+    void loadGoogleMaps().then(available => {
       if (!active) return;
       const googleWindow = window as Window & { google?: any };
       if (!available || !googleWindow.google?.maps?.places) {

@@ -1,0 +1,31 @@
+.tracking-google-map {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+}
+
+.tracking-static-map {
+  z-index: 1;
+}
+
+.tracking-map-retry {
+  position: absolute;
+  z-index: 5;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(212, 175, 55, 0.6);
+  background: rgba(9, 10, 9, 0.92);
+  padding: 10px 12px;
+  color: #d8c28a;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tracking-map-retry svg {
+  width: 14px;
+}

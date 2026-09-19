@@ -10,13 +10,14 @@ import "./reservation-pricing.css";
 import "./booking-wizard.css";
 import "./location-autocomplete.css";
 import "./tracking.css";
+import "./tracking-live-map.css";
 import "./tracking-recovery.css";
 import "./pwa-gate.css";
 import "./pwa-navigation.css";
 import "./bloom.css";
 
 declare const __ALLAN_BUILD_ID__: string;
-const LEGACY_SERVICE_WORKER_RESET = "allen-sw-reset-2026-09-v5";
+const LEGACY_SERVICE_WORKER_RESET = "allen-sw-reset-2026-09-v6";
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", async () => {

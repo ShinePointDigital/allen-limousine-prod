@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { AdvancedMarker, APIProvider, Map, Marker, Pin, useMap } from "@vis.gl/react-google-maps";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarPlus, CarFront, Check, Clock3, MapPin, MessageSquareText, Navigation, Phone, Plane, RefreshCw, ShieldCheck, Star } from "lucide-react";
+import { loadGoogleMaps } from "./google-maps";
 
 export type ActiveReservation = {
   trackingToken: string;
@@ -55,33 +55,68 @@ function StaticNightMap({ pickup, destination, showDriver }: { pickup: string; d
   </div>;
 }
 
-function RouteLine({ points }: { points: google.maps.LatLngLiteral[] }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!map) return;
-    const line = new google.maps.Polyline({ map, path: points, geodesic: true, strokeColor: "#D4AF37", strokeOpacity: .95, strokeWeight: 4 });
-    return () => line.setMap(null);
-  }, [map, points]);
-  return null;
-}
-
-function LiveGoogleMap({ reservation, live, mapId }: { reservation: ActiveReservation; live: LiveStatus; mapId?: string }) {
-  const pickup = reservation.pickupPoint ? { lat: reservation.pickupPoint.latitude, lng: reservation.pickupPoint.longitude } : { lat: 32.8998, lng: -97.0403 };
-  const destination = reservation.destinationPoint ? { lat: reservation.destinationPoint.latitude, lng: reservation.destinationPoint.longitude } : { lat: 32.7767, lng: -96.797 };
+function LiveGoogleMap({ reservation, live, onReady, onError }: { reservation: ActiveReservation; live: LiveStatus; onReady: () => void; onError: () => void }) {
+  const mapElement = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const lineRef = useRef<google.maps.Polyline | null>(null);
+  const pickupMarkerRef = useRef<google.maps.Marker | null>(null);
+  const destinationMarkerRef = useRef<google.maps.Marker | null>(null);
+  const driverMarkerRef = useRef<google.maps.Marker | null>(null);
+  const [mapInitialized, setMapInitialized] = useState(false);
+  const pickup = reservation.pickupPoint ? { lat: reservation.pickupPoint.latitude, lng: reservation.pickupPoint.longitude } : { lat: 41.9742, lng: -87.9073 };
+  const destination = reservation.destinationPoint ? { lat: reservation.destinationPoint.latitude, lng: reservation.destinationPoint.longitude } : { lat: 41.8781, lng: -87.6298 };
   const driver = live.driverLatitude != null && live.driverLongitude != null ? { lat: live.driverLatitude, lng: live.driverLongitude } : null;
-  const center = { lat: (pickup.lat + destination.lat) / 2, lng: (pickup.lng + destination.lng) / 2 };
-  return <Map defaultCenter={center} defaultZoom={10} disableDefaultUI gestureHandling="greedy" {...(mapId ? { mapId } : { styles: NIGHT_STYLE })}>
-    <RouteLine points={driver ? [driver, pickup, destination] : [pickup, destination]} />
-    {mapId ? <>
-      {driver && <AdvancedMarker position={driver}><span className="google-driver-marker" style={{ transform: `rotate(${live.driverHeading || 0}deg)` }}><CarFront /></span></AdvancedMarker>}
-      <AdvancedMarker position={pickup}><Pin background="#D4AF37" borderColor="#0a0a0a" glyphColor="#0a0a0a" /></AdvancedMarker>
-      <AdvancedMarker position={destination}><Pin background="#f5f0e6" borderColor="#0a0a0a" glyphColor="#0a0a0a" /></AdvancedMarker>
-    </> : <>
-      {driver && <Marker position={driver} title="Chauffeur" />}
-      <Marker position={pickup} title="Pickup" />
-      <Marker position={destination} title="Drop-off" />
-    </>}
-  </Map>;
+  useEffect(() => {
+    let active = true;
+    void loadGoogleMaps().then(available => {
+      if (!active || !available || !mapElement.current) {
+        if (active) onError();
+        return;
+      }
+      try {
+        mapRef.current = new google.maps.Map(mapElement.current, {
+          center: { lat: (pickup.lat + destination.lat) / 2, lng: (pickup.lng + destination.lng) / 2 },
+          zoom: 10,
+          disableDefaultUI: true,
+          gestureHandling: "greedy",
+          styles: NIGHT_STYLE,
+        });
+        lineRef.current = new google.maps.Polyline({ map: mapRef.current, geodesic: true, strokeColor: "#D4AF37", strokeOpacity: .95, strokeWeight: 4 });
+        pickupMarkerRef.current = new google.maps.Marker({ map: mapRef.current, position: pickup, title: "Pickup" });
+        destinationMarkerRef.current = new google.maps.Marker({ map: mapRef.current, position: destination, title: "Drop-off" });
+        setMapInitialized(true);
+        onReady();
+      } catch {
+        onError();
+      }
+    });
+    return () => {
+      active = false;
+      lineRef.current?.setMap(null);
+      pickupMarkerRef.current?.setMap(null);
+      destinationMarkerRef.current?.setMap(null);
+      driverMarkerRef.current?.setMap(null);
+      mapRef.current = null;
+    };
+  }, [destination.lat, destination.lng, onError, onReady, pickup.lat, pickup.lng]);
+  useEffect(() => {
+    const map = mapRef.current;
+    const line = lineRef.current;
+    if (!mapInitialized || !map || !line) return;
+    const points = driver ? [driver, pickup, destination] : [pickup, destination];
+    line.setPath(points);
+    if (driver) {
+      if (!driverMarkerRef.current) driverMarkerRef.current = new google.maps.Marker({ map, position: driver, title: "Chauffeur" });
+      else driverMarkerRef.current.setPosition(driver);
+    } else if (driverMarkerRef.current) {
+      driverMarkerRef.current.setMap(null);
+      driverMarkerRef.current = null;
+    }
+    const bounds = new google.maps.LatLngBounds();
+    points.forEach(point => bounds.extend(point));
+    map.fitBounds(bounds, 48);
+  }, [destination.lat, destination.lng, driver?.lat, driver?.lng, mapInitialized, pickup.lat, pickup.lng]);
+  return <div ref={mapElement} className="tracking-google-map" aria-label="Live trip map" />;
 }
 
 export default function DispatchTrackingStep({ reservation, onComplete }: { reservation: ActiveReservation; onComplete: () => void }) {
@@ -89,21 +124,32 @@ export default function DispatchTrackingStep({ reservation, onComplete }: { rese
   const [refreshing, setRefreshing] = useState(false);
   const [statusError, setStatusError] = useState("");
   const [mapFailed, setMapFailed] = useState(false);
-  const [mapAuthReady, setMapAuthReady] = useState(false);
+  const [mapAuthFailed, setMapAuthFailed] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
   const mapsKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
-  const mapsMapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID as string | undefined;
+  const handleMapReady = useCallback(() => setMapReady(true), []);
+  const handleMapError = useCallback(() => setMapFailed(true), []);
+  const retryMap = useCallback(() => {
+    if (!mapFailed || mapAuthFailed) return;
+    setMapReady(false);
+    setMapFailed(false);
+  }, [mapAuthFailed, mapFailed]);
   useEffect(() => {
     const googleWindow = window as Window & { gm_authFailure?: () => void };
     const previousAuthFailure = googleWindow.gm_authFailure;
     googleWindow.gm_authFailure = () => {
+      setMapAuthFailed(true);
       setMapFailed(true);
       previousAuthFailure?.();
     };
-    setMapAuthReady(true);
     return () => {
       googleWindow.gm_authFailure = previousAuthFailure;
     };
   }, []);
+  useEffect(() => {
+    window.addEventListener("online", retryMap);
+    return () => window.removeEventListener("online", retryMap);
+  }, [retryMap]);
   const fetchStatus = async () => {
     setRefreshing(true);
     try {
@@ -152,7 +198,9 @@ export default function DispatchTrackingStep({ reservation, onComplete }: { rese
     <div className="tracking-confirmation"><Check /><div><b>{statusCopy[0]}</b><span>{statusCopy[1]}</span></div><i>LIVE</i></div>
     {statusError && <div className="tracking-error"><span>{statusError}</span><button onClick={fetchStatus}>Try again</button><button onClick={onComplete}>Clear saved trip</button></div>}
     <div className="tracking-map">
-      {mapsKey && mapAuthReady && !mapFailed ? <APIProvider apiKey={mapsKey} onError={() => setMapFailed(true)}><LiveGoogleMap reservation={reservation} live={live} mapId={mapsMapId} /></APIProvider> : <StaticNightMap pickup={reservation.pickup} destination={reservation.destination} showDriver={hasDriverLocation} />}
+      {mapsKey && !mapFailed && <LiveGoogleMap reservation={reservation} live={live} onReady={handleMapReady} onError={handleMapError} />}
+      {(!mapsKey || !mapReady || mapFailed) && <StaticNightMap pickup={reservation.pickup} destination={reservation.destination} showDriver={hasDriverLocation} />}
+      {mapsKey && mapFailed && !mapAuthFailed && <button className="tracking-map-retry" onClick={retryMap}><RefreshCw />Retry live map</button>}
       <div className="tracking-eta"><Navigation /><span><small>Pickup</small><b>{new Date(reservation.pickupAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</b></span></div>
     </div>
     <div className="tracking-grid">
