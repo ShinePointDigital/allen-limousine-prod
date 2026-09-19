@@ -16,6 +16,7 @@ type LocationSuggestion = {
   label: string;
   placeId?: string;
   point?: LocationPoint;
+  placePrediction?: any;
 };
 
 const CHICAGO_METRO_BOUNDS = {
@@ -93,24 +94,50 @@ export default function LocationAutocomplete({
   const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const autocompleteService = useRef<any>(null);
+  const autocompleteMode = useRef<"new" | "legacy" | null>(null);
   const placesService = useRef<any>(null);
+  const placesLibrary = useRef<any>(null);
   const sessionToken = useRef<any>(null);
   const requestSequence = useRef(0);
 
   useEffect(() => {
     let active = true;
-    void loadGoogleMaps().then(available => {
+    void loadGoogleMaps().then(async available => {
       if (!active) return;
       const googleWindow = window as Window & { google?: any };
       if (!available || !googleWindow.google?.maps?.places) {
         setProvider("fallback");
         return;
       }
-      autocompleteService.current = new googleWindow.google.maps.places.AutocompleteService();
-      placesService.current = new googleWindow.google.maps.places.PlacesService(document.createElement("div"));
-      setProvider("google");
+      try {
+        const library = googleWindow.google.maps.importLibrary
+          ? await googleWindow.google.maps.importLibrary("places")
+          : googleWindow.google.maps.places;
+        if (!active) return;
+        placesLibrary.current = library;
+        if (library?.AutocompleteSuggestion) {
+          autocompleteService.current = library.AutocompleteSuggestion;
+          autocompleteMode.current = "new";
+        } else if (library?.AutocompleteService && library?.PlacesService) {
+          autocompleteService.current = new library.AutocompleteService();
+          placesService.current = new library.PlacesService(document.createElement("div"));
+          autocompleteMode.current = "legacy";
+        } else {
+          setProvider("fallback");
+          return;
+        }
+        setProvider("google");
+      } catch {
+        if (active) setProvider("fallback");
+      }
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      autocompleteService.current = null;
+      placesService.current = null;
+      placesLibrary.current = null;
+      autocompleteMode.current = null;
+    };
   }, []);
 
   const beginSession = () => {
@@ -138,7 +165,35 @@ export default function LocationAutocomplete({
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setSearching(true);
-      if (provider === "google" && autocompleteService.current) {
+      if (provider === "google" && autocompleteService.current && autocompleteMode.current === "new") {
+        beginSession();
+        try {
+          const result = await autocompleteService.current.fetchAutocompleteSuggestions({
+            input: query,
+            includedRegionCodes: ["us"],
+            locationBias: CHICAGO_METRO_BOUNDS,
+            sessionToken: sessionToken.current,
+          });
+          if (sequence !== requestSequence.current) return;
+          const nextSuggestions = (result?.suggestions || [])
+            .map((suggestion: any) => suggestion.placePrediction)
+            .filter(Boolean)
+            .slice(0, 5)
+            .map((prediction: any) => ({
+              id: prediction.placeId,
+              placeId: prediction.placeId,
+              label: prediction.text?.toString?.() || prediction.text?.text || prediction.placeId,
+              placePrediction: prediction,
+            }));
+          setSuggestions(nextSuggestions);
+        } catch {
+          if (sequence === requestSequence.current) setSuggestions([]);
+        } finally {
+          if (sequence === requestSequence.current) setSearching(false);
+        }
+        return;
+      }
+      if (provider === "google" && autocompleteService.current && autocompleteMode.current === "legacy") {
         beginSession();
         autocompleteService.current.getPlacePredictions({
           input: query,
@@ -182,6 +237,30 @@ export default function LocationAutocomplete({
     if (suggestion.point) {
       onSelect(suggestion.label, suggestion.point);
       endSession();
+      return;
+    }
+    if (suggestion.placePrediction && autocompleteMode.current === "new") {
+      const place = suggestion.placePrediction.toPlace?.();
+      if (!place) {
+        onChange(suggestion.label);
+        endSession();
+        return;
+      }
+      void place.fetchFields({ fields: ["formattedAddress", "location", "displayName"] }).then(() => {
+        const location = place.location;
+        const latitude = typeof location?.lat === "function" ? location.lat() : location?.lat;
+        const longitude = typeof location?.lng === "function" ? location.lng() : location?.lng;
+        const selectedValue = place.formattedAddress || place.displayName || suggestion.label;
+        if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+          onSelect(selectedValue, { latitude, longitude });
+        } else {
+          onChange(suggestion.label);
+        }
+        endSession();
+      }).catch(() => {
+        onChange(suggestion.label);
+        endSession();
+      });
       return;
     }
     if (!suggestion.placeId || !placesService.current) {

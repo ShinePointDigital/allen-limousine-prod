@@ -64,3 +64,6 @@ build = ["npm", "run", "build"]
 
 [userenv.production]
 NODE_ENV = "production"
+
+[userenv.shared]
+TWILIO_FROM_NUMBER = "7088431292"
