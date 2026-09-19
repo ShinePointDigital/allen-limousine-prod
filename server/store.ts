@@ -102,12 +102,6 @@ export async function initializeStore() {
   if (production && !databaseConfigured) throw new Error("DATABASE_URL is required in production.");
   if (!databaseConfigured) return;
   await prisma.$connect();
-  if (production) {
-    await prisma.fleetVehicle.updateMany({
-      where: { id: "cmtdy664e0007d75u8y7cdiwn", active: false },
-      data: { active: true },
-    });
-  }
   const [serviceCount, fleetCount] = await Promise.all([prisma.service.count(), prisma.fleetVehicle.count()]);
   if (!serviceCount) await prisma.service.createMany({ data: services.map((s, sortOrder) => ({ ...s, sortOrder })) });
   if (!fleetCount) await prisma.fleetVehicle.createMany({ data: fleet.map((v, sortOrder) => ({ ...v, sortOrder })) });
