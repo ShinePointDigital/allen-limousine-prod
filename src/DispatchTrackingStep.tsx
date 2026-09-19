@@ -68,6 +68,7 @@ function LiveGoogleMap({ reservation, live, onReady, onError }: { reservation: A
   const driver = live.driverLatitude != null && live.driverLongitude != null ? { lat: live.driverLatitude, lng: live.driverLongitude } : null;
   useEffect(() => {
     let active = true;
+    let readyListener: google.maps.MapsEventListener | null = null;
     void loadGoogleMaps().then(available => {
       if (!active || !available || !mapElement.current) {
         if (active) onError();
@@ -85,13 +86,16 @@ function LiveGoogleMap({ reservation, live, onReady, onError }: { reservation: A
         pickupMarkerRef.current = new google.maps.Marker({ map: mapRef.current, position: pickup, title: "Pickup" });
         destinationMarkerRef.current = new google.maps.Marker({ map: mapRef.current, position: destination, title: "Drop-off" });
         setMapInitialized(true);
-        onReady();
+        readyListener = google.maps.event.addListenerOnce(mapRef.current, "tilesloaded", () => {
+          if (active) onReady();
+        });
       } catch {
         onError();
       }
     });
     return () => {
       active = false;
+      readyListener?.remove();
       lineRef.current?.setMap(null);
       pickupMarkerRef.current?.setMap(null);
       destinationMarkerRef.current?.setMap(null);
@@ -126,11 +130,16 @@ export default function DispatchTrackingStep({ reservation, onComplete }: { rese
   const [mapFailed, setMapFailed] = useState(false);
   const [mapAuthFailed, setMapAuthFailed] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  const mapReadyRef = useRef(false);
   const mapsKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
-  const handleMapReady = useCallback(() => setMapReady(true), []);
+  const handleMapReady = useCallback(() => {
+    mapReadyRef.current = true;
+    setMapReady(true);
+  }, []);
   const handleMapError = useCallback(() => setMapFailed(true), []);
   const retryMap = useCallback(() => {
     if (!mapFailed || mapAuthFailed) return;
+    mapReadyRef.current = false;
     setMapReady(false);
     setMapFailed(false);
   }, [mapAuthFailed, mapFailed]);
@@ -138,8 +147,10 @@ export default function DispatchTrackingStep({ reservation, onComplete }: { rese
     const googleWindow = window as Window & { gm_authFailure?: () => void };
     const previousAuthFailure = googleWindow.gm_authFailure;
     googleWindow.gm_authFailure = () => {
-      setMapAuthFailed(true);
-      setMapFailed(true);
+      if (!mapReadyRef.current) {
+        setMapAuthFailed(true);
+        setMapFailed(true);
+      }
       previousAuthFailure?.();
     };
     return () => {
