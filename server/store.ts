@@ -106,8 +106,15 @@ export async function initializeStore() {
   if (!serviceCount) await prisma.service.createMany({ data: services.map((s, sortOrder) => ({ ...s, sortOrder })) });
   if (!fleetCount) await prisma.fleetVehicle.createMany({ data: fleet.map((v, sortOrder) => ({ ...v, sortOrder })) });
   await Promise.all(Object.entries(siteContent).map(([key, value]) => prisma.siteContent.upsert({ where: { key }, update: {}, create: { key, value, group: key.startsWith("hero") ? "hero" : "standard" } })));
-  const confirmedWithoutRides = await prisma.inquiry.findMany({ where: { status: "CONFIRMED", ride: null }, select: { id: true } });
-  if (confirmedWithoutRides.length) await prisma.ride.createMany({ data: confirmedWithoutRides.map(item => ({ inquiryId: item.id })) });
+  const dispatchableWithoutRides = await prisma.inquiry.findMany({
+    where: {
+      status: { in: ["NEW", "CONFIRMED"] },
+      OR: [{ paymentStatus: null }, { paymentStatus: { not: "canceled" } }],
+      ride: null,
+    },
+    select: { id: true },
+  });
+  if (dispatchableWithoutRides.length) await prisma.ride.createMany({ data: dispatchableWithoutRides.map(item => ({ inquiryId: item.id })) });
   if (!await prisma.adminNotification.count()) {
     const newInquiries = await prisma.inquiry.findMany({ where: { status: "NEW" }, select: { id: true, fullName: true, serviceType: true, pickupAt: true } });
     if (newInquiries.length) await prisma.adminNotification.createMany({ data: newInquiries.map(item => ({ type: "NEW_INQUIRY", title: "New reservation request", body: `${item.fullName} requested ${item.serviceType} for ${item.pickupAt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`, inquiryId: item.id })) });
@@ -299,7 +306,7 @@ export async function finalizeAuthorizedInquiry(bookingRequestId: string, tracki
         if (priorPromo) throw new Error("The first-ride credit was already used. Restart the booking to authorize the current fare.");
       }
       const updated = await tx.inquiry.update({ where: { id: inquiry.id }, data: { status: "NEW", trackingTokenHash, trackingExpiresAt: new Date(trackingExpiresAt) } });
-      if (updated.isPrivateFBO) await tx.ride.upsert({ where: { inquiryId: updated.id }, update: {}, create: { inquiryId: updated.id, quoteCents: updated.estimatedFareCents || 0 } });
+      await tx.ride.upsert({ where: { inquiryId: updated.id }, update: {}, create: { inquiryId: updated.id, quoteCents: updated.estimatedFareCents || 0 } });
       await tx.adminNotification.create({ data: { type: "NEW_INQUIRY", title: "New reservation request", body: `${updated.fullName} requested ${updated.serviceType} for ${updated.pickupAt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`, inquiryId: updated.id } });
       return { inquiry: updated, activatedNow: true };
     }, { isolationLevel: "Serializable" });
@@ -312,7 +319,7 @@ export async function finalizeAuthorizedInquiry(bookingRequestId: string, tracki
     throw new Error("The first-ride credit was already used. Restart the booking to authorize the current fare.");
   }
   Object.assign(inquiry, { status: "NEW", trackingTokenHash, trackingExpiresAt, updatedAt: new Date().toISOString() });
-  if (inquiry.isPrivateFBO && !rides.some(ride => ride.inquiryId === inquiry.id)) rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: inquiry.id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: inquiry.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: inquiry.updatedAt, updatedAt: inquiry.updatedAt, inquiry: { fullName: inquiry.fullName, serviceType: inquiry.serviceType, pickupAt: inquiry.pickupAt, pickup: inquiry.pickup, destination: inquiry.destination, passengers: inquiry.passengers, notes: inquiry.notes, isPrivateFBO: inquiry.isPrivateFBO, specificTailNumber: inquiry.specificTailNumber, principalName: inquiry.principalName, fboName: inquiry.fboName, tarmacInstructions: inquiry.tarmacInstructions }, vehicle: null, dispatchMessages: [] });
+  if (!rides.some(ride => ride.inquiryId === inquiry.id)) rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: inquiry.id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: inquiry.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: inquiry.updatedAt, updatedAt: inquiry.updatedAt, inquiry: { fullName: inquiry.fullName, serviceType: inquiry.serviceType, pickupAt: inquiry.pickupAt, pickup: inquiry.pickup, destination: inquiry.destination, passengers: inquiry.passengers, notes: inquiry.notes, isPrivateFBO: inquiry.isPrivateFBO, specificTailNumber: inquiry.specificTailNumber, principalName: inquiry.principalName, fboName: inquiry.fboName, tarmacInstructions: inquiry.tarmacInstructions }, vehicle: null, dispatchMessages: [] });
   notifications.unshift({ id: `notification-${crypto.randomUUID().slice(0, 8)}`, type: "NEW_INQUIRY", title: "New reservation request", body: `${inquiry.fullName} requested ${inquiry.serviceType}.`, inquiryId: inquiry.id, readAt: null, createdAt: inquiry.updatedAt });
   return { inquiry, activatedNow: true };
 }

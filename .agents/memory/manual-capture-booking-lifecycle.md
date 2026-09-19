@@ -7,4 +7,4 @@ Keep new bookings hidden and side-effect-free until Stripe confirms a manual-cap
 
 **Why:** Persisting or notifying before authorization creates false reservations; separate completion paths can bypass capture; releasing a hold before validating edits or allowing canceled rides to reactivate creates active work with no valid authorization.
 
-**How to apply:** Use a payment-pending state, send confirmation only for the activation owner, validate terminal transitions through read-only checks, make capture/release idempotent, and gate dispatch and reopening on payment state.
+**How to apply:** Use a payment-pending state, send confirmation only for the activation owner, create an unassigned dispatch ride for every authorized booking type, validate terminal transitions through read-only checks, make capture/release idempotent, and gate dispatch and reopening on payment state.
