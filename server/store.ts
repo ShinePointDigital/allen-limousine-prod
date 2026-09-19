@@ -95,7 +95,7 @@ const notifications: AdminNotification[] = [{
 }];
 
 const fallbackPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD || crypto.randomBytes(48).toString("hex");
-const fallbackAdmin = { id: "admin-001", email: process.env.ADMIN_EMAIL || "admin@allanlivery.com", name: "Avery Reed", passwordHash: bcrypt.hashSync(fallbackPassword, 10), role: "SUPER_ADMIN", active: true };
+const fallbackAdmin = { id: "admin-001", email: process.env.ADMIN_EMAIL || "admin@allanlimousine.com", name: "Avery Reed", passwordHash: bcrypt.hashSync(fallbackPassword, 10), role: "SUPER_ADMIN", active: true };
 const sessions = new Map<string, { userId: string; expiresAt: number }>();
 
 export async function initializeStore() {
@@ -593,7 +593,7 @@ export async function updateRide(id: string, data: RideUpdate) {
 
 export function dispatchBrief(ride: Ride) {
   const lines = [
-    `ALLAN LIVERY — DISPATCH`,
+    `Allan Limousine — Dispatch`,
     `Customer: ${ride.inquiry.fullName}`,
     `Pickup: ${formatDispatchDate(ride.inquiry.pickupAt)}`,
     `From: ${ride.inquiry.pickup}`,

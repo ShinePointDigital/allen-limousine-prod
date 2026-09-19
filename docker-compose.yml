@@ -7,7 +7,7 @@ services:
     environment:
       PORT: 5000
       NODE_ENV: production
-      DATABASE_URL: postgresql://allan:${POSTGRES_PASSWORD}@database:5432/allan_livery?connection_limit=10&pool_timeout=10
+      DATABASE_URL: postgresql://allan:${POSTGRES_PASSWORD}@database:5432/allan_limousine?connection_limit=10&pool_timeout=10
       SESSION_SECRET: ${SESSION_SECRET}
     command: ["sh", "-c", "npx prisma migrate deploy && npm start"]
     depends_on:
@@ -17,13 +17,13 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: allan_livery
+      POSTGRES_DB: allan_limousine
       POSTGRES_USER: allan
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - allan_database:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U allan -d allan_livery"]
+      test: ["CMD-SHELL", "pg_isready -U allan -d allan_limousine"]
       interval: 5s
       timeout: 5s
       retries: 10

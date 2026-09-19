@@ -1,168 +1,4 @@
-import "dotenv/config";
-import express from "express";
-import cookieParser from "cookie-parser";
-import compression from "compression";
-import rateLimit from "express-rate-limit";
-import crypto from "node:crypto";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { z } from "zod";
-import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finalizeAuthorizedInquiry, finishDispatchAttempt, getAdminContent, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, getStripeCustomerProfile, initializeStore, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, saveStripeCustomerProfile, sessionUser, updateAdmin, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent, validateRideUpdate } from "./store.js";
-import { classifyTwilioMessageStatus, findDriverDispatchSms, getDriverDispatchSms, sendSms, sendDriverDispatchSms, twilioPhonesEqual, TwilioRequestError } from "./twilio.js";
-import { estimateFare, reverseGeocode, searchLocations } from "./fare-estimate.js";
-import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "./stripe-client.js";
-
-export const app = express();
-const port = Number(process.env.PORT) || 5000;
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-app.set("trust proxy", 1);
-app.post("/api/webhooks/stripe", express.raw({ type: "application/json", limit: "512kb" }), async (req, res) => {
-  const signature = req.header("stripe-signature");
-  if (!signature) return res.status(400).json({ error: "Missing Stripe signature." });
-  try {
-    const stripe = await getStripeClient();
-    const event = stripe.webhooks.constructEvent(req.body, signature, await getStripeWebhookSecret());
-    if (event.type.startsWith("payment_intent.")) {
-      const intent = event.data.object as { id: string; status: string };
-      const inquiry = await updateInquiryPaymentStatusByIntent(intent.id, intent.status);
-      if (intent.status === "canceled" && inquiry && "id" in inquiry) {
-        const ride = await getRideByInquiryId(inquiry.id);
-        if (ride && ride.status !== "CANCELLED") await updateRide(ride.id, { status: "CANCELLED" });
-      }
-    }
-    res.json({ received: true });
-  } catch {
-    res.status(400).json({ error: "Invalid Stripe webhook." });
-  }
-});
-app.use(express.json({ limit: "1mb" }));
-app.use(express.urlencoded({ extended: false, limit: "64kb" }));
-app.use(cookieParser());
-app.use(compression());
-const inquiryLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: "draft-7", legacyHeaders: false, message: { error: "Too many reservation requests. Please try again shortly." } });
-const publicReadLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 120, standardHeaders: "draft-7", legacyHeaders: false });
-const dispatchLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-7", legacyHeaders: false, message: { error: "Too many dispatch messages. Please try again shortly." } });
-const webhookLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 240, standardHeaders: "draft-7", legacyHeaders: false });
-
-const inquirySchema = z.object({
-  fullName: z.string().trim().min(2).max(100),
-  email: z.string().trim().email(),
-  phone: z.string().trim().min(7).max(30),
-  serviceType: z.string().trim().min(2).max(80),
-  pickupAt: z.string().datetime(),
-  pickup: z.string().trim().min(2).max(180),
-  destination: z.string().trim().min(2).max(180),
-  passengers: z.coerce.number().int().min(1).max(50),
-  notes: z.string().max(1000).optional().default(""),
-  airportCode: z.enum(["ORD", "MDW", "DFW", "DAL"]).optional(),
-  airportTerminal: z.string().trim().max(100).optional(),
-  flightNumber: z.string().trim().max(20).optional(),
-  flightScheduledAt: z.string().datetime().optional(),
-  pickupPreference: z.string().trim().max(100).optional(),
-  isPrivateFBO: z.boolean().optional().default(false),
-  specificTailNumber: z.string().trim().max(40).optional(),
-  principalName: z.string().trim().max(100).optional(),
-  fboName: z.string().trim().max(100).optional(),
-  tarmacInstructions: z.string().trim().max(400).optional(),
-  rateTier: z.enum(["EXECUTIVE_SEDAN", "LUXURY_SUV", "SPRINTER_CLASS"]),
-  estimatedFareCents: z.number().int().min(0).max(10000000).optional(),
-  estimatedMiles: z.number().finite().min(0).max(10000).optional(),
-  estimatedMinutes: z.number().finite().min(0).max(10000).optional(),
-  rideTiming: z.enum(["RIDE_NOW", "RESERVE_LATER"]).optional(),
-  promoCode: z.string().trim().max(40).optional(),
-  promoDiscountCents: z.number().int().min(0).max(1500).optional(),
-  bookingRequestId: z.string().uuid(),
-  pickupLatitude: z.number().finite().min(-90).max(90).optional(),
-  pickupLongitude: z.number().finite().min(-180).max(180).optional(),
-  destinationLatitude: z.number().finite().min(-90).max(90).optional(),
-  destinationLongitude: z.number().finite().min(-180).max(180).optional(),
-});
-const fareEstimateSchema = z.object({
-  pickup: z.string().trim().min(2).max(180),
-  destination: z.string().trim().min(2).max(180),
-  tier: z.enum(["EXECUTIVE_SEDAN", "LUXURY_SUV", "SPRINTER_CLASS"]),
-  pickupLat: z.coerce.number().finite().min(-90).max(90).optional(),
-  pickupLon: z.coerce.number().finite().min(-180).max(180).optional(),
-  destinationLat: z.coerce.number().finite().min(-90).max(90).optional(),
-  destinationLon: z.coerce.number().finite().min(-180).max(180).optional(),
-  isPrivateFBO: z.enum(["true", "false"]).transform(value => value === "true").optional().default(false),
-});
-const coordinatesSchema = z.object({
-  lat: z.coerce.number().finite().min(-90).max(90),
-  lon: z.coerce.number().finite().min(-180).max(180),
-});
-const trackingTokenHash = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
-const trustedPublicHosts = new Set([
-  "allanlimousine.com",
-  "www.allanlimousine.com",
-  ...(process.env.REPLIT_DOMAINS || "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean),
-  ...(process.env.REPLIT_DEV_DOMAIN || "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean),
-]);
-const publicOrigin = (req: express.Request) => {
-  const configured = process.env.PUBLIC_APP_ORIGIN?.trim();
-  if (configured) {
-    const parsed = new URL(configured);
-    if (parsed.username || parsed.password || parsed.search || parsed.hash || (process.env.NODE_ENV === "production" && parsed.protocol !== "https:")) {
-      throw new Error("PUBLIC_APP_ORIGIN must be an HTTPS origin without credentials or query parameters.");
-    }
-    return parsed.origin;
-  }
-  const host = (req.get("host") || "").split(",")[0].trim().toLowerCase();
-  const hostname = host.replace(/:\d+$/, "");
-  const isKnownReplitHost = hostname.endsWith(".replit.app") || hostname.endsWith(".replit.dev");
-  const isLocalHost = ["localhost", "127.0.0.1"].includes(hostname);
-  if (!host || (!trustedPublicHosts.has(hostname) && !isKnownReplitHost && !(process.env.NODE_ENV !== "production" && isLocalHost))) {
-    throw new Error("No trusted public app origin is configured for booking links.");
-  }
-  if (process.env.NODE_ENV === "production" || !isLocalHost) return `https://${host}`;
-  return `${req.protocol}://${host}`;
-};
-const bookingTrackingUrl = (req: express.Request, token: string) => {
-  const url = new URL("/", publicOrigin(req));
-  url.searchParams.set("tracking", token);
-  return url.toString();
-};
-const sendBookingTrackingSms = async (req: express.Request, inquiry: { id: string; phone: string; estimatedFareCents?: number | null }, trackingToken: string) => {
-  const link = bookingTrackingUrl(req, trackingToken);
-  const fare = inquiry.estimatedFareCents == null ? "" : ` Estimated fare: $${Math.round(inquiry.estimatedFareCents / 100)}.`;
-  await sendSms(inquiry.phone, `ALLAN Livery: Booking ${inquiry.id.slice(-6).toUpperCase()} received.${fare} Follow your reservation and driver updates: ${link}`);
-};
-const stripeProfileSchema = z.object({
-  fullName: z.string().trim().min(2).max(100),
-  email: z.string().trim().email(),
-});
-const finalizeSetupSchema = z.object({
-  setupIntentId: z.string().regex(/^seti_[A-Za-z0-9]+$/),
-  customerId: z.string().regex(/^cus_[A-Za-z0-9]+$/),
-  setupToken: z.string().min(40).max(500),
-});
-const paymentIntentSchema = z.object({
-  bookingRequestId: z.string().uuid(),
-  customerId: z.string().regex(/^cus_[A-Za-z0-9]+$/),
-  paymentMethodId: z.string().regex(/^pm_[A-Za-z0-9]+$/),
-  capability: z.string().min(40).max(2000),
-  trackingToken: z.string().regex(/^[a-f0-9]{64}$/),
-});
-const paymentMethodAccessSchema = z.object({
-  customerId: z.string().regex(/^cus_[A-Za-z0-9]+$/),
-  email: z.string().trim().email(),
-  capability: z.string().min(40).max(2000),
-});
-const selectPaymentMethodSchema = paymentMethodAccessSchema.extend({
-  paymentMethodId: z.string().regex(/^pm_[A-Za-z0-9]+$/),
-});
-const deletePaymentMethodSchema = paymentMethodAccessSchema.extend({
-  paymentMethodId: z.string().regex(/^pm_[A-Za-z0-9]+$/),
-});
-const flightLookupSchema = z.object({
-  flightNumber: z.string().trim().max(20),
-});
-const flightRouteAirportSchema = z.object({
-  iata_code: z.string().regex(/^[A-Za-z]{3}$/).optional(),
-  name: z.string().max(200).optional(),
-});
-const flightRouteResponseSchema = z.object({
-  response: z.object({
+t({
     flightroute: z.object({
       callsign_iata: z.string().optional(),
       airline: z.object({
@@ -373,7 +209,7 @@ const getFlightLookup = async (flightNumber: string): Promise<FlightLookupResult
   if (cached && cached.expiresAt > Date.now()) return cached.result;
   try {
     const response = await fetch(`https://api.adsbdb.com/v0/callsign/${encodeURIComponent(normalized.replace(" ", ""))}`, {
-      headers: { Accept: "application/json", "User-Agent": "ALLAN-Livery/1.0 flight lookup" },
+      headers: { Accept: "application/json", "User-Agent": "Allan-Limousine/1.0 flight lookup" },
       signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) {
@@ -469,7 +305,7 @@ app.post("/api/create-setup-intent", inquiryLimiter, async (req, res) => {
       const customer = await stripe.customers.create({
         name: parsed.data.fullName,
         email,
-        metadata: { source: "allen-limousine-pwa", customer_key: email },
+        metadata: { source: "allan-limousine-pwa", customer_key: email },
       });
       customerId = customer.id;
     }
@@ -478,7 +314,7 @@ app.post("/api/create-setup-intent", inquiryLimiter, async (req, res) => {
       customer: customerId,
       usage: "off_session",
       payment_method_types: ["card"],
-      metadata: { source: "allen-limousine-pwa" },
+      metadata: { source: "allan-limousine-pwa" },
     });
     const setupToken = crypto.randomBytes(32).toString("base64url");
     await createStripeSetupSession({
@@ -577,7 +413,7 @@ app.post("/api/create-payment-intent", inquiryLimiter, async (req, res) => {
       capture_method: "manual",
       confirm: true,
       off_session: true,
-      description: `Allen Limousine booking ${inquiry.id}`,
+      description: `Allan Limousine booking ${inquiry.id}`,
       metadata: { inquiryId: inquiry.id, bookingRequestId: parsed.data.bookingRequestId },
     }, { idempotencyKey: `booking-auth-${parsed.data.bookingRequestId}-${priorIntentId}` });
     await updateInquiryPayment(parsed.data.bookingRequestId, {
@@ -1188,12 +1024,12 @@ async function start() {
     });
     app.use(vite.middlewares);
   }
-  app.listen(port, "0.0.0.0", () => console.log(`ALLAN Livery listening on 0.0.0.0:${port}`));
+  app.listen(port, "0.0.0.0", () => console.log(`Allan Limousine listening on 0.0.0.0:${port}`));
 }
 
 if (!process.env.VERCEL) {
   start().catch(error => {
-    console.error("Unable to start ALLAN Livery:", error);
+    console.error("Unable to start Allan Limousine:", error);
     process.exit(1);
   });
 }

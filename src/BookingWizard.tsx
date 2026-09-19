@@ -127,7 +127,7 @@ export default function BookingWizard() {
   const routeAirport = pickupAirport || detectAirport(destination);
   const detectedAirport = pickupAirport;
   useEffect(() => {
-    try { localStorage.removeItem("allen_active_reservation"); } catch { /* Storage may be unavailable in private browsing. */ }
+    try { localStorage.removeItem("allan_active_reservation"); } catch { /* Storage may be unavailable in private browsing. */ }
     const riderProfile = {
       fullName: localStorage.getItem("rider_name") || "",
       phone: localStorage.getItem("rider_phone") || "",
@@ -199,8 +199,8 @@ export default function BookingWizard() {
       setRoute(current => ({ ...current, destination: detail.destination || "" }));
       setPoints(current => ({ ...current, destination: undefined }));
     };
-    window.addEventListener("allen-booking-prefill", prefill);
-    return () => window.removeEventListener("allen-booking-prefill", prefill);
+    window.addEventListener("allan-booking-prefill", prefill);
+    return () => window.removeEventListener("allan-booking-prefill", prefill);
   }, []);
   useEffect(() => {
     if (!pickupAirport) {
@@ -472,11 +472,11 @@ export default function BookingWizard() {
       setHasRiderProfile(true);
       useCurrentLocation();
     };
-    return <section className="pwa-onboarding"><div className="onboarding-card"><div className="onboarding-offer">$15 FIRST-RIDE CREDIT</div><p className="eyebrow brass">Welcome to Allen Limousine</p><h1>Set up once.<br /><em>Ride in one tap.</em></h1><p>Save your passenger profile and payment method for faster bookings and direct chauffeur updates.</p><div className="onboarding-fields"><label className="wizard-field">Full name<input autoFocus value={contact.fullName} onChange={event => setContact(current => ({ ...current, fullName: event.target.value }))} placeholder="Your name" /></label><label className="wizard-field">Phone number<input value={contact.phone} onChange={event => setContact(current => ({ ...current, phone: event.target.value }))} placeholder="+1 214…" /></label><label className="wizard-field">Email<input type="email" value={contact.email} onChange={event => setContact(current => ({ ...current, email: event.target.value }))} placeholder="you@example.com" /></label></div><StripeCardSetup fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} /><button className="solid-button" disabled={!contact.fullName || !contact.phone || !contact.email} onClick={saveProfile}>{savedPayment ? "Save profile & start booking" : "Continue — pay later"} <ArrowRight /></button><small>Card details are tokenized by Stripe. Allen Limousine never stores your card number.</small></div></section>;
+    return <section className="pwa-onboarding"><div className="onboarding-card"><div className="onboarding-offer">$15 FIRST-RIDE CREDIT</div><p className="eyebrow brass">Welcome to Allan Limousine</p><h1>Set up once.<br /><em>Ride in one tap.</em></h1><p>Save your passenger profile and payment method for faster bookings and direct chauffeur updates.</p><div className="onboarding-fields"><label className="wizard-field">Full name<input autoFocus value={contact.fullName} onChange={event => setContact(current => ({ ...current, fullName: event.target.value }))} placeholder="Your name" /></label><label className="wizard-field">Phone number<input value={contact.phone} onChange={event => setContact(current => ({ ...current, phone: event.target.value }))} placeholder="+1 214…" /></label><label className="wizard-field">Email<input type="email" value={contact.email} onChange={event => setContact(current => ({ ...current, email: event.target.value }))} placeholder="you@example.com" /></label></div><StripeCardSetup fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} /><button className="solid-button" disabled={!contact.fullName || !contact.phone || !contact.email} onClick={saveProfile}>{savedPayment ? "Save profile & start booking" : "Continue — pay later"} <ArrowRight /></button><small>Card details are tokenized by Stripe. Allan Limousine never stores your card number.</small></div></section>;
   }
 
   if (trackingLinkState === "loading") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><p className="eyebrow brass">Secure reservation link</p><h2>Loading your<br /><em>ride updates.</em></h2><p>We’re retrieving the latest details for your reservation.</p></div></section>;
-  if (trackingLinkState === "error") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><p className="eyebrow brass">Secure reservation link</p><h2>Tracking is<br /><em>unavailable.</em></h2><p>This link has expired or is no longer available. Please contact Allen Limousine if you need help with this reservation.</p></div></section>;
+  if (trackingLinkState === "error") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><p className="eyebrow brass">Secure reservation link</p><h2>Tracking is<br /><em>unavailable.</em></h2><p>This link has expired or is no longer available. Please contact Allan Limousine if you need help with this reservation.</p></div></section>;
   if (activeReservation) return <DispatchTrackingStep reservation={activeReservation} onComplete={() => {
     setActiveReservation(null);
     setSubmitState("idle");
@@ -486,7 +486,7 @@ export default function BookingWizard() {
     useCurrentLocation();
   }} />;
 
-  if (submitState === "success") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><Check /><p className="eyebrow brass">Request received</p><h2>Your ride is<br /><em>in motion.</em></h2><p>We saved your trip and sent it to the Allen Limousine team for confirmation. We’ll text a secure tracking link to {contact.phone} so you can follow your reservation.</p>{paymentNotice && <p className="payment-result">{paymentNotice}</p>}<button className="solid-button" onClick={() => { setSubmitState("idle"); setStep(1); setBookingRequestId(crypto.randomUUID()); setPaymentNotice(""); useCurrentLocation(); }}>Book another ride</button></div></section>;
+  if (submitState === "success") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><Check /><p className="eyebrow brass">Request received</p><h2>Your ride is<br /><em>in motion.</em></h2><p>We saved your trip and sent it to the Allan Limousine team for confirmation. We’ll text a secure tracking link to {contact.phone} so you can follow your reservation.</p>{paymentNotice && <p className="payment-result">{paymentNotice}</p>}<button className="solid-button" onClick={() => { setSubmitState("idle"); setStep(1); setBookingRequestId(crypto.randomUUID()); setPaymentNotice(""); useCurrentLocation(); }}>Book another ride</button></div></section>;
 
   return <section id="reserve" className="booking-wizard-section section-pad">
     <div className="wizard-shell">

@@ -186,18 +186,18 @@ export default function DispatchTrackingStep({ reservation, onComplete }: { rese
     UNASSIGNED: ["Ride confirmed", "A chauffeur will be assigned shortly."],
     ASSIGNED: ["Chauffeur assigned", "Your driver is preparing for your trip."],
     EN_ROUTE: ["Chauffeur en route", "Live driver tracking is active."],
-    IN_PROGRESS: ["Trip in progress", "Enjoy your Allen Limousine experience."],
-    COMPLETED: ["Trip completed", "Thank you for riding with Allen Limousine."],
+    IN_PROGRESS: ["Trip in progress", "Enjoy your Allan Limousine experience."],
+    COMPLETED: ["Trip completed", "Thank you for riding with Allan Limousine."],
     CANCELLED: ["Reservation cancelled", "Contact dispatch if you need assistance."],
   }[live.status] || ["Reservation active", "Dispatch is monitoring your trip."]), [live.status]);
   const addPass = () => {
     const start = new Date(reservation.pickupAt);
     const end = new Date(start.getTime() + 60 * 60_000);
     const format = (date: Date) => date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-    const content = ["BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", `UID:${reservation.inquiryId}@allenlimousine.com`, `DTSTART:${format(start)}`, `DTEND:${format(end)}`, `SUMMARY:Allen Limousine Ride ${reservation.reference}`, `LOCATION:${reservation.pickup}`, `DESCRIPTION:${reservation.pickup} to ${reservation.destination}`, "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+    const content = ["BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", `UID:${reservation.inquiryId}@allanlimousine.com`, `DTSTART:${format(start)}`, `DTEND:${format(end)}`, `SUMMARY:Allan Limousine Ride ${reservation.reference}`, `LOCATION:${reservation.pickup}`, `DESCRIPTION:${reservation.pickup} to ${reservation.destination}`, "END:VEVENT", "END:VCALENDAR"].join("\r\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([content], { type: "text/calendar" }));
-    link.download = `allen-limousine-${reservation.reference}.ics`;
+    link.download = `allan-limousine-${reservation.reference}.ics`;
     link.click();
     URL.revokeObjectURL(link.href);
   };

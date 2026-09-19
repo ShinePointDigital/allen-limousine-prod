@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const password = process.env.ADMIN_BOOTSTRAP_PASSWORD;
-  const email = process.env.ADMIN_EMAIL || "admin@allanlivery.com";
+  const email = process.env.ADMIN_EMAIL || "admin@allanlimousine.com";
   if (!password || password === "change-this-before-production") {
     throw new Error("Set ADMIN_BOOTSTRAP_PASSWORD to a strong, non-default password before seeding.");
   }

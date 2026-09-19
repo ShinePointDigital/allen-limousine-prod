@@ -13,7 +13,7 @@ export type PwaTrip = {
 
 const TRIPS_KEY = "allan-pwa-trips";
 const WALLET_KEY = "allan-wallet-cards";
-const PAYMENT_KEY = "allen-saved-payment";
+const PAYMENT_KEY = "allan-saved-payment";
 
 const emit = (name: string) => {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(name));

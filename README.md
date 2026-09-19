@@ -1,4 +1,4 @@
-# ALLAN Livery
+# Allan Limousine
 
 A portable full-stack website and operations dashboard for a private Chicago chauffeur service.
 
@@ -80,13 +80,13 @@ The app container applies pending Prisma migrations before starting the web serv
 Create a compressed backup:
 
 ```sh
-docker compose exec -T database pg_dump -U allan -d allan_livery -Fc > allan-livery.dump
+docker compose exec -T database pg_dump -U allan -d allan_limousine -Fc > allan-limousine.dump
 ```
 
 Restore into an empty database:
 
 ```sh
-docker compose exec -T database pg_restore -U allan -d allan_livery --clean --if-exists < allan-livery.dump
+docker compose exec -T database pg_restore -U allan -d allan_limousine --clean --if-exists < allan-limousine.dump
 ```
 
 For externally hosted PostgreSQL, run the equivalent `pg_dump` and `pg_restore` commands against the provider's connection details.

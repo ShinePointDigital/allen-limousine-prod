@@ -1,7 +1,7 @@
 const BUILD_ID = "__ALLAN_BUILD_ID__";
-const CACHE_PREFIX = "allen-limo-shell-";
+const CACHE_PREFIX = "allan-limousine-shell-";
 const CACHE = `${CACHE_PREFIX}${BUILD_ID}`;
-const SHELL = ["/manifest.json", "/allen-limousine-logo.png", "/pwa-icon-192.png", "/pwa-icon-512.png", "/pwa-icon-maskable-512.png", "/apple-touch-icon.png"];
+const SHELL = ["/manifest.json", "/allan-limousine-logo.png", "/pwa-icon-192.png", "/pwa-icon-512.png", "/pwa-icon-maskable-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", event => {
   event.waitUntil((async () => {

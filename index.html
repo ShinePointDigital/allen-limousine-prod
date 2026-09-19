@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0a0a0a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Allen Limo" />
+    <meta name="apple-mobile-web-app-title" content="Allan Limousine" />
     <meta name="format-detection" content="telephone=no" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
@@ -14,18 +14,18 @@
     <meta name="description" content="Private chauffeur service in Chicago. Airport transfers, executive travel, and important evenings, arranged with absolute discretion." />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%230d0e0e'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-family='serif' font-style='italic' font-size='42' fill='%23d7bb85'%3EA%3C/text%3E%3C/svg%3E" />
     <script>
-      const allenMobileDevice =
+      const allanMobileDevice =
         /android|iphone|ipad|ipod/i.test(navigator.userAgent) ||
         (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-      if (allenMobileDevice) {
+      if (allanMobileDevice) {
         window.addEventListener("beforeinstallprompt", event => {
           event.preventDefault();
-          window.__allenInstallPrompt = event;
-          window.dispatchEvent(new Event("allen-install-prompt-ready"));
+          window.__allanInstallPrompt = event;
+          window.dispatchEvent(new Event("allan-install-prompt-ready"));
         });
       }
       (() => {
-        const resetKey = "allen-sw-reset-2026-09-v4";
+        const resetKey = "allan-sw-reset-2026-09-v4";
         if (!("serviceWorker" in navigator)) return;
         try {
           if (localStorage.getItem(resetKey) === "complete") return;
@@ -42,7 +42,7 @@
         ]).finally(() => window.location.reload());
       })();
     </script>
-    <title>ALLAN Livery | Private Chauffeur Service</title>
+    <title>Allan Limousine | Private Chauffeur Service</title>
   </head>
   <body>
     <div id="root"></div>

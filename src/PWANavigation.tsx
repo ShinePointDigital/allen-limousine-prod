@@ -147,7 +147,7 @@ function WalletPanel({ onClose }: { onClose: () => void }) {
   };
   return <div className="pwa-drawer-content">
     <DrawerHeader eyebrow="Secure payment methods" title="Wallet" onClose={onClose} />
-    <div className="pwa-wallet-intro"><ShieldCheck /><p>Your card details are handled by Stripe. Allen Limousine never stores your card number.</p></div>
+    <div className="pwa-wallet-intro"><ShieldCheck /><p>Your card details are handled by Stripe. Allan Limousine never stores your card number.</p></div>
     {!name || !email ? <div className="pwa-wallet-profile"><p className="drawer-label">Complete your wallet profile</p><label>Name<input value={name} onChange={event => setName(event.target.value)} placeholder="Your name" /></label><label>Email<input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" /></label></div> : null}
     {error && <p className="form-error">{error}</p>}
     {notice && <p className="pwa-wallet-notice"><Check />{notice}</p>}
@@ -167,7 +167,7 @@ function SupportPanel({ onClose }: { onClose: () => void }) {
   return <div className="pwa-drawer-content">
     <DrawerHeader eyebrow="Always available" title="Support" onClose={onClose} />
     <p className="pwa-support-copy">Our dispatch team can help with a reservation, pickup details, or a change to your itinerary.</p>
-    <div className="pwa-support-actions"><a href="tel:+13125550188"><Phone /><span><b>Call dispatch</b><small>+1 312 555 0188</small></span></a><a href="sms:+13125550188"><Headphones /><span><b>Text dispatch</b><small>Send a message about your ride</small></span></a><a href="mailto:hello@allanlivery.com"><Mail /><span><b>Email the team</b><small>hello@allanlivery.com</small></span></a></div>
+    <div className="pwa-support-actions"><a href="tel:+13125550188"><Phone /><span><b>Call dispatch</b><small>+1 312 555 0188</small></span></a><a href="sms:+13125550188"><Headphones /><span><b>Text dispatch</b><small>Send a message about your ride</small></span></a><a href="mailto:hello@allanlimousine.com"><Mail /><span><b>Email the team</b><small>hello@allanlimousine.com</small></span></a></div>
     <div className="pwa-support-note"><ShieldCheck /><span><b>For active rides</b><small>Open My Trips to view your secure reservation link and current chauffeur updates.</small></span></div>
   </div>;
 }
