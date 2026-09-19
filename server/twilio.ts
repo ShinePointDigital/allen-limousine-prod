@@ -21,6 +21,13 @@ export class TwilioRequestError extends Error {
   }
 }
 
+function normalizeTwilioPhone(value: string, label: "sender" | "recipient") {
+  const digits = value.replace(/\D/g, "");
+  const normalized = digits.length === 10 ? `+1${digits}` : digits.length >= 11 && digits.length <= 15 ? `+${digits}` : "";
+  if (!normalized) throw new TwilioRequestError(`The Twilio ${label} number must be a valid E.164 phone number.`, true);
+  return normalized;
+}
+
 async function readTwilioResponse(response: Response) {
   const text = await response.text();
   let payload: TwilioError & { sid?: string } = {};
@@ -49,8 +56,10 @@ async function getAccountSid() {
 }
 
 export async function sendSms(to: string, body: string) {
-  const from = process.env.TWILIO_FROM_NUMBER;
-  if (!from) throw new TwilioRequestError("SMS is not configured. Set TWILIO_FROM_NUMBER for the connected Twilio account.", true);
+  const configuredFrom = process.env.TWILIO_FROM_NUMBER;
+  if (!configuredFrom) throw new TwilioRequestError("SMS is not configured. Set TWILIO_FROM_NUMBER for the connected Twilio account.", true);
+  const from = normalizeTwilioPhone(configuredFrom, "sender");
+  const recipient = normalizeTwilioPhone(to, "recipient");
   let accountSid: string;
   try {
     accountSid = await getAccountSid();
@@ -58,7 +67,7 @@ export async function sendSms(to: string, body: string) {
     if (error instanceof TwilioRequestError) throw error;
     throw new TwilioRequestError(error instanceof Error ? error.message : "The Twilio account could not be resolved.", true);
   }
-  const params = new URLSearchParams({ To: to, From: from, Body: body });
+  const params = new URLSearchParams({ To: recipient, From: from, Body: body });
   try {
     if (process.env.TWILIO_STATUS_CALLBACK_URL && process.env.TWILIO_AUTH_TOKEN) {
       params.set("StatusCallback", new URL(process.env.TWILIO_STATUS_CALLBACK_URL).toString());
