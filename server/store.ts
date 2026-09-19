@@ -97,25 +97,11 @@ const notifications: AdminNotification[] = [{
 const fallbackPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD || crypto.randomBytes(48).toString("hex");
 const fallbackAdmin = { id: "admin-001", email: process.env.ADMIN_EMAIL || "admin@allanlivery.com", name: "Avery Reed", passwordHash: bcrypt.hashSync(fallbackPassword, 10), role: "SUPER_ADMIN", active: true };
 const sessions = new Map<string, { userId: string; expiresAt: number }>();
-const productionAdminResetEnabled = production;
-const productionAdminResetMarker = "production-admin-reset-complete";
 
 export async function initializeStore() {
   if (production && !databaseConfigured) throw new Error("DATABASE_URL is required in production.");
   if (!databaseConfigured) return;
   await prisma.$connect();
-  if (productionAdminResetEnabled) {
-    await prisma.$transaction(async tx => {
-      if (await tx.siteSetting.findUnique({ where: { key: productionAdminResetMarker }, select: { key: true } })) return;
-      await tx.siteSetting.create({ data: { key: productionAdminResetMarker, value: new Date().toISOString() } });
-      await tx.dispatchMessage.deleteMany();
-      await tx.inquiryNote.deleteMany();
-      await tx.adminNotification.deleteMany();
-      await tx.ride.deleteMany();
-      await tx.inquiry.deleteMany();
-      console.warn("Production admin reset completed: booking and dispatch records were deleted.");
-    }, { isolationLevel: "Serializable" });
-  }
   const [serviceCount, fleetCount] = await Promise.all([prisma.service.count(), prisma.fleetVehicle.count()]);
   if (!serviceCount) await prisma.service.createMany({ data: services.map((s, sortOrder) => ({ ...s, sortOrder })) });
   if (!fleetCount) await prisma.fleetVehicle.createMany({ data: fleet.map((v, sortOrder) => ({ ...v, sortOrder })) });

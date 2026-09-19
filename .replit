@@ -64,7 +64,6 @@ build = ["npm", "run", "build"]
 
 [userenv.production]
 NODE_ENV = "production"
-ADMIN_DATA_RESET_ON_START = "DELETE_ALL_ADMIN_DATA"
 
 [userenv.shared]
 TWILIO_FROM_NUMBER = "7088431292"
