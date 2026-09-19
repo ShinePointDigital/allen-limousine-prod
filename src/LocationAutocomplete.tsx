@@ -152,6 +152,14 @@ export default function LocationAutocomplete({
     sessionToken.current = null;
   };
 
+  const useFallbackProvider = () => {
+    autocompleteService.current = null;
+    placesService.current = null;
+    autocompleteMode.current = null;
+    endSession();
+    setProvider("fallback");
+  };
+
   useEffect(() => {
     const query = value.trim();
     if (!focused || query.length < 2 || provider === "loading") {
@@ -187,7 +195,10 @@ export default function LocationAutocomplete({
             }));
           setSuggestions(nextSuggestions);
         } catch {
-          if (sequence === requestSequence.current) setSuggestions([]);
+          if (sequence === requestSequence.current) {
+            setSuggestions([]);
+            useFallbackProvider();
+          }
         } finally {
           if (sequence === requestSequence.current) setSearching(false);
         }
@@ -204,11 +215,16 @@ export default function LocationAutocomplete({
           if (sequence !== requestSequence.current) return;
           const googleWindow = window as Window & { google?: any };
           const ok = status === "OK" || status === googleWindow.google?.maps?.places?.PlacesServiceStatus?.OK;
-          setSuggestions(ok ? (predictions || []).slice(0, 5).map(prediction => ({
-            id: prediction.place_id,
-            placeId: prediction.place_id,
-            label: prediction.description,
-          })) : []);
+          if (ok) {
+            setSuggestions((predictions || []).slice(0, 5).map(prediction => ({
+              id: prediction.place_id,
+              placeId: prediction.place_id,
+              label: prediction.description,
+            })));
+          } else {
+            setSuggestions([]);
+            useFallbackProvider();
+          }
           setSearching(false);
         });
         return;
