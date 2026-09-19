@@ -667,10 +667,10 @@ function DispatchReconciliationView({ ride, activity, sid, setSid, busy, error, 
         {activity.reconciledAt && <span>Reconciled at <b>{formatDateTime(activity.reconciledAt)}</b></span>}
       </div>
       {pending && <div className="reconciliation-form">
-        <label>Twilio message SID<input value={sid} onChange={event => setSid(event.target.value)} placeholder="SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autoComplete="off" /></label>
-        <p>Use the SID from the original Twilio attempt. If Twilio is still processing it, this ride stays blocked.</p>
+        <label>Twilio message SID (optional)<input value={sid} onChange={event => setSid(event.target.value)} placeholder="SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autoComplete="off" /></label>
+        <p>Leave the SID blank to search Twilio by driver, message, and attempt time. This check never sends another SMS.</p>
         {error && <p className="dispatch-warning">{error}</p>}
-        <button className="solid-button" type="button" disabled={busy || !sid.trim()} onClick={onReconcile}>{busy ? "Checking Twilio..." : <>Check and reconcile <ShieldCheck /></>}</button>
+        <button className="solid-button" type="button" disabled={busy} onClick={onReconcile}>{busy ? "Checking Twilio..." : <>Check and reconcile <ShieldCheck /></>}</button>
       </div>}
       {!pending && activity.errorMessage && <p className="reconciliation-error">{activity.errorMessage}</p>}
       <button className="outline-button dark reconciliation-back" type="button" onClick={onBack}>{pending ? "Back to ride details" : "Return to ride"}</button>

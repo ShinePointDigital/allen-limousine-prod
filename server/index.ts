@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finalizeAuthorizedInquiry, finishDispatchAttempt, getAdminContent, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, getStripeCustomerProfile, initializeStore, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, saveStripeCustomerProfile, sessionUser, updateAdmin, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent, validateRideUpdate } from "./store.js";
-import { classifyTwilioMessageStatus, getDriverDispatchSms, sendSms, sendDriverDispatchSms, TwilioRequestError } from "./twilio.js";
+import { classifyTwilioMessageStatus, findDriverDispatchSms, getDriverDispatchSms, sendSms, sendDriverDispatchSms, twilioPhonesEqual, TwilioRequestError } from "./twilio.js";
 import { estimateFare, reverseGeocode, searchLocations } from "./fare-estimate.js";
 import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "./stripe-client.js";
 
@@ -916,17 +916,24 @@ app.post("/api/admin/rides/:id/dispatch/:attemptId/reconcile", admin, dispatchLi
   if (attempt.status !== "PENDING") return res.status(409).json({ error: "This dispatch attempt has already been reconciled.", activity: attempt });
   const parsed = z.object({ providerMessageId: z.string().trim().regex(/^SM[0-9a-f]{32}$/i).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Enter the Twilio message SID that begins with SM." });
-  const providerMessageId = parsed.data.providerMessageId || attempt.providerMessageId;
-  if (!providerMessageId) return res.status(400).json({ code: "MISSING_PROVIDER_ID", error: "Enter the Twilio message SID from the original send attempt. No new SMS will be sent." });
-
   let provider;
   try {
-    provider = await getDriverDispatchSms(providerMessageId);
+    const providerMessageId = parsed.data.providerMessageId || attempt.providerMessageId;
+    provider = providerMessageId
+      ? await getDriverDispatchSms(providerMessageId)
+      : await findDriverDispatchSms(attempt.toPhone, attempt.body, attempt.createdAt);
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Twilio could not verify this message.";
     return res.status(502).json({ status: "PENDING_RECONCILIATION", error: `${detail} The ride remains blocked from resending.` });
   }
-  if (provider.toPhone !== attempt.toPhone || provider.body !== attempt.body) {
+  if (!provider) {
+    return res.status(409).json({
+      code: "PROVIDER_NOT_FOUND",
+      status: "PENDING_RECONCILIATION",
+      error: "Twilio does not show a matching message yet. The attempt remains blocked because provider history can be delayed. Try again later or enter the exact SID.",
+    });
+  }
+  if (!twilioPhonesEqual(provider.toPhone, attempt.toPhone) || provider.body !== attempt.body) {
     return res.status(409).json({
       status: "PENDING_RECONCILIATION",
       error: "That Twilio SID belongs to a different destination or message. The original attempt remains blocked.",

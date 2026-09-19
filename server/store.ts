@@ -102,6 +102,17 @@ export async function initializeStore() {
   if (production && !databaseConfigured) throw new Error("DATABASE_URL is required in production.");
   if (!databaseConfigured) return;
   await prisma.$connect();
+  if (production) {
+    await prisma.dispatchMessage.updateMany({
+      where: { id: "cmu7xf53r0006ii044m9so7en", status: "PENDING", providerMessageId: null },
+      data: {
+        status: "FAILED",
+        providerStatus: "connector_auth_failed",
+        deliveryStatus: "not_sent",
+        errorMessage: "The original request was rejected before reaching Twilio because connector authorization failed.",
+      },
+    });
+  }
   const [serviceCount, fleetCount] = await Promise.all([prisma.service.count(), prisma.fleetVehicle.count()]);
   if (!serviceCount) await prisma.service.createMany({ data: services.map((s, sortOrder) => ({ ...s, sortOrder })) });
   if (!fleetCount) await prisma.fleetVehicle.createMany({ data: fleet.map((v, sortOrder) => ({ ...v, sortOrder })) });
@@ -787,7 +798,7 @@ export async function updateDispatchProviderStatus(id: string, data: { providerM
 
 export async function reconcileDispatchAttempt(rideId: string, id: string, data: {
   status: "SENT" | "FAILED";
-  providerMessageId: string;
+  providerMessageId?: string | null;
   providerStatus: string;
   deliveryStatus?: string | null;
   errorMessage?: string | null;
