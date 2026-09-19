@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowDownRight, ArrowRight, Bell, CalendarDays, CarFront, Check, ChevronDown, ChevronLeft, MapPin,
@@ -15,6 +15,7 @@ import heroCadillac from "./assets/hero-cadillac-downtown-night.jpg";
 
 type Service = { id: string; slug: string; title: string; eyebrow: string; description: string; imageUrl: string; active: boolean };
 type Vehicle = { id: string; name: string; category: string; description: string; imageUrl: string; passengers: string; luggage: string; defaultDriverName: string | null; defaultDriverPhone: string | null; active: boolean };
+type DispatchVehicle = Pick<Vehicle, "id" | "name" | "category" | "description" | "passengers" | "luggage" | "defaultDriverName" | "defaultDriverPhone">;
 type Inquiry = { id: string; fullName: string; email: string; phone: string; serviceType: string; pickupAt: string; pickup: string; destination: string; passengers: number; notes?: string; airportCode?: string | null; airportTerminal?: string | null; flightNumber?: string | null; flightScheduledAt?: string | null; pickupPreference?: string | null; isPrivateFBO?: boolean; specificTailNumber?: string | null; principalName?: string | null; fboName?: string | null; tarmacInstructions?: string | null; estimatedFareCents?: number | null; bookingRequestId?: string | null; stripePaymentIntentId?: string | null; paymentStatus?: string | null; status: string; createdAt: string; updatedAt: string; history: { body: string; author: string; createdAt: string }[] };
 type DispatchActivity = {
   id: string; status: string; toPhone: string; body: string; providerMessageId: string | null;
@@ -424,12 +425,13 @@ function RideRow({ ride, onClick }: { ride: Ride; onClick?: () => void }) {
 }
 function RidesManager() {
   const [rides, setRides] = useState<Ride[]>([]);
-  const [vehicles, setVehicles] = useState<Pick<Vehicle, "id" | "name" | "category" | "description" | "passengers" | "luggage" | "defaultDriverName" | "defaultDriverPhone">[]>([]);
+  const [vehicles, setVehicles] = useState<DispatchVehicle[]>([]);
   const [status, setStatus] = useState("ALL");
   const [date, setDate] = useState("");
   const [unassigned, setUnassigned] = useState(false);
   const [selected, setSelected] = useState<Ride | null>(null);
-  const [availableVehicle, setAvailableVehicle] = useState<Pick<Vehicle, "id" | "name" | "category" | "description" | "passengers" | "luggage" | "defaultDriverName" | "defaultDriverPhone"> | null>(null);
+  const [assignmentRide, setAssignmentRide] = useState<Ride | null>(null);
+  const [availableVehicle, setAvailableVehicle] = useState<DispatchVehicle | null>(null);
   const [deletingVehicleId, setDeletingVehicleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -450,14 +452,76 @@ function RidesManager() {
   return <div className="admin-page">
     <AdminHeader eyebrow="Operations / live schedule" title="Rides & dispatch"><div className="header-actions"><Link className="outline-button dark small" to="/admin/fleet"><Plus /> Add vehicle</Link><Link className="outline-button dark small" to="/admin/inquiries"><Plus /> Review inquiries</Link></div></AdminHeader>
      <div className="dispatch-toolbar"><div className="filter-tabs">{["ALL", "UNASSIGNED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "COMPLETED", "CANCELLED"].map(item => <button className={status === item ? "selected" : ""} key={item} onClick={() => setStatus(item)}>{item === "ALL" ? "All rides" : titleCaseStatus(item)}</button>)}</div><div className="dispatch-filters"><label>Service date<input type="date" value={date} onChange={event => setDate(event.target.value)} /></label><button className={unassigned ? "assignment-toggle selected" : "assignment-toggle"} onClick={() => setUnassigned(value => !value)}><CarFront /> Needs assignment</button></div></div>
-     <section className="panel dispatch-panel"><div className="ride-list-head"><span>Date</span><span>Client & service</span><span>Assignment</span><span>Quote</span><span>Status</span></div>{loading ? <div className="admin-inline-loading"><span className="spinner" />Loading dispatch</div> : error ? <div className="empty-state"><Clock3 /><p>{error}</p><button onClick={load}>Try again</button></div> : <div className="ride-table">{rides.map(ride => <RideRow key={ride.id} ride={ride} onClick={() => setSelected(ride)} />)}{!rides.length && <div className="empty-state"><CarFront /><p>No rides match these filters.</p><small>Available vehicles are listed below and will appear in assignment selectors when a ride is booked.</small></div>}</div>}</section>
+      <section className="panel dispatch-panel"><div className="ride-list-head"><span>Date</span><span>Client & service</span><span>Assignment</span><span>Quote</span><span>Status</span></div>{loading ? <div className="admin-inline-loading"><span className="spinner" />Loading dispatch</div> : error ? <div className="empty-state"><Clock3 /><p>{error}</p><button onClick={load}>Try again</button></div> : <div className="ride-table">{rides.map(ride => <RideRow key={ride.id} ride={ride} onClick={() => ride.status === "UNASSIGNED" || !ride.vehicleId ? setAssignmentRide(ride) : setSelected(ride)} />)}{!rides.length && <div className="empty-state"><CarFront /><p>No rides match these filters.</p><small>Available vehicles are listed below and will appear in assignment selectors when a ride is booked.</small></div>}</div>}</section>
      <section className="panel dispatch-fleet-panel"><div className="panel-header"><div><p className="eyebrow brass">Dispatch fleet</p><h2>Available vehicles</h2></div><Link to="/admin/fleet" className="text-button">Manage fleet <ArrowRight /></Link></div><div className="dispatch-fleet-grid">{vehicles.map(vehicle => <article className="dispatch-fleet-card" key={vehicle.id} role="button" tabIndex={0} onClick={() => setAvailableVehicle(vehicle)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") setAvailableVehicle(vehicle); }}><div className="dispatch-fleet-card-top"><div><b>{vehicle.name}</b><small>{vehicle.category} · Up to {vehicle.passengers} guests · {vehicle.luggage}</small></div><div className="dispatch-fleet-card-tools"><span className="active-label"><i />Available</span><button type="button" className="dispatch-fleet-delete" disabled={deletingVehicleId === vehicle.id} aria-label={`Delete ${vehicle.name}`} title="Delete vehicle" onClick={event => removeVehicle(event, vehicle)}>{deletingVehicleId === vehicle.id ? <span className="spinner" /> : <Trash2 />}</button></div></div><div className="dispatch-driver"><span>Default driver</span>{vehicle.defaultDriverName ? <strong>{vehicle.defaultDriverName}<a href={`tel:${vehicle.defaultDriverPhone || ""}`} onClick={event => event.stopPropagation()}>{vehicle.defaultDriverPhone || "Phone not added"}</a></strong> : <strong className="missing-driver">Add driver details in Fleet</strong>}</div><span className="dispatch-fleet-action">View available rides <ArrowUpRight /></span></article>)}{!vehicles.length && <div className="empty-state compact-empty"><CarFront /><p>No active vehicles yet.</p><Link to="/admin/fleet" className="text-button">Add a vehicle <ArrowRight /></Link></div>}</div></section>
      {availableVehicle && <AvailableRidesModal vehicle={availableVehicle} close={() => setAvailableVehicle(null)} refresh={load} />}
+     {assignmentRide && <RideAssignmentModal ride={assignmentRide} vehicles={vehicles} close={() => setAssignmentRide(null)} assigned={() => { setAssignmentRide(null); load(); }} />}
     {selected && <RideDetail ride={selected} vehicles={vehicles} close={() => setSelected(null)} refresh={load} />}
   </div>;
 }
 
-function AvailableRidesModal({ vehicle, close, refresh }: { vehicle: Pick<Vehicle, "id" | "name" | "category" | "description" | "passengers" | "luggage" | "defaultDriverName" | "defaultDriverPhone">; close: () => void; refresh: () => void }) {
+function RideAssignmentModal({ ride, vehicles, close, assigned }: { ride: Ride; vehicles: DispatchVehicle[]; close: () => void; assigned: () => void }) {
+  const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const modalRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const modal = modalRef.current;
+    const focusable = () => Array.from(modal?.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])") || []);
+    focusable()[0]?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); close(); return; }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) return;
+      const first = items[0]; const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    modal?.addEventListener("keydown", handleKeyDown);
+    return () => { modal?.removeEventListener("keydown", handleKeyDown); previouslyFocused?.focus(); };
+  }, [close]);
+  const assign = async (vehicle: DispatchVehicle) => {
+    if (!vehicle.defaultDriverName || !vehicle.defaultDriverPhone || assigningId) return;
+    setAssigningId(vehicle.id); setError("");
+    try {
+      await api(`/api/admin/rides/${ride.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: "ASSIGNED",
+          vehicleId: vehicle.id,
+          driverName: vehicle.defaultDriverName,
+          driverPhone: vehicle.defaultDriverPhone,
+        }),
+      });
+      assigned();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The driver could not be assigned.");
+      setAssigningId(null);
+    }
+  };
+  return <div className="available-rides-backdrop" onClick={close}>
+    <section ref={modalRef} className="available-rides-modal driver-assignment-modal" role="dialog" aria-modal="true" aria-label={`Assign a driver to ${ride.inquiry.fullName}`} onClick={event => event.stopPropagation()}>
+      <div className="available-rides-top"><div><p className="eyebrow brass">Dispatch / assign chauffeur</p><h2>{ride.inquiry.fullName}</h2><p>{formatDateTime(ride.inquiry.pickupAt)} · {ride.inquiry.pickup} → {ride.inquiry.destination}</p></div><button type="button" onClick={close} aria-label="Close"><X /></button></div>
+      <p className="available-rides-caption">Select an available driver and vehicle. Selection immediately advances this ride to Assigned.</p>
+      <div className="driver-assignment-list">
+        {vehicles.map(vehicle => {
+          const ready = Boolean(vehicle.defaultDriverName && vehicle.defaultDriverPhone);
+          return <button type="button" className="driver-assignment-card" key={vehicle.id} disabled={!ready || Boolean(assigningId)} onClick={() => assign(vehicle)}>
+            <span className="driver-assignment-icon"><CarFront /></span>
+            <span><b>{vehicle.defaultDriverName || "Driver not configured"}</b><small>{vehicle.defaultDriverPhone || "Add a driver phone in Fleet"}</small><em>{vehicle.name} · {vehicle.category} · Up to {vehicle.passengers} guests</em></span>
+            <strong>{assigningId === vehicle.id ? "Assigning…" : ready ? "Select" : "Unavailable"}</strong>
+            <ArrowRight />
+          </button>;
+        })}
+        {!vehicles.length && <div className="empty-state compact-empty"><CarFront /><p>No active vehicles are available.</p><Link to="/admin/fleet" className="text-button">Configure the fleet <ArrowRight /></Link></div>}
+      </div>
+      {error && <p className="form-error">{error}</p>}
+    </section>
+  </div>;
+}
+
+function AvailableRidesModal({ vehicle, close, refresh }: { vehicle: DispatchVehicle; close: () => void; refresh: () => void }) {
   const [rides, setRides] = useState<Ride[]>([]);
   const [selectedRide, setSelectedRide] = useState<Ride | null>(null);
   const [loading, setLoading] = useState(true);
@@ -478,7 +542,7 @@ function AvailableRidesModal({ vehicle, close, refresh }: { vehicle: Pick<Vehicl
   };
   return <div className="available-rides-backdrop" onClick={close}><section className="available-rides-modal" role="dialog" aria-modal="true" aria-label={`Available rides for ${vehicle.name}`} onClick={event => event.stopPropagation()}><div className="available-rides-top"><div><p className="eyebrow brass">Dispatch / available jobs</p><h2>{vehicle.name}</h2><p>{vehicle.category} · {vehicle.passengers} guests · {vehicle.luggage}</p></div><button type="button" onClick={close} aria-label="Close"><X /></button></div>{sent ? <div className="available-rides-success"><div className="success-icon"><Check /></div><p className="eyebrow brass">Assignment sent</p><h3>{selectedRide?.inquiry.fullName}<br /><em>is on the way.</em></h3><p>{vehicle.defaultDriverName} received the job at {vehicle.defaultDriverPhone}.</p><button type="button" className="solid-button small-button" onClick={close}>Done <ArrowUpRight /></button></div> : selectedRide ? <div className="job-confirmation"><button type="button" className="text-button job-back" onClick={() => { setSelectedRide(null); setError(""); }}><ArrowRight style={{ transform: "rotate(180deg)" }} /> Available rides</button><p className="eyebrow brass">Confirm before sending</p><h3>Send this job<br /><em>to {vehicle.defaultDriverName || "the driver"}.</em></h3><div className="confirm-assignment"><div><span>Vehicle</span><b>{vehicle.name}</b></div><div><span>Driver</span><b>{vehicle.defaultDriverName || "Missing driver"}</b><small>{vehicle.defaultDriverPhone || "Add a phone in Fleet"}</small></div></div><div className="confirm-trip"><span><CalendarDays />{formatDateTime(selectedRide.inquiry.pickupAt)}</span><b>{selectedRide.inquiry.pickup} <ArrowRight /> {selectedRide.inquiry.destination}</b><small>{selectedRide.inquiry.serviceType} · {selectedRide.inquiry.passengers} passenger{selectedRide.inquiry.passengers === 1 ? "" : "s"}</small></div><div className="confirm-fare"><span>Trip fare after admin deductions</span><strong>{formatMoney(netFare)}</strong><small>{formatMoney(selectedRide.quoteCents)} quoted · {formatMoney(selectedRide.expenseCents)} deductions</small></div>{error && <p className="form-error">{error}</p>}<p className="confirm-caption">The driver will receive the booking-derived dispatch brief by SMS after confirmation.</p><button type="button" className="solid-button dispatch-confirm" disabled={sending || !vehicle.defaultDriverName || !vehicle.defaultDriverPhone} onClick={sendJob}>{sending ? "Assigning and sending..." : !vehicle.defaultDriverPhone ? "Add driver phone in Fleet" : <>Confirm & send job <ArrowUpRight /></>}</button></div> : <><p className="available-rides-caption">Select an unassigned ride to send to {vehicle.defaultDriverName || "this vehicle’s driver"}.</p>{loading ? <div className="admin-inline-loading"><span className="spinner" />Loading available rides</div> : error ? <div className="empty-state"><Clock3 /><p>{error}</p></div> : <div className="available-rides-list">{rides.map(ride => <button type="button" className="available-ride-row" key={ride.id} onClick={() => setSelectedRide(ride)}><div className="available-ride-date"><b>{new Intl.DateTimeFormat("en-US", { day: "2-digit" }).format(new Date(ride.inquiry.pickupAt))}</b><span>{new Intl.DateTimeFormat("en-US", { month: "short" }).format(new Date(ride.inquiry.pickupAt))}</span></div><div><b>{ride.inquiry.fullName}</b><small>{formatDateTime(ride.inquiry.pickupAt)} · {ride.inquiry.serviceType}</small><span>{ride.inquiry.pickup} <ArrowRight /> {ride.inquiry.destination}</span></div><strong>{formatMoney(Math.max(ride.quoteCents - ride.expenseCents, 0))}</strong><ArrowRight /></button>)}{!rides.length && <div className="empty-state compact-empty"><CarFront /><p>No available rides need assignment.</p><small>Confirmed rides will appear here when they are ready for dispatch.</small></div>}</div>}</>}</section></div>;
 }
-function RideDetail({ ride, vehicles, close, refresh }: { ride: Ride; vehicles: Pick<Vehicle, "id" | "name" | "category" | "description" | "passengers" | "luggage" | "defaultDriverName" | "defaultDriverPhone">[]; close: () => void; refresh: () => void }) {
+function RideDetail({ ride, vehicles, close, refresh }: { ride: Ride; vehicles: DispatchVehicle[]; close: () => void; refresh: () => void }) {
   const [form, setForm] = useState({ status: ride.status, vehicleId: ride.vehicleId || "", driverName: ride.driverName || "", driverPhone: ride.driverPhone || "", driverLatitude: ride.driverLatitude == null ? "" : String(ride.driverLatitude), driverLongitude: ride.driverLongitude == null ? "" : String(ride.driverLongitude), driverHeading: ride.driverHeading == null ? "" : String(ride.driverHeading), quote: String(ride.quoteCents / 100), deposit: String(ride.depositCents / 100), collected: String(ride.collectedCents / 100), expense: String(ride.expenseCents / 100), dispatchNotes: ride.dispatchNotes || "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -502,8 +566,8 @@ function RideDetail({ ride, vehicles, close, refresh }: { ride: Ride; vehicles: 
       if (pending) setShowReconciliation(true);
     }).catch(() => setDispatchMessage(""));
   }, [ride.id]);
-  const ridePayload = () => {
-    const nextStatus = form.status === "UNASSIGNED" && form.vehicleId && form.driverName ? "ASSIGNED" : form.status;
+  const ridePayload = (statusOverride?: string) => {
+    const nextStatus = statusOverride || (form.status === "UNASSIGNED" && form.vehicleId && form.driverName ? "ASSIGNED" : form.status);
     const hasLocation = form.driverLatitude.trim() !== "" && form.driverLongitude.trim() !== "";
     return { status: nextStatus, vehicleId: form.vehicleId || null, driverName: form.driverName || null, driverPhone: form.driverPhone || null, driverLatitude: hasLocation ? Number(form.driverLatitude) : null, driverLongitude: hasLocation ? Number(form.driverLongitude) : null, driverHeading: form.driverHeading.trim() ? Number(form.driverHeading) : null, quote: Number(form.quote || 0), deposit: Number(form.deposit || 0), collected: Number(form.collected || 0), expense: Number(form.expense || 0), dispatchNotes: form.dispatchNotes || null };
   };
@@ -514,12 +578,36 @@ function RideDetail({ ride, vehicles, close, refresh }: { ride: Ride; vehicles: 
   const save = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError("");
     if ((form.driverLatitude.trim() === "") !== (form.driverLongitude.trim() === "")) { setError("Enter both driver latitude and longitude, or clear both."); setSaving(false); return; }
-    if (form.status === "COMPLETED" && ride.status !== "COMPLETED" && !window.confirm("Mark this ride completed and capture the authorized Stripe payment now?")) { setSaving(false); return; }
-    if (form.status === "CANCELLED" && ride.status !== "CANCELLED" && !window.confirm("Cancel this ride and release its uncaptured Stripe authorization hold?")) { setSaving(false); return; }
     try {
       await persistRide();
       refresh(); close();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to save this ride."); } finally { setSaving(false); }
+  };
+  const nextStatus = ({ ASSIGNED: "EN_ROUTE", EN_ROUTE: "IN_PROGRESS", IN_PROGRESS: "COMPLETED" } as Record<string, string>)[ride.status];
+  const nextStatusCopy: Record<string, { title: string; detail: string; confirm: string }> = {
+    EN_ROUTE: { title: "Confirm chauffeur en route", detail: "Customer tracking will show that the chauffeur is heading to pickup.", confirm: "Confirm the chauffeur is en route?" },
+    IN_PROGRESS: { title: "Confirm passenger picked up", detail: "Customer tracking will show that the trip is now in progress.", confirm: "Confirm the passenger has been picked up?" },
+    COMPLETED: { title: "Confirm drop-off and complete", detail: "This completes the ride and captures the authorized Stripe payment.", confirm: "Confirm drop-off, complete this ride, and capture the authorized Stripe payment?" },
+  };
+  const advanceRide = async () => {
+    if (!nextStatus || !window.confirm(nextStatusCopy[nextStatus].confirm)) return;
+    setSaving(true); setError("");
+    try {
+      await api(`/api/admin/rides/${ride.id}`, { method: "PATCH", body: JSON.stringify(ridePayload(nextStatus)) });
+      refresh(); close();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The ride could not advance to the next status.");
+    } finally { setSaving(false); }
+  };
+  const cancelRide = async () => {
+    if (!window.confirm("Cancel this booking and release its uncaptured Stripe authorization hold?")) return;
+    setSaving(true); setError("");
+    try {
+      await api(`/api/admin/rides/${ride.id}`, { method: "PATCH", body: JSON.stringify(ridePayload("CANCELLED")) });
+      refresh(); close();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The ride could not be cancelled.");
+    } finally { setSaving(false); }
   };
   const paymentAction = async (action: "capture" | "cancel") => {
     if (!ride.inquiry.bookingRequestId) return;
@@ -529,9 +617,9 @@ function RideDetail({ ride, vehicles, close, refresh }: { ride: Ride; vehicles: 
     try {
       const result = await api(`/api/admin/payments/${ride.inquiry.bookingRequestId}/${action}`, { method: "POST" });
       setPaymentStatus(result.status);
-      if (action === "cancel") update("status", "CANCELLED");
       setPaymentState("done");
       refresh();
+      if (action === "cancel") close();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "The payment action failed."); setPaymentState("idle"); }
   };
   const sendDispatch = async () => {
@@ -623,7 +711,7 @@ function RideDetail({ ride, vehicles, close, refresh }: { ride: Ride; vehicles: 
       <div className="drawer-top"><div><p className="eyebrow brass">Dispatch / {ride.id.slice(-5).toUpperCase()}</p><h2>{ride.inquiry.fullName}</h2></div><button onClick={close}><X /></button></div>
       <div className="ride-route-summary"><span><CalendarDays />{formatDateTime(ride.inquiry.pickupAt)}</span><b>{ride.inquiry.pickup} <ArrowRight /> {ride.inquiry.destination}</b><small>{ride.inquiry.serviceType} · {ride.inquiry.passengers} passenger{ride.inquiry.passengers === 1 ? "" : "s"}</small></div>
       <form className="dispatch-form" onSubmit={save}>
-        <div className="drawer-block"><p className="drawer-label">Ride progress</p><label>Status<select value={form.status} onChange={event => update("status", event.target.value)}>{["UNASSIGNED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "COMPLETED", "CANCELLED"].map(value => <option key={value} value={value}>{titleCaseStatus(value)}</option>)}</select></label>{form.status === "COMPLETED" && ride.status !== "COMPLETED" && <p className="dispatch-warning">Saving captures the authorized Stripe payment.</p>}{form.status === "CANCELLED" && ride.status !== "CANCELLED" && <p className="dispatch-warning">Saving releases any uncaptured Stripe authorization.</p>}</div>
+        <div className="drawer-block ride-progress-block"><p className="drawer-label">Ride progress</p><div className="ride-progress-track">{["ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "COMPLETED"].map((status, index, all) => { const currentIndex = all.indexOf(ride.status); const complete = currentIndex >= index || ride.status === "COMPLETED"; return <span className={complete ? "complete" : ""} key={status}><i>{complete ? <Check /> : index + 1}</i><b>{titleCaseStatus(status)}</b></span>; })}</div>{nextStatus && <div className="next-status-action"><div><b>{nextStatusCopy[nextStatus].title}</b><small>{nextStatusCopy[nextStatus].detail}</small></div><button type="button" className="solid-button small-button" disabled={saving} onClick={advanceRide}>{saving ? "Updating…" : <>Confirm <ArrowUpRight /></>}</button></div>}{ride.status === "COMPLETED" && <p className="dispatch-success"><Check /> This ride is complete.</p>}{ride.status !== "COMPLETED" && ride.status !== "CANCELLED" && <button type="button" className="text-button danger-action ride-cancel-action" disabled={saving} onClick={cancelRide}>Cancel ride & release hold</button>}</div>
         {paymentPanel}
         <div className="drawer-block assignment-fields"><p className="drawer-label">Assignment</p><label>Vehicle<select value={form.vehicleId} onChange={event => update("vehicleId", event.target.value)}><option value="">Unassigned</option>{vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.name} · {vehicle.category}</option>)}</select></label><label>Chauffeur name<input value={form.driverName} onChange={event => update("driverName", event.target.value)} placeholder="Assign chauffeur" /></label><label>Driver mobile<input type="tel" value={form.driverPhone} onChange={event => update("driverPhone", event.target.value)} placeholder="+1 312 555 0188" /></label></div>
         {locationPanel}

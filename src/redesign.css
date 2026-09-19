@@ -110,3 +110,18 @@
   .standard-layout{gap:48px}.standard-photo img{height:480px}.standard-copy h2{font-size:59px}
   .reservation-layout{padding-top:50px}.reservation-card{padding:30px 22px}.site-footer .footer-main{grid-template-columns:1fr 1fr}.footer-contact{display:none!important}.site-footer .footer-bottom{align-items:flex-start;flex-direction:column;gap:12px}.site-credit,.site-credit+a{margin-left:0!important}
 }
+
+/* Slightly more generous public-site gutters */
+.section-pad,
+.public-nav,
+.hero-grid,
+.hero-bottom,
+.hero-stats,
+.destination-booking-section {
+  padding-left: clamp(28px, 8vw, 132px);
+  padding-right: clamp(28px, 8vw, 132px);
+}
+.hero-bottom {
+  left: clamp(28px, 8vw, 132px);
+  right: clamp(28px, 8vw, 132px);
+}

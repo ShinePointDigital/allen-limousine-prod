@@ -330,13 +330,10 @@ export async function updateInquiry(id: string, patch: Partial<Pick<Inquiry, "st
       if (!current) throw new Error("Inquiry not found.");
       if (current.status === "CANCELLED" && patch.status && patch.status !== "CANCELLED" && current.paymentStatus === "canceled") throw new Error("This cancelled booking needs a new card authorization before it can be reopened.");
       const item = await tx.inquiry.update({ where: { id }, data: patch, include: { inquiryNotes: { include: { author: true } } } });
-      if (patch.status === "CONFIRMED") await tx.ride.upsert({
-        where: { inquiryId: id },
-        update: { status: "UNASSIGNED", ...(item.estimatedFareCents != null ? { quoteCents: item.estimatedFareCents } : {}) },
-        create: { inquiryId: id, quoteCents: item.estimatedFareCents || 0 },
-      });
-      if (patch.status === "COMPLETED") await tx.ride.updateMany({ where: { inquiryId: id }, data: { status: "COMPLETED" } });
-      if (patch.status === "CANCELLED") await tx.ride.updateMany({ where: { inquiryId: id }, data: { status: "CANCELLED" } });
+      if (patch.status === "CONFIRMED") {
+        const existingRide = await tx.ride.findUnique({ where: { inquiryId: id }, select: { id: true } });
+        if (!existingRide) await tx.ride.create({ data: { inquiryId: id, quoteCents: item.estimatedFareCents || 0 } });
+      }
       return item;
     });
     return mapInquiry(updated);
@@ -349,9 +346,6 @@ export async function updateInquiry(id: string, patch: Partial<Pick<Inquiry, "st
     rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: item.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), inquiry: { fullName: item.fullName, serviceType: item.serviceType, pickupAt: item.pickupAt, pickup: item.pickup, destination: item.destination, passengers: item.passengers, notes: item.notes, isPrivateFBO: item.isPrivateFBO, specificTailNumber: item.specificTailNumber, principalName: item.principalName, fboName: item.fboName, tarmacInstructions: item.tarmacInstructions }, vehicle: null, dispatchMessages: [] });
   }
   const linkedRide = rides.find(ride => ride.inquiryId === id);
-  if (linkedRide && patch.status === "CONFIRMED" && linkedRide.status === "CANCELLED") linkedRide.status = "UNASSIGNED";
-  if (linkedRide && patch.status === "COMPLETED") linkedRide.status = "COMPLETED";
-  if (linkedRide && patch.status === "CANCELLED") linkedRide.status = "CANCELLED";
   return item;
 }
 export async function addInquiryNote(id: string, body: string, authorId: string) {
@@ -532,25 +526,45 @@ export async function getRideByInquiryId(inquiryId: string) {
 
 type RideUpdate = Partial<Pick<Ride, "status" | "driverName" | "driverPhone" | "vehicleId" | "quoteCents" | "depositCents" | "collectedCents" | "expenseCents" | "dispatchNotes" | "driverLatitude" | "driverLongitude" | "driverHeading" | "locationUpdatedAt">>;
 
+const rideStatusTransitions: Record<string, string[]> = {
+  UNASSIGNED: ["ASSIGNED", "CANCELLED"],
+  ASSIGNED: ["EN_ROUTE", "CANCELLED"],
+  EN_ROUTE: ["IN_PROGRESS", "CANCELLED"],
+  IN_PROGRESS: ["COMPLETED", "CANCELLED"],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+function validateRideStatusTransition(currentStatus: string, nextStatus?: string) {
+  if (!nextStatus || nextStatus === currentStatus) return;
+  if (!rideStatusTransitions[currentStatus]?.includes(nextStatus)) {
+    throw new Error(`This ride must advance from ${currentStatus.toLowerCase().replaceAll("_", " ")} to its next operational status.`);
+  }
+}
+
 export async function validateRideUpdate(id: string, data: RideUpdate) {
   if (databaseConfigured) {
     const current = await prisma.ride.findUnique({ where: { id }, include: { inquiry: true } });
     if (!current) return false;
+    validateRideStatusTransition(current.status, data.status);
     const next = { ...current, ...data };
     if (next.depositCents > next.quoteCents || next.collectedCents > next.quoteCents) throw new Error("Deposit and collected amounts cannot exceed the quoted fare.");
     if (next.depositCents > next.collectedCents) throw new Error("Total collected must include the recorded deposit.");
     if (next.vehicleId && !await prisma.fleetVehicle.findFirst({ where: { id: next.vehicleId, active: true } })) throw new Error("Choose an active vehicle from the fleet.");
+    if (next.status === "UNASSIGNED" && (next.vehicleId || next.driverName || next.driverPhone)) throw new Error("Confirm the vehicle and driver together to assign this ride.");
     if (current.inquiry.paymentStatus === "canceled" && (data.status === undefined || !["CANCELLED", "COMPLETED"].includes(data.status))) throw new Error("This cancelled booking needs a new card authorization before it can be changed or reopened.");
     if (next.status !== "UNASSIGNED" && !["CANCELLED", "COMPLETED"].includes(next.status) && (!next.vehicleId || !next.driverName)) throw new Error("Assign a vehicle and chauffeur before advancing this ride.");
     return true;
   }
   const current = rides.find(item => item.id === id);
   if (!current) return false;
+  validateRideStatusTransition(current.status, data.status);
   const inquiry = inquiries.find(item => item.id === current.inquiryId);
   const next = { ...current, ...data };
   if (next.depositCents > next.quoteCents || next.collectedCents > next.quoteCents) throw new Error("Deposit and collected amounts cannot exceed the quoted fare.");
   if (next.depositCents > next.collectedCents) throw new Error("Total collected must include the recorded deposit.");
   if (next.vehicleId && !fleet.some(vehicle => vehicle.id === next.vehicleId && vehicle.active)) throw new Error("Choose an active vehicle from the fleet.");
+  if (next.status === "UNASSIGNED" && (next.vehicleId || next.driverName || next.driverPhone)) throw new Error("Confirm the vehicle and driver together to assign this ride.");
   if (inquiry?.paymentStatus === "canceled" && (data.status === undefined || !["CANCELLED", "COMPLETED"].includes(data.status))) throw new Error("This cancelled booking needs a new card authorization before it can be changed or reopened.");
   if (next.status !== "UNASSIGNED" && !["CANCELLED", "COMPLETED"].includes(next.status) && (!next.vehicleId || !next.driverName)) throw new Error("Assign a vehicle and chauffeur before advancing this ride.");
   return true;
@@ -561,12 +575,14 @@ export async function updateRide(id: string, data: RideUpdate) {
     return prisma.$transaction(async tx => {
       const current = await tx.ride.findUnique({ where: { id } });
       if (!current) return null;
+      validateRideStatusTransition(current.status, data.status);
       const inquiry = await tx.inquiry.findUnique({ where: { id: current.inquiryId } });
       if (inquiry?.paymentStatus === "canceled" && (data.status === undefined || !["CANCELLED", "COMPLETED"].includes(data.status))) throw new Error("This cancelled booking needs a new card authorization before it can be changed or reopened.");
       const next = { ...current, ...data };
       if (next.depositCents > next.quoteCents || next.collectedCents > next.quoteCents) throw new Error("Deposit and collected amounts cannot exceed the quoted fare.");
       if (next.depositCents > next.collectedCents) throw new Error("Total collected must include the recorded deposit.");
       if (next.vehicleId && !await tx.fleetVehicle.findFirst({ where: { id: next.vehicleId, active: true } })) throw new Error("Choose an active vehicle from the fleet.");
+      if (next.status === "UNASSIGNED" && (next.vehicleId || next.driverName || next.driverPhone)) throw new Error("Confirm the vehicle and driver together to assign this ride.");
       if (next.status !== "UNASSIGNED" && !["CANCELLED", "COMPLETED"].includes(next.status) && (!next.vehicleId || !next.driverName)) throw new Error("Assign a vehicle and chauffeur before advancing this ride.");
        const result = await tx.ride.update({ where: { id }, data, include: { inquiry: true, vehicle: true, dispatchMessages: { include: { admin: { select: { name: true } }, reconciledBy: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 10 } } });
       if (data.status === "COMPLETED" || data.status === "CANCELLED") await tx.inquiry.update({ where: { id: current.inquiryId }, data: { status: data.status } });
@@ -576,12 +592,14 @@ export async function updateRide(id: string, data: RideUpdate) {
   }
   const ride = rides.find(item => item.id === id);
   if (!ride) return null;
+  validateRideStatusTransition(ride.status, data.status);
   const linkedInquiry = inquiries.find(item => item.id === ride.inquiryId);
   if (linkedInquiry?.paymentStatus === "canceled" && (data.status === undefined || !["CANCELLED", "COMPLETED"].includes(data.status))) throw new Error("This cancelled booking needs a new card authorization before it can be changed or reopened.");
   const next = { ...ride, ...data };
   if (next.depositCents > next.quoteCents || next.collectedCents > next.quoteCents) throw new Error("Deposit and collected amounts cannot exceed the quoted fare.");
   if (next.depositCents > next.collectedCents) throw new Error("Total collected must include the recorded deposit.");
   if (next.vehicleId && !fleet.some(vehicle => vehicle.id === next.vehicleId && vehicle.active)) throw new Error("Choose an active vehicle from the fleet.");
+  if (next.status === "UNASSIGNED" && (next.vehicleId || next.driverName || next.driverPhone)) throw new Error("Confirm the vehicle and driver together to assign this ride.");
   if (next.status !== "UNASSIGNED" && !["CANCELLED", "COMPLETED"].includes(next.status) && (!next.vehicleId || !next.driverName)) throw new Error("Assign a vehicle and chauffeur before advancing this ride.");
   Object.assign(ride, data, { updatedAt: new Date().toISOString() });
   const inquiry = inquiries.find(item => item.id === ride.inquiryId);

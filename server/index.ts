@@ -883,6 +883,21 @@ app.patch("/api/admin/rides/:id", admin, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid ride update." });
   const { quote, deposit, collected, expense, driverPhone, ...rest } = parsed.data;
   try {
+    const currentRide = await getRideById(String(req.params.id));
+    if (!currentRide) return res.status(404).json({ error: "Ride not found." });
+    if (rest.status && rest.status !== currentRide.status) {
+      const allowedNextStatus: Record<string, string[]> = {
+        UNASSIGNED: ["ASSIGNED", "CANCELLED"],
+        ASSIGNED: ["EN_ROUTE", "CANCELLED"],
+        EN_ROUTE: ["IN_PROGRESS", "CANCELLED"],
+        IN_PROGRESS: ["COMPLETED", "CANCELLED"],
+        COMPLETED: [],
+        CANCELLED: [],
+      };
+      if (!allowedNextStatus[currentRide.status]?.includes(rest.status)) {
+        return res.status(409).json({ error: `This ride must advance from ${currentRide.status.toLowerCase().replaceAll("_", " ")} to its next operational status.` });
+      }
+    }
     const locationChanged = rest.driverLatitude !== undefined || rest.driverLongitude !== undefined;
     const rideData = { ...rest, ...(locationChanged ? { locationUpdatedAt: rest.driverLatitude === null ? null : new Date().toISOString() } : {}), ...(driverPhone !== undefined ? { driverPhone: normalizePhone(driverPhone) } : {}), ...(quote !== undefined ? { quoteCents: quote } : {}), ...(deposit !== undefined ? { depositCents: deposit } : {}), ...(collected !== undefined ? { collectedCents: collected } : {}), ...(expense !== undefined ? { expenseCents: expense } : {}) };
     const { status, ...preCompletionUpdate } = rideData;
@@ -890,8 +905,6 @@ app.patch("/api/admin/rides/:id", admin, async (req, res) => {
     if (status === "COMPLETED") item = await completeRideWithCapture(String(req.params.id), preCompletionUpdate);
     else {
       if (status === "CANCELLED") {
-        const currentRide = await getRideById(String(req.params.id));
-        if (!currentRide) return res.status(404).json({ error: "Ride not found." });
         await validateRideUpdate(currentRide.id, rideData);
         if (currentRide.inquiry.bookingRequestId && currentRide.inquiry.stripePaymentIntentId) await cancelAuthorizedPayment(currentRide.inquiry.bookingRequestId);
         item = await updateRide(currentRide.id, rideData);
@@ -994,6 +1007,7 @@ app.post("/api/admin/rides/:id/dispatch", admin, dispatchLimiter, async (req, re
   if (!ride.driverPhone) return res.status(400).json({ code: "MISSING_PHONE", error: "Add a driver phone number before sending the dispatch brief." });
   if (ride.inquiry.paymentStatus === "canceled") return res.status(409).json({ code: "PAYMENT_CANCELLED", error: "This booking’s card authorization was cancelled. Create a new authorization before dispatching it." });
   if (["COMPLETED", "CANCELLED"].includes(ride.status)) return res.status(409).json({ code: "RIDE_NOT_ACTIVE", error: "Dispatch messages cannot be sent for completed or cancelled rides." });
+  if (!["ASSIGNED", "EN_ROUTE", "IN_PROGRESS"].includes(ride.status)) return res.status(409).json({ code: "RIDE_NOT_ASSIGNED", error: "Confirm the driver assignment before sending the dispatch brief." });
   if (!ride.vehicleId || !ride.vehicle?.active || !ride.driverName) return res.status(400).json({ code: "INCOMPLETE_ASSIGNMENT", error: "Assign an active vehicle and chauffeur before sending the dispatch brief." });
   const parsed = z.object({ message: z.string().trim().min(20).max(1600).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "The dispatch message must be between 20 and 1,600 characters." });
@@ -1057,6 +1071,7 @@ app.patch("/api/admin/inquiries/:id", admin, async (req, res) => {
     if (parsed.data.notes !== undefined) await updateInquiry(inquiry.id, { notes: parsed.data.notes });
     const ride = await getRideByInquiryId(inquiry.id);
     if (!ride) return res.status(409).json({ error: "Assign this inquiry to dispatch before completing it." });
+    if (!["IN_PROGRESS", "COMPLETED"].includes(ride.status)) return res.status(409).json({ error: "Advance the ride through assigned, en route, and in progress before completing it." });
     try {
       await completeRideWithCapture(ride.id);
     } catch (error) {
