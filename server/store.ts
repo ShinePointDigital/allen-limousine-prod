@@ -49,6 +49,8 @@ export type DispatchActivity = {
   reconciledByName?: string | null;
 };
 export type AdminNotification = { id: string; type: string; title: string; body: string; inquiryId: string | null; readAt: string | null; createdAt: string };
+export type CompanyProfile = { businessPhone: string; contactEmail: string; serviceArea: string };
+export type AdminSessionSummary = { id: string; createdAt: string; expiresAt: string; isCurrent: boolean };
 
 export const prisma = new PrismaClient();
 export const databaseConfigured = Boolean(process.env.DATABASE_URL);
@@ -77,6 +79,14 @@ export const siteContent = {
   standardBody: "The right car. The right route. A chauffeur who knows when to speak and when to let the city pass by. ALLAN is a more considered way through Chicago.",
 };
 
+const defaultCompanyProfile: CompanyProfile = {
+  businessPhone: "+1 312 555 0188",
+  contactEmail: "hello@allanlimousine.com",
+  serviceArea: "Chicago, Illinois · Available citywide & beyond",
+};
+const companySettingKeys = Object.keys(defaultCompanyProfile) as (keyof CompanyProfile)[];
+const companyProfile: CompanyProfile = { ...defaultCompanyProfile };
+
 const inquiries: Inquiry[] = [
   { id: "inq-001", fullName: "Sofia Mercer", email: "sofia.mercer@example.com", phone: "+1 312 555 0114", serviceType: "Executive Travel", pickupAt: "2026-08-29T14:30:00.000Z", pickup: "The Langham Chicago", destination: "O'Hare International Airport", passengers: 1, notes: "Flight UA 1842. Quiet ride preferred.", status: "NEW", createdAt: "2026-08-28T08:42:00.000Z", updatedAt: "2026-08-28T08:42:00.000Z", history: [] },
   { id: "inq-002", fullName: "Marcus Chen", email: "marcus.chen@example.com", phone: "+1 773 555 0196", serviceType: "Important Evenings", pickupAt: "2026-09-04T23:00:00.000Z", pickup: "787 N. State Street", destination: "Adler Planetarium", passengers: 2, notes: "", status: "CONTACTED", createdAt: "2026-08-27T17:15:00.000Z", updatedAt: "2026-08-28T09:10:00.000Z", history: [{ body: "Left voicemail — awaiting preferred vehicle.", author: "A. Reed", createdAt: "2026-08-28T09:10:00.000Z" }] },
@@ -95,8 +105,10 @@ const notifications: AdminNotification[] = [{
 }];
 
 const fallbackPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD || crypto.randomBytes(48).toString("hex");
-const fallbackAdmin = { id: "admin-001", email: process.env.ADMIN_EMAIL || "admin@allanlimousine.com", name: "Avery Reed", passwordHash: bcrypt.hashSync(fallbackPassword, 10), role: "SUPER_ADMIN", active: true };
-const sessions = new Map<string, { userId: string; expiresAt: number }>();
+type DemoAdmin = { id: string; email: string; name: string; passwordHash: string; role: string; active: boolean; createdAt: Date };
+const fallbackAdmin: DemoAdmin = { id: "admin-001", email: process.env.ADMIN_EMAIL || "admin@allanlimousine.com", name: "Avery Reed", passwordHash: bcrypt.hashSync(fallbackPassword, 10), role: "SUPER_ADMIN", active: true, createdAt: new Date() };
+const demoAdmins: DemoAdmin[] = [fallbackAdmin];
+const sessions = new Map<string, { id: string; userId: string; expiresAt: number; createdAt: number }>();
 
 export async function initializeStore() {
   if (production && !databaseConfigured) throw new Error("DATABASE_URL is required in production.");
@@ -122,15 +134,41 @@ export async function initializeStore() {
 }
 
 export async function getPublicContent() {
-  if (!databaseConfigured) return { services: services.filter(s => s.active), fleet: fleet.filter(v => v.active), siteContent };
+  if (!databaseConfigured) return { services: services.filter(s => s.active), fleet: fleet.filter(v => v.active), siteContent, companyProfile: { ...companyProfile } };
   const [dbServices, dbFleet, content] = await Promise.all([
     prisma.service.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" } }),
     prisma.fleetVehicle.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" } }),
     prisma.siteContent.findMany(),
   ]);
+  const profileSettings = await prisma.siteSetting.findMany({ where: { key: { in: companySettingKeys } } });
+  const mappedProfile = { ...defaultCompanyProfile };
+  profileSettings.forEach(item => {
+    if (companySettingKeys.includes(item.key as keyof CompanyProfile)) mappedProfile[item.key as keyof CompanyProfile] = item.value;
+  });
   const mappedContent = { ...siteContent };
   content.forEach(item => { if (item.key in mappedContent) (mappedContent as Record<string, string>)[item.key] = item.value; });
-  return { services: dbServices, fleet: dbFleet, siteContent: mappedContent };
+  return { services: dbServices, fleet: dbFleet, siteContent: mappedContent, companyProfile: mappedProfile };
+}
+export async function getCompanyProfile(): Promise<CompanyProfile> {
+  if (!databaseConfigured) return { ...companyProfile };
+  const settings = await prisma.siteSetting.findMany({ where: { key: { in: companySettingKeys } } });
+  const result = { ...defaultCompanyProfile };
+  settings.forEach(item => {
+    if (companySettingKeys.includes(item.key as keyof CompanyProfile)) result[item.key as keyof CompanyProfile] = item.value;
+  });
+  return result;
+}
+export async function updateCompanyProfile(values: CompanyProfile): Promise<CompanyProfile> {
+  if (!databaseConfigured) {
+    Object.assign(companyProfile, values);
+    return { ...companyProfile };
+  }
+  await prisma.$transaction(companySettingKeys.map(key => prisma.siteSetting.upsert({
+    where: { key },
+    update: { value: values[key] },
+    create: { key, value: values[key] },
+  })));
+  return { ...values };
 }
 const mapInquiry = (item: any): Inquiry => ({ ...item, pickupAt: item.pickupAt.toISOString(), flightScheduledAt: item.flightScheduledAt?.toISOString() || null, trackingExpiresAt: item.trackingExpiresAt?.toISOString() || null, createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(), history: (item.inquiryNotes || []).map((note: any) => ({ body: note.body, author: note.author.name, createdAt: note.createdAt.toISOString() })) });
 export async function getInquiries() {
@@ -363,12 +401,12 @@ const tokenHash = (token: string) => crypto.createHmac("sha256", process.env.SES
 export async function authenticate(email: string, password: string) {
   if (production && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) return null;
   if (!databaseConfigured && (!demoAdminEnabled || !process.env.ADMIN_BOOTSTRAP_PASSWORD)) return null;
-  const admin = databaseConfigured ? await prisma.adminUser.findUnique({ where: { email } }) : fallbackAdmin;
+  const admin = databaseConfigured ? await prisma.adminUser.findUnique({ where: { email } }) : demoAdmins.find(item => item.email === email);
   if (!admin || admin.email !== email || !admin.active || !(await bcrypt.compare(password, admin.passwordHash))) return null;
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 12);
   if (databaseConfigured) await prisma.adminSession.create({ data: { tokenHash: tokenHash(token), userId: admin.id, expiresAt } });
-  else sessions.set(tokenHash(token), { userId: admin.id, expiresAt: expiresAt.getTime() });
+  else sessions.set(tokenHash(token), { id: crypto.randomUUID(), userId: admin.id, expiresAt: expiresAt.getTime(), createdAt: Date.now() });
   return { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role } };
 }
 export async function sessionUser(token?: string) {
@@ -382,13 +420,57 @@ export async function sessionUser(token?: string) {
   }
   const session = sessions.get(hash);
   if (!session || session.expiresAt < Date.now()) { sessions.delete(hash); return null; }
-  return { id: fallbackAdmin.id, name: fallbackAdmin.name, email: fallbackAdmin.email, role: fallbackAdmin.role };
+  const user = demoAdmins.find(item => item.id === session.userId && item.active);
+  if (!user) { sessions.delete(hash); return null; }
+  return { id: user.id, name: user.name, email: user.email, role: user.role };
 }
 export async function logout(token?: string) {
   if (!token) return;
   const hash = tokenHash(token);
   if (databaseConfigured) await prisma.adminSession.deleteMany({ where: { tokenHash: hash } });
   else sessions.delete(hash);
+}
+export async function listAdminSessions(userId: string, currentToken?: string): Promise<AdminSessionSummary[]> {
+  const currentHash = currentToken ? tokenHash(currentToken) : "";
+  if (databaseConfigured) {
+    const records = await prisma.adminSession.findMany({
+      where: { userId, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, tokenHash: true, createdAt: true, expiresAt: true },
+    });
+    return records.map(record => ({
+      id: record.id,
+      createdAt: record.createdAt.toISOString(),
+      expiresAt: record.expiresAt.toISOString(),
+      isCurrent: record.tokenHash === currentHash,
+    }));
+  }
+  return [...sessions.entries()]
+    .filter(([, session]) => session.userId === userId && session.expiresAt > Date.now())
+    .map(([hash, session]) => ({
+      id: session.id,
+      createdAt: new Date(session.createdAt).toISOString(),
+      expiresAt: new Date(session.expiresAt).toISOString(),
+      isCurrent: hash === currentHash,
+    }))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+export async function revokeOtherAdminSessions(userId: string, currentToken?: string): Promise<number> {
+  const currentHash = currentToken ? tokenHash(currentToken) : "";
+  if (databaseConfigured) {
+    const result = await prisma.adminSession.deleteMany({
+      where: { userId, ...(currentHash ? { tokenHash: { not: currentHash } } : {}) },
+    });
+    return result.count;
+  }
+  let removed = 0;
+  for (const [hash, session] of sessions) {
+    if (session.userId === userId && hash !== currentHash) {
+      sessions.delete(hash);
+      removed++;
+    }
+  }
+  return removed;
 }
 export async function dashboardData() {
   const all = await getInquiries();
@@ -758,6 +840,7 @@ export async function updateFleet(id: string, data: Pick<FleetVehicle, "name" | 
 }
 export async function createService(data: Omit<Service, "id">) {
   if (databaseConfigured) return prisma.service.create({ data: { ...data, sortOrder: await prisma.service.count() } });
+  if (services.some(item => item.slug === data.slug)) throw new Error("A service with that web address already exists. Choose a different service name.");
   const item = { ...data, id: `svc-${crypto.randomUUID().slice(0, 8)}` }; services.push(item); return item;
 }
 export async function deleteService(id: string) {
@@ -773,23 +856,37 @@ export async function deleteFleet(id: string) {
   const index = fleet.findIndex(item => item.id === id); if (index < 0) return null; return fleet.splice(index, 1)[0];
 }
 export async function listAdmins() {
-  if (!databaseConfigured) return [{ id: fallbackAdmin.id, email: fallbackAdmin.email, name: fallbackAdmin.name, role: fallbackAdmin.role, active: true, createdAt: new Date().toISOString() }];
+  if (!databaseConfigured) return demoAdmins.map(({ id, email, name, role, active, createdAt }) => ({ id, email, name, role, active, createdAt: createdAt.toISOString() }));
   return prisma.adminUser.findMany({ select: { id: true, email: true, name: true, role: true, active: true, createdAt: true }, orderBy: { createdAt: "asc" } });
 }
 export async function createAdmin(data: { email: string; name: string; password: string; role: string }) {
   const passwordHash = await bcrypt.hash(data.password, 12);
-  if (!databaseConfigured) throw new Error("Administrator creation requires PostgreSQL.");
+  if (!databaseConfigured) {
+    if (demoAdmins.some(item => item.email === data.email)) throw new Error("An administrator with this email already exists.");
+    const user: DemoAdmin = { id: `admin-${crypto.randomUUID().slice(0, 12)}`, email: data.email, name: data.name, passwordHash, role: data.role, active: true, createdAt: new Date() };
+    demoAdmins.push(user);
+    const { passwordHash: _passwordHash, ...safeUser } = user;
+    return { ...safeUser };
+  }
   return prisma.adminUser.create({ data: { email: data.email, name: data.name, passwordHash, role: data.role }, select: { id: true, email: true, name: true, role: true, active: true, createdAt: true } });
 }
 export async function updateAdmin(id: string, data: { active?: boolean; role?: string }) {
-  if (!databaseConfigured) throw new Error("Administrator updates require PostgreSQL.");
+  if (!databaseConfigured) {
+    const target = demoAdmins.find(item => item.id === id);
+    if (!target) return null;
+    const removesSuperAccess = target.role === "SUPER_ADMIN" && target.active && (data.active === false || (data.role && data.role !== "SUPER_ADMIN"));
+    if (removesSuperAccess && demoAdmins.filter(item => item.role === "SUPER_ADMIN" && item.active).length <= 1) return "LAST_SUPER_ADMIN" as const;
+    Object.assign(target, data);
+    const { passwordHash: _passwordHash, ...safeUser } = target;
+    return { ...safeUser };
+  }
   return prisma.$transaction(async tx => {
     const target = await tx.adminUser.findUnique({ where: { id } });
     if (!target) return null;
     const removesSuperAccess = target.role === "SUPER_ADMIN" && target.active && (data.active === false || (data.role && data.role !== "SUPER_ADMIN"));
     if (removesSuperAccess && await tx.adminUser.count({ where: { role: "SUPER_ADMIN", active: true } }) <= 1) return "LAST_SUPER_ADMIN" as const;
     return tx.adminUser.update({ where: { id }, data, select: { id: true, email: true, name: true, role: true, active: true, createdAt: true } });
-  });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 export async function updateDispatchProviderStatus(id: string, data: { providerMessageId?: string | null; providerStatus?: string | null; deliveryStatus?: string | null }) {

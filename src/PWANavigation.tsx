@@ -4,6 +4,7 @@ import StripeCardSetup, { type SavedPayment } from "./StripeCardSetup.js";
 import { forgetPwaTrip, readPwaTrips, readSavedPayment, readWalletPayments, removeWalletPayment, replacePwaTrips, saveSavedPayment, type PwaTrip } from "./pwa-state.js";
 
 type Panel = "trips" | "wallet" | "support" | null;
+type CompanyProfile = { businessPhone: string; contactEmail: string; serviceArea: string };
 type StripeCard = {
   paymentMethodId: string;
   brand: string;
@@ -163,16 +164,17 @@ function WalletPanel({ onClose }: { onClose: () => void }) {
   </div>;
 }
 
-function SupportPanel({ onClose }: { onClose: () => void }) {
+function SupportPanel({ onClose, companyProfile }: { onClose: () => void; companyProfile: CompanyProfile }) {
+  const phone = companyProfile.businessPhone.replace(/[^\d+]/g, "");
   return <div className="pwa-drawer-content">
     <DrawerHeader eyebrow="Always available" title="Support" onClose={onClose} />
     <p className="pwa-support-copy">Our dispatch team can help with a reservation, pickup details, or a change to your itinerary.</p>
-    <div className="pwa-support-actions"><a href="tel:+13125550188"><Phone /><span><b>Call dispatch</b><small>+1 312 555 0188</small></span></a><a href="sms:+13125550188"><Headphones /><span><b>Text dispatch</b><small>Send a message about your ride</small></span></a><a href="mailto:hello@allanlimousine.com"><Mail /><span><b>Email the team</b><small>hello@allanlimousine.com</small></span></a></div>
+    <div className="pwa-support-actions"><a href={`tel:${phone}`}><Phone /><span><b>Call dispatch</b><small>{companyProfile.businessPhone}</small></span></a><a href={`sms:${phone}`}><Headphones /><span><b>Text dispatch</b><small>Send a message about your ride</small></span></a><a href={`mailto:${companyProfile.contactEmail}`}><Mail /><span><b>Email the team</b><small>{companyProfile.contactEmail}</small></span></a></div>
     <div className="pwa-support-note"><ShieldCheck /><span><b>For active rides</b><small>Open My Trips to view your secure reservation link and current chauffeur updates.</small></span></div>
   </div>;
 }
 
-export function PWABottomNav() {
+export function PWABottomNav({ companyProfile }: { companyProfile: CompanyProfile }) {
   const [panel, setPanel] = useState<Panel>(null);
   const [tripCount, setTripCount] = useState(() => readPwaTrips().length);
   useEffect(() => {
@@ -195,6 +197,6 @@ export function PWABottomNav() {
       <button type="button" className={panel === "wallet" ? "active" : ""} onClick={() => setPanel("wallet")}><WalletCards /><span>Wallet</span></button>
       <button type="button" className={panel === "support" ? "active" : ""} onClick={() => setPanel("support")}><Headphones /><span>Support</span></button>
     </nav>
-    {panel && <div className="pwa-drawer-backdrop" role="presentation" onClick={() => setPanel(null)}><aside className="pwa-drawer" role="dialog" aria-modal="true" aria-label={panel === "trips" ? "My trips" : panel === "wallet" ? "Wallet" : "Support"} onClick={event => event.stopPropagation()}>{panel === "trips" ? <TripsPanel onClose={() => setPanel(null)} /> : panel === "wallet" ? <WalletPanel onClose={() => setPanel(null)} /> : <SupportPanel onClose={() => setPanel(null)} />}</aside></div>}
+    {panel && <div className="pwa-drawer-backdrop" role="presentation" onClick={() => setPanel(null)}><aside className="pwa-drawer" role="dialog" aria-modal="true" aria-label={panel === "trips" ? "My trips" : panel === "wallet" ? "Wallet" : "Support"} onClick={event => event.stopPropagation()}>{panel === "trips" ? <TripsPanel onClose={() => setPanel(null)} /> : panel === "wallet" ? <WalletPanel onClose={() => setPanel(null)} /> : <SupportPanel onClose={() => setPanel(null)} companyProfile={companyProfile} />}</aside></div>}
   </>;
 }

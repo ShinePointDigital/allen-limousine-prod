@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finalizeAuthorizedInquiry, finishDispatchAttempt, getAdminContent, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, getStripeCustomerProfile, initializeStore, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, saveStripeCustomerProfile, sessionUser, updateAdmin, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent, validateRideUpdate } from "./store.js";
+import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finalizeAuthorizedInquiry, finishDispatchAttempt, getAdminContent, getCompanyProfile, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, getStripeCustomerProfile, initializeStore, listAdminSessions, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, revokeOtherAdminSessions, saveStripeCustomerProfile, sessionUser, updateAdmin, updateCompanyProfile, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent, validateRideUpdate } from "./store.js";
 import { classifyTwilioMessageStatus, findDriverDispatchSms, getDriverDispatchSms, sendSms, sendDriverDispatchSms, twilioPhonesEqual, TwilioRequestError } from "./twilio.js";
 import { estimateFare, reverseGeocode, searchLocations } from "./fare-estimate.js";
 import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "./stripe-client.js";
@@ -174,7 +174,7 @@ const flightRouteResponseSchema = z.object({
     }).optional(),
   }).optional(),
 });
-const authSchema = z.object({ email: z.string().email(), password: z.string().min(8).max(200) });
+const authSchema = z.object({ email: z.string().trim().email().transform(value => value.toLowerCase()), password: z.string().min(8).max(200) });
 const moneyCents = z.coerce.number().finite().min(0).max(10000000).transform(value => Math.round(value * 100));
 const rideUpdateSchema = z.object({
   status: z.enum(["UNASSIGNED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
@@ -871,6 +871,13 @@ app.post("/api/admin/login", async (req, res) => {
 });
 app.get("/api/admin/session", admin, (_req, res) => res.json({ user: res.locals.user }));
 app.post("/api/admin/logout", (req, res) => { logout(req.cookies.allan_session); res.clearCookie("allan_session"); res.status(204).end(); });
+app.get("/api/admin/sessions", admin, async (req, res) => {
+  res.json({ sessions: await listAdminSessions(res.locals.user.id, req.cookies.allan_session) });
+});
+app.delete("/api/admin/sessions/others", admin, async (req, res) => {
+  const revoked = await revokeOtherAdminSessions(res.locals.user.id, req.cookies.allan_session);
+  res.json({ revoked });
+});
 app.get("/api/admin/dashboard", admin, async (_req, res) => res.json(await dashboardData()));
 app.get("/api/admin/rides", admin, async (req, res) => {
   const status = String(req.query.status || "ALL");
@@ -1106,6 +1113,16 @@ app.post("/api/admin/inquiries/:id/notes", admin, async (req, res) => {
   res.json({ inquiry: item });
 });
 app.get("/api/admin/content", admin, async (_req, res) => res.json(await getAdminContent()));
+app.get("/api/admin/company-profile", admin, async (_req, res) => res.json({ companyProfile: await getCompanyProfile() }));
+app.patch("/api/admin/company-profile", admin, async (req, res) => {
+  const parsed = z.object({
+    businessPhone: z.string().trim().min(7).max(30),
+    contactEmail: z.string().trim().email().max(254).transform(value => value.toLowerCase()),
+    serviceArea: z.string().trim().min(2).max(160),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Enter a valid phone, contact email, and service area." });
+  res.json({ companyProfile: await updateCompanyProfile(parsed.data) });
+});
 app.patch("/api/admin/content/site", admin, async (req, res) => {
   const parsed = z.object({ heroKicker: z.string().max(80), heroTitle: z.string().max(150), heroDescription: z.string().max(300), standardTitle: z.string().max(200), standardBody: z.string().max(500) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Please check the content fields." });
@@ -1121,7 +1138,13 @@ app.patch("/api/admin/content/services/:id", admin, async (req, res) => {
 app.post("/api/admin/content/services", admin, async (req, res) => {
   const parsed = z.object({ slug: z.string().regex(/^[a-z0-9-]+$/), title: z.string().min(2), eyebrow: z.string().min(2), description: z.string().min(2), imageUrl: z.string().url(), active: z.boolean() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Please complete every service field." });
-  res.status(201).json({ service: await createService(parsed.data) });
+  try {
+    res.status(201).json({ service: await createService(parsed.data) });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("web address already exists")) return res.status(409).json({ error: error.message });
+    if (typeof error === "object" && error && "code" in error && error.code === "P2002") return res.status(409).json({ error: "A service with that web address already exists. Choose a different service name." });
+    throw error;
+  }
 });
 app.delete("/api/admin/content/services/:id", admin, async (req, res) => {
   await deleteService(String(req.params.id)); res.status(204).end();
@@ -1148,9 +1171,15 @@ app.delete("/api/admin/content/fleet/:id", admin, async (req, res) => {
 });
 app.get("/api/admin/users", admin, superAdmin, async (_req, res) => res.json({ users: await listAdmins() }));
 app.post("/api/admin/users", admin, superAdmin, async (req, res) => {
-  const parsed = z.object({ email: z.string().email(), name: z.string().min(2).max(100), password: z.string().min(12).max(200), role: z.enum(["SUPER_ADMIN", "ADMIN"]) }).safeParse(req.body);
+  const parsed = z.object({ email: z.string().trim().email().max(254).transform(value => value.toLowerCase()), name: z.string().trim().min(2).max(100), password: z.string().min(12).max(200), role: z.enum(["SUPER_ADMIN", "ADMIN"]) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Use a valid email and a password of at least 12 characters." });
-  res.status(201).json({ user: await createAdmin(parsed.data) });
+  try {
+    res.status(201).json({ user: await createAdmin(parsed.data) });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("already exists")) return res.status(409).json({ error: error.message });
+    if (typeof error === "object" && error && "code" in error && error.code === "P2002") return res.status(409).json({ error: "An administrator with this email already exists." });
+    throw error;
+  }
 });
 app.patch("/api/admin/users/:id", admin, superAdmin, async (req, res) => {
   if (String(req.params.id) === res.locals.user.id && req.body.active === false) return res.status(400).json({ error: "You cannot disable your own account." });

@@ -6,6 +6,7 @@ import {
   Pencil, Plane, Plus, Search, Settings, ShieldCheck, Sparkles, UserRound, Trash2, WalletCards, X, Navigation, RefreshCw,
 } from "lucide-react";
 import "./dispatch.css";
+import "./admin-workspace.css";
 import { RATE_TIER_PRICING, type RateTier } from "../shared/pricing.js";
 import BookingWizard from "./BookingWizard";
 import LocationAutocomplete from "./LocationAutocomplete";
@@ -24,10 +25,13 @@ type DispatchActivity = {
 };
 type Ride = { id: string; inquiryId: string; status: string; driverName: string | null; driverPhone: string | null; driverLatitude: number | null; driverLongitude: number | null; driverHeading: number | null; locationUpdatedAt: string | null; vehicleId: string | null; quoteCents: number; depositCents: number; collectedCents: number; expenseCents: number; dispatchNotes: string | null; createdAt: string; updatedAt: string; inquiry: Pick<Inquiry, "fullName" | "email" | "serviceType" | "pickupAt" | "pickup" | "destination" | "passengers" | "notes" | "isPrivateFBO" | "specificTailNumber" | "principalName" | "fboName" | "tarmacInstructions" | "estimatedFareCents" | "bookingRequestId" | "stripePaymentIntentId" | "paymentStatus">; vehicle: Pick<Vehicle, "id" | "name" | "category" | "active"> | null; dispatchMessages: DispatchActivity[] };
 type AdminNotification = { id: string; type: string; title: string; body: string; inquiryId: string | null; readAt: string | null; createdAt: string };
-type Content = { services: Service[]; fleet: Vehicle[]; siteContent: { heroKicker: string; heroTitle: string; heroDescription: string; standardTitle: string; standardBody: string } };
+type CompanyProfile = { businessPhone: string; contactEmail: string; serviceArea: string };
+type AdminSession = { id: string; createdAt: string; expiresAt: string; isCurrent: boolean };
+type Content = { services: Service[]; fleet: Vehicle[]; siteContent: { heroKicker: string; heroTitle: string; heroDescription: string; standardTitle: string; standardBody: string }; companyProfile: CompanyProfile };
 
 const fallbackContent: Content = {
   services: [], fleet: [], siteContent: { heroKicker: "CHICAGO · EST. 2014", heroTitle: "The city, on your schedule.", heroDescription: "Exceptional ground transportation for the people and moments that do not leave room for approximation.", standardTitle: "Discretion is not a feature. It is the standard.", standardBody: "The right car. The right route. A chauffeur who knows when to speak and when to let the city pass by. ALLAN is a more considered way through Chicago." },
+  companyProfile: { businessPhone: "+1 312 555 0188", contactEmail: "hello@allanlimousine.com", serviceArea: "Chicago, Illinois · Available citywide & beyond" },
 };
 class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly data: Record<string, unknown>) {
@@ -46,12 +50,13 @@ const formatDate = (value: string) => new Intl.DateTimeFormat("en-US", { month: 
 const formatDateTime = (value: string) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value));
 const formatMoney = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
 const titleCaseStatus = (value: string) => value.toLowerCase().replaceAll("_", " ").replace(/\b\w/g, character => character.toUpperCase());
+const phoneHref = (value: string) => `tel:${value.replace(/[^\d+]/g, "")}`;
 
 function Mark({ light = false }: { light?: boolean }) {
   return <Link to="/" className={`mark mark-logo ${light ? "mark-light" : ""}`} aria-label="Allan Limousine home"><img src="/allan-limousine-logo.png" alt="Allan Limousine — Luxury Chauffeur Service" /></Link>;
 }
 
-function PublicNav() {
+function PublicNav({ companyProfile }: { companyProfile: CompanyProfile }) {
   const [open, setOpen] = useState(false);
   const scrollTo = (id: string) => { document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }); setOpen(false); };
   return <header className="public-nav">
@@ -60,7 +65,7 @@ function PublicNav() {
       <button onClick={() => scrollTo("about")}>About</button>
       <button onClick={() => scrollTo("services")}>Services</button>
     </nav>
-    <div className="nav-actions"><a className="phone-link" href="tel:+13125550188">+1 312 555 0188</a><button className="outline-button small" onClick={() => scrollTo("reserve")}>Arrange a ride <ArrowUpRight /></button></div>
+    <div className="nav-actions"><a className="phone-link" href={phoneHref(companyProfile.businessPhone)}>{companyProfile.businessPhone}</a><button className="outline-button small" onClick={() => scrollTo("reserve")}>Arrange a ride <ArrowUpRight /></button></div>
     <button className="menu-button" aria-label="Open menu" onClick={() => setOpen(!open)}>{open ? <X /> : <Menu />}</button>
   </header>;
 }
@@ -107,7 +112,7 @@ function Home() {
         <source src="/hero-cadillac-edge-to-edge.mp4" type="video/mp4" />
       </video>
       <div className="hero-image" />
-      <PublicNav />
+      <PublicNav companyProfile={content.companyProfile} />
       <div className="hero-grid">
         <div className="hero-copy">
           <p className="eyebrow">— PRIVATE CHAUFFEUR SERVICE · CHICAGO</p>
@@ -145,8 +150,8 @@ function Home() {
        })}</div>
     </section>
     {!pwaMode && <BookingWizard />}
-    <PWABottomNav />
-    <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · Chicago, Illinois</p><span>© {new Date().getFullYear()} Allan Limousine</span></div><div className="footer-contact"><a href="tel:+13125550188">+1 312 555 0188</a><a href="mailto:hello@allanlimousine.com">hello@allanlimousine.com</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>Available citywide & beyond</span><span className="site-credit">Built with <strong>Shine Point Digital</strong></span><Link to="/admin/login">Client access ↗</Link></div></footer>
+    <PWABottomNav companyProfile={content.companyProfile} />
+    <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · {content.companyProfile.serviceArea}</p><span>© {new Date().getFullYear()} Allan Limousine</span></div><div className="footer-contact"><a href={phoneHref(content.companyProfile.businessPhone)}>{content.companyProfile.businessPhone}</a><a href={`mailto:${content.companyProfile.contactEmail}`}>{content.companyProfile.contactEmail}</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>{content.companyProfile.serviceArea}</span><span className="site-credit">Built with <strong>Shine Point Digital</strong></span><Link to="/admin/login">Client access ↗</Link></div></footer>
   </main>;
 }
 
@@ -179,7 +184,7 @@ function detectAirport(value: string): AirportCode | null {
   return null;
 }
 
-function Reservation({ services }: { services: Service[] }) {
+function Reservation({ services, companyProfile }: { services: Service[]; companyProfile: CompanyProfile }) {
   const initialPickupAt = currentLocalDateTime();
   const [form, setForm] = useState({ fullName: "", email: "", phone: "", serviceType: services[0]?.title || "Airport Transfers", pickupAt: initialPickupAt, pickup: "", destination: "", passengers: "1", notes: "" });
   const [state, setState] = useState<"idle" | "sending" | "success" | "error">("idle");
@@ -306,7 +311,7 @@ function Reservation({ services }: { services: Service[] }) {
   return <section id="reserve" className="reservation-section section-pad">
     <div className="section-number">04 <span>/</span> RESERVE YOUR TIME</div>
     <div className="reservation-layout">
-      <div className="reservation-intro"><p className="eyebrow brass">— Reserve your time</p><h2>Where will the <em>night</em><br />take you?</h2><p>Tell us a little about your journey. A member of our concierge team will be in touch shortly to confirm the details.</p><div className="reservation-contact"><span>Chicago, Illinois</span><a href="tel:+13125550188">+1 312 555 0188</a><small>Available citywide & beyond · Always at your service</small></div></div>
+      <div className="reservation-intro"><p className="eyebrow brass">— Reserve your time</p><h2>Where will the <em>night</em><br />take you?</h2><p>Tell us a little about your journey. A member of the concierge team will be in touch shortly to confirm the details.</p><div className="reservation-contact"><span>{companyProfile.serviceArea}</span><a href={phoneHref(companyProfile.businessPhone)}>{companyProfile.businessPhone}</a><small>Always at your service</small></div></div>
       <div className="reservation-form-wrap"><div className="reservation-card">
         {state === "success" ? <div className="success-state"><div className="success-icon"><Check /></div><p className="eyebrow brass">Inquiry received</p><h3>Consider it<br /><em>in motion.</em></h3><p>Thank you. Our team will review the details and reach out shortly.</p><button className="text-button" onClick={() => setState("idle")}>Make another inquiry <ArrowRight /></button></div> :
           <form className="reservation-form" onSubmit={reviewTrip}>
@@ -372,13 +377,13 @@ function AdminLogin() {
 }
 
 function AdminShell() {
-  const navigate = useNavigate(); const location = useLocation(); const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null); const [ready, setReady] = useState(false); const [mobile, setMobile] = useState(false);
+  const navigate = useNavigate(); const location = useLocation(); const [user, setUser] = useState<{ id: string; name: string; email: string; role: string } | null>(null); const [ready, setReady] = useState(false); const [mobile, setMobile] = useState(false);
   useEffect(() => { api("/api/admin/session").then(data => setUser(data.user)).catch(() => navigate("/admin/login")).finally(() => setReady(true)); }, [navigate]);
   const signOut = async () => { await api("/api/admin/logout", { method: "POST" }); navigate("/admin/login"); };
   if (!ready || !user) return <div className="admin-loading"><span className="spinner" />Loading workspace</div>;
   const active = location.pathname.split("/")[2] || "overview";
   const nav = [{ key: "overview", label: "Overview", icon: LayoutDashboard }, { key: "rides", label: "Rides & dispatch", icon: CarFront }, { key: "inquiries", label: "Inquiries", icon: MessageSquareText }, { key: "services", label: "Services", icon: Sparkles }, { key: "fleet", label: "Fleet", icon: ShieldCheck }, { key: "content", label: "Site content", icon: Pencil }, { key: "settings", label: "Settings", icon: Settings }, ...(user.role === "SUPER_ADMIN" ? [{ key: "admin-users", label: "Admin users", icon: UserRound }] : [])];
-  return <div className="admin-app"><aside className={mobile ? "admin-sidebar sidebar-open" : "admin-sidebar"}><div className="admin-brand"><Mark /><button onClick={() => setMobile(false)}><X /></button></div><p className="admin-nav-label">Workspace</p><nav>{nav.map(item => { const Icon = item.icon; return <Link key={item.key} className={active === item.key ? "active" : ""} to={`/admin/${item.key}`} onClick={() => setMobile(false)}><Icon />{item.label}</Link>; })}</nav><div className="admin-sidebar-bottom"><div className="profile-chip"><span>{user.name.split(" ").map(value => value[0]).join("").slice(0, 2)}</span><div><b>{user.name}</b><small>{titleCaseStatus(user.role)}</small></div></div><button className="logout-button" onClick={signOut}><LogOut /> Sign out</button></div></aside><div className="admin-main"><header className="admin-topbar"><button className="admin-menu" onClick={() => setMobile(true)}><Menu /></button><div className="breadcrumbs"><Link to="/">ALLAN</Link><span>/</span><b>{nav.find(n => n.key === active)?.label || "Overview"}</b></div><div className="topbar-right"><span className="live-dot" /> System live <button className="avatar">{user.name.split(" ").map(value => value[0]).join("").slice(0, 2)}</button></div></header>{active === "overview" && <Overview />}{active === "rides" && <RidesManager />}{active === "inquiries" && <InquiryManager />}{active === "services" && <ContentManager type="services" />}{active === "fleet" && <ContentManager type="fleet" />}{active === "content" && <SiteContentManager />}{active === "settings" && <SettingsPage />}{active === "admin-users" && <AdminUsers />}</div></div>;
+  return <div className="admin-app"><aside className={mobile ? "admin-sidebar sidebar-open" : "admin-sidebar"}><div className="admin-brand"><Mark /><button onClick={() => setMobile(false)}><X /></button></div><p className="admin-nav-label">Workspace</p><nav>{nav.map(item => { const Icon = item.icon; return <Link key={item.key} className={active === item.key ? "active" : ""} to={`/admin/${item.key}`} onClick={() => setMobile(false)}><Icon />{item.label}</Link>; })}</nav><div className="admin-sidebar-bottom"><div className="profile-chip"><span>{user.name.split(" ").map(value => value[0]).join("").slice(0, 2)}</span><div><b>{user.name}</b><small>{titleCaseStatus(user.role)}</small></div></div><button className="logout-button" onClick={signOut}><LogOut /> Sign out</button></div></aside><div className="admin-main"><header className="admin-topbar"><button className="admin-menu" onClick={() => setMobile(true)}><Menu /></button><div className="breadcrumbs"><Link to="/">ALLAN</Link><span>/</span><b>{nav.find(n => n.key === active)?.label || "Overview"}</b></div><div className="topbar-right"><span className="live-dot" /> System live <button className="avatar">{user.name.split(" ").map(value => value[0]).join("").slice(0, 2)}</button></div></header>{active === "overview" && <Overview />}{active === "rides" && <RidesManager />}{active === "inquiries" && <InquiryManager />}{active === "services" && <ContentManager type="services" />}{active === "fleet" && <ContentManager type="fleet" />}{active === "content" && <SiteContentManager />}{active === "settings" && <SettingsPage />}{active === "admin-users" && (user.role === "SUPER_ADMIN" ? <AdminUsers currentUserId={user.id} /> : <div className="admin-page"><div className="empty-state"><ShieldCheck /><p>Super-admin access is required to manage administrator accounts.</p></div></div>)}</div></div>;
 }
 
 function AdminHeader({ eyebrow, title, children }: { eyebrow: string; title: string; children?: React.ReactNode }) { return <div className="admin-page-header"><div><p className="eyebrow brass">{eyebrow}</p><h1>{title}</h1></div>{children}</div>; }
@@ -786,13 +791,47 @@ function InquiryDetail({ inquiry, close, refresh }: { inquiry: Inquiry; close: (
   return <div className="detail-overlay" onClick={close}><aside className="detail-drawer" onClick={e => e.stopPropagation()}><div className="drawer-top"><div><p className="eyebrow brass">Inquiry {inquiry.id.slice(-4).toUpperCase()}</p><h2>{inquiry.fullName}</h2></div><button onClick={close}><X /></button></div><div className="drawer-contact"><a href={`mailto:${inquiry.email}`}>{inquiry.email}</a><a href={`tel:${inquiry.phone}`}>{inquiry.phone}</a></div><div className="drawer-block"><p className="drawer-label">Status</p><div className="status-options">{["NEW", "CONTACTED", "CONFIRMED", "COMPLETED", "CANCELLED"].map(s => <button className={inquiry.status === s ? "chosen" : ""} disabled={saving} onClick={() => updateStatus(s)} key={s}><i />{s[0] + s.slice(1).toLowerCase()}</button>)}</div></div><div className="drawer-block journey-block"><p className="drawer-label">Journey details</p><div className="journey-detail"><span><CalendarDays />Pickup</span><b>{formatDateTime(inquiry.pickupAt)}</b></div><div className="journey-detail"><span><ArrowDownRight />Route</span><b>{inquiry.pickup} <ArrowRight /> {inquiry.destination}</b></div><div className="journey-detail"><span><Sparkles />Service</span><b>{inquiry.serviceType} · {inquiry.passengers} passenger{inquiry.passengers === 1 ? "" : "s"}</b></div>{inquiry.isPrivateFBO && <><div className="journey-detail"><span><Plane />FBO</span><b>{inquiry.fboName} · Tail {inquiry.specificTailNumber}</b></div><div className="journey-detail"><span><UserRound />Principal</span><b>{inquiry.principalName}</b></div><div className="journey-detail"><span><MapPin />Ramp escort</span><b>{inquiry.tarmacInstructions}</b></div></>}{inquiry.airportCode && <><div className="journey-detail"><span><CarFront />Airport</span><b>{inquiry.airportCode} · {inquiry.airportTerminal} · Flight {inquiry.flightNumber}</b></div>{inquiry.flightScheduledAt && <div className="journey-detail"><span><Clock3 />Flight time</span><b>{formatDateTime(inquiry.flightScheduledAt)}</b></div>}<div className="journey-detail"><span><MapPin />Pickup plan</span><b>{inquiry.pickupPreference}</b></div></>}</div><div className="drawer-block"><p className="drawer-label">Contact history</p><div className="timeline"><div className="timeline-item"><i /><div><b>Inquiry received</b><small>{formatDateTime(inquiry.createdAt)}</small></div></div>{inquiry.history.map((h, i) => <div className="timeline-item" key={i}><i /><div><b>{h.body}</b><small>{h.author} · {formatDateTime(h.createdAt)}</small></div></div>)}</div><div className="note-input"><input placeholder="Add an internal note..." value={note} onChange={e => setNote(e.target.value)} onKeyDown={e => e.key === "Enter" && addNote()} /><button onClick={addNote}><ArrowUpRight /></button></div></div></aside></div>;
 }
 function ContentManager({ type }: { type: "services" | "fleet" }) {
-  const [items, setItems] = useState<(Service | Vehicle)[]>([]); const [editing, setEditing] = useState<string | null>(null); const [vehicleModalOpen, setVehicleModalOpen] = useState(false);
+  const [items, setItems] = useState<(Service | Vehicle)[]>([]); const [editing, setEditing] = useState<string | null>(null); const [vehicleModalOpen, setVehicleModalOpen] = useState(false); const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const load = () => api("/api/admin/content").then(data => setItems(type === "services" ? data.services : data.fleet));
   useEffect(() => { load(); }, [type]);
   const save = async (item: Service | Vehicle) => { const body = { title: "title" in item ? item.title : undefined, name: "name" in item ? item.name : undefined, description: item.description, active: item.active }; await api(`/api/admin/content/${type}/${item.id}`, { method: "PATCH", body: JSON.stringify(body) }); setEditing(null); load(); };
-  const add = async () => { if (type === "fleet") { setVehicleModalOpen(true); return; } const name = window.prompt("Service name"); if (!name) return; const imageUrl = window.prompt("HTTPS image URL", "https://images.unsplash.com/photo-1493238792000-8113da705763?auto=format&fit=crop&w=1200&q=85"); if (!imageUrl) return; await api("/api/admin/content/services", { method: "POST", body: JSON.stringify({ slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), title: name, eyebrow: "Private service", description: "A considered service, tailored to every journey.", imageUrl, active: true }) }); load(); };
+  const add = async () => { if (type === "fleet") { setVehicleModalOpen(true); return; } setServiceModalOpen(true); };
   const remove = async (id: string) => { if (!window.confirm("Remove this item permanently?")) return; await api(`/api/admin/content/${type}/${id}`, { method: "DELETE" }); load(); };
-  return <div className="admin-page"><AdminHeader eyebrow={`Manage / ${type}`} title={type === "services" ? "Services" : "The fleet"}><button className="outline-button dark small" onClick={add}><Plus /> Add {type === "services" ? "service" : "vehicle"}</button></AdminHeader><div className="manage-grid">{items.map(item => <div className="manage-card panel" key={item.id}><div className="manage-image" style={{ backgroundImage: `url(${item.imageUrl})` }} /><div className="manage-content">{editing === item.id ? <><label>{type === "services" ? "Service name" : "Vehicle name"}{type === "services" ? <input value={(item as Service).title} onChange={e => setItems(items.map(i => i.id === item.id ? { ...i, title: e.target.value } as Service : i))} /> : <input value={(item as Vehicle).name} onChange={e => setItems(items.map(i => i.id === item.id ? { ...i, name: e.target.value } as Vehicle : i))} />}</label><label>Description<textarea value={item.description} onChange={e => setItems(items.map(i => i.id === item.id ? { ...i, description: e.target.value } as Service | Vehicle : i))} /></label><label className="publish-toggle"><input type="checkbox" checked={item.active} onChange={e => setItems(items.map(i => i.id === item.id ? { ...i, active: e.target.checked } as Service | Vehicle : i))} /> Published on website</label><div className="edit-actions"><button className="solid-button small-button" onClick={() => save(item)}>Save changes</button><button className="danger-button" onClick={() => remove(item.id)}><Trash2 /> Delete</button></div></> : <><div className="manage-heading"><div><p className="eyebrow brass">{type === "services" ? (item as Service).eyebrow : (item as Vehicle).category}</p><h2>{type === "services" ? (item as Service).title : (item as Vehicle).name}</h2></div><button onClick={() => setEditing(item.id)}><Pencil /></button></div><p>{item.description}</p><div className="manage-meta"><span className={item.active ? "active-label" : "inactive-label"}><i />{item.active ? "Published" : "Hidden"}</span>{type === "fleet" && <span>{(item as Vehicle).passengers} guests · {(item as Vehicle).luggage}</span>}</div></>}</div></div>)}</div>{type === "fleet" && vehicleModalOpen && <VehicleCreateModal close={() => setVehicleModalOpen(false)} created={() => { setVehicleModalOpen(false); load(); }} />}</div>;
+   return <div className="admin-page"><AdminHeader eyebrow={`Manage / ${type}`} title={type === "services" ? "Services" : "The fleet"}><button className="outline-button dark small" onClick={add}><Plus /> Add {type === "services" ? "service" : "vehicle"}</button></AdminHeader><div className="manage-grid">{items.map(item => <div className="manage-card panel" key={item.id}><div className="manage-image" style={{ backgroundImage: `url(${item.imageUrl})` }} /><div className="manage-content">{editing === item.id ? <><label>{type === "services" ? "Service name" : "Vehicle name"}{type === "services" ? <input value={(item as Service).title} onChange={e => setItems(items.map(i => i.id === item.id ? { ...i, title: e.target.value } as Service : i))} /> : <input value={(item as Vehicle).name} onChange={e => setItems(items.map(i => i.id === item.id ? { ...i, name: e.target.value } as Vehicle : i))} />}</label><label>Description<textarea value={item.description} onChange={e => setItems(items.map(i => i.id === item.id ? { ...i, description: e.target.value } as Service | Vehicle : i))} /></label><label className="publish-toggle"><input type="checkbox" checked={item.active} onChange={e => setItems(items.map(i => i.id === item.id ? { ...i, active: e.target.checked } as Service | Vehicle : i))} /> Published on website</label><div className="edit-actions"><button className="solid-button small-button" onClick={() => save(item)}>Save changes</button><button className="danger-button" onClick={() => remove(item.id)}><Trash2 /> Delete</button></div></> : <><div className="manage-heading"><div><p className="eyebrow brass">{type === "services" ? (item as Service).eyebrow : (item as Vehicle).category}</p><h2>{type === "services" ? (item as Service).title : (item as Vehicle).name}</h2></div><button onClick={() => setEditing(item.id)}><Pencil /></button></div><p>{item.description}</p><div className="manage-meta"><span className={item.active ? "active-label" : "inactive-label"}><i />{item.active ? "Published" : "Hidden"}</span>{type === "fleet" && <span>{(item as Vehicle).passengers} guests · {(item as Vehicle).luggage}</span>}</div></>}</div></div>)}</div>{type === "fleet" && vehicleModalOpen && <VehicleCreateModal close={() => setVehicleModalOpen(false)} created={() => { setVehicleModalOpen(false); load(); }} />}{type === "services" && serviceModalOpen && <ServiceCreateModal close={() => setServiceModalOpen(false)} created={() => { setServiceModalOpen(false); load(); }} />}</div>;
+}
+
+function ServiceCreateModal({ close, created }: { close: () => void; created: () => void }) {
+  const [form, setForm] = useState({ title: "", eyebrow: "", description: "", imageUrl: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const update = (key: keyof typeof form, value: string) => setForm(current => ({ ...current, [key]: value }));
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    const slug = form.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    try {
+      await api("/api/admin/content/services", { method: "POST", body: JSON.stringify({ ...form, title: form.title.trim(), slug, active: true }) });
+      created();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to add this service.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <div className="vehicle-modal-backdrop" onClick={close}>
+    <section className="vehicle-modal" role="dialog" aria-modal="true" aria-labelledby="service-create-title" onClick={event => event.stopPropagation()}>
+      <div className="vehicle-modal-top"><div><p className="eyebrow brass">Services / new offering</p><h2 id="service-create-title">Add a<br /><em>service.</em></h2></div><button type="button" onClick={close} aria-label="Close"><X /></button></div>
+      <form onSubmit={submit}>
+        <label>Service name<input required minLength={2} maxLength={100} value={form.title} onChange={event => update("title", event.target.value)} placeholder="Airport transfers" /></label>
+        <label>Short label<input required minLength={2} maxLength={100} value={form.eyebrow} onChange={event => update("eyebrow", event.target.value)} placeholder="01 / Seamless arrivals" /></label>
+        <label>Description<textarea required minLength={2} maxLength={500} rows={3} value={form.description} onChange={event => update("description", event.target.value)} placeholder="Describe this service for visitors." /></label>
+        <label>Service image URL<input required type="url" value={form.imageUrl} onChange={event => update("imageUrl", event.target.value)} placeholder="https://example.com/image.jpg" /></label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="vehicle-modal-actions"><button type="button" className="outline-button dark small" onClick={close}>Cancel</button><button className="solid-button small-button" disabled={saving}>{saving ? "Adding service..." : <>Add service <ArrowUpRight /></>}</button></div>
+      </form>
+    </section>
+  </div>;
 }
 
 function VehicleCreateModal({ close, created }: { close: () => void; created: () => void }) {
@@ -809,20 +848,151 @@ function SiteContentManager() {
   const save = async () => { await api("/api/admin/content/site", { method: "PATCH", body: JSON.stringify(content) }); setSaved(true); setTimeout(() => setSaved(false), 2400); };
   return <div className="admin-page"><AdminHeader eyebrow="Manage / public website" title="Site content"><button className="solid-button small-button" onClick={save}>{saved ? <><Check /> Saved</> : <>Save changes <ArrowUpRight /></>}</button></AdminHeader><div className="content-editor-grid"><section className="panel editor-panel"><div className="panel-header"><div><p className="eyebrow brass">Homepage / Hero</p><h2>First impression</h2></div><span className="panel-icon"><Sparkles /></span></div><label>Eyebrow<input value={content.heroKicker} onChange={e => update("heroKicker", e.target.value)} /></label><label>Headline<textarea rows={2} value={content.heroTitle} onChange={e => update("heroTitle", e.target.value)} /></label><label>Supporting copy<textarea rows={3} value={content.heroDescription} onChange={e => update("heroDescription", e.target.value)} /></label></section><section className="panel editor-panel"><div className="panel-header"><div><p className="eyebrow brass">Homepage / Standard</p><h2>Our promise</h2></div><span className="panel-icon"><ShieldCheck /></span></div><label>Headline<textarea rows={2} value={content.standardTitle} onChange={e => update("standardTitle", e.target.value)} /></label><label>Body copy<textarea rows={6} value={content.standardBody} onChange={e => update("standardBody", e.target.value)} /></label></section></div></div>;
 }
-function AdminUsers() {
+function AdminUsers({ currentUserId }: { currentUserId: string }) {
   const [users, setUsers] = useState<{ id: string; name: string; email: string; role: string; active: boolean; createdAt: string }[]>([]);
-  const load = () => api("/api/admin/users").then(data => setUsers(data.users));
+  const [error, setError] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const load = () => api("/api/admin/users").then(data => setUsers(data.users)).catch((reason: Error) => setError(reason.message));
   useEffect(() => { load(); }, []);
-  const add = async () => {
-    const name = window.prompt("Administrator name"); if (!name) return;
-    const email = window.prompt("Administrator email"); if (!email) return;
-    const password = window.prompt("Temporary password (at least 12 characters)"); if (!password) return;
-    await api("/api/admin/users", { method: "POST", body: JSON.stringify({ name, email, password, role: "ADMIN" }) }); load();
+  const updateUser = async (user: typeof users[number], changes: { active?: boolean; role?: string }) => {
+    setError("");
+    try { await api(`/api/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify(changes) }); await load(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to update this administrator."); }
   };
-  const toggle = async (user: typeof users[number]) => { await api(`/api/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ active: !user.active }) }); load(); };
-  return <div className="admin-page"><AdminHeader eyebrow="Security / team access" title="Admin users"><button className="outline-button dark small" onClick={add}><Plus /> Add administrator</button></AdminHeader><section className="panel user-list"><div className="user-list-head"><span>Administrator</span><span>Role</span><span>Added</span><span>Status</span></div>{users.map(user => <div className="user-list-row" key={user.id}><div className="inquiry-person"><span className="person-initials">{user.name.split(" ").map(v => v[0]).join("").slice(0, 2)}</span><div><b>{user.name}</b><small>{user.email}</small></div></div><select value={user.role} onChange={e => api(`/api/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ role: e.target.value }) }).then(load)}><option value="ADMIN">Admin</option><option value="SUPER_ADMIN">Super admin</option></select><span>{formatDate(user.createdAt)}</span><button className={user.active ? "active-label user-status" : "inactive-label user-status"} onClick={() => toggle(user)}><i />{user.active ? "Active" : "Disabled"}</button></div>)}</section></div>;
+  return <div className="admin-page"><AdminHeader eyebrow="Security / team access" title="Admin users"><button className="outline-button dark small" onClick={() => setAddOpen(true)}><Plus /> Add administrator</button></AdminHeader>{error && <p className="form-error" role="alert">{error}</p>}<section className="panel user-list"><div className="user-list-head"><span>Administrator</span><span>Role</span><span>Added</span><span>Status</span></div>{users.map(user => <div className="user-list-row" key={user.id}><div className="inquiry-person"><span className="person-initials">{user.name.split(" ").map(v => v[0]).join("").slice(0, 2)}</span><div><b>{user.name}{user.id === currentUserId ? " (you)" : ""}</b><small>{user.email}</small></div></div><select aria-label={`Role for ${user.name}`} value={user.role} onChange={e => updateUser(user, { role: e.target.value })}><option value="ADMIN">Admin</option><option value="SUPER_ADMIN">Super admin</option></select><span>{formatDate(user.createdAt)}</span><button type="button" disabled={user.id === currentUserId} aria-label={user.id === currentUserId ? "Your account cannot be disabled here" : `${user.active ? "Disable" : "Enable"} ${user.name}`} className={user.active ? "active-label user-status" : "inactive-label user-status"} onClick={() => updateUser(user, { active: !user.active })}><i />{user.active ? "Active" : "Disabled"}</button></div>)}</section>{addOpen && <AdminCreateModal close={() => setAddOpen(false)} created={() => { setAddOpen(false); load(); }} />}</div>;
 }
-function SettingsPage() { return <div className="admin-page"><AdminHeader eyebrow="Workspace / configuration" title="Settings" /><div className="settings-grid"><section className="panel settings-card"><div className="panel-header"><div><p className="eyebrow brass">Company profile</p><h2>Allan Limousine</h2></div><Pencil /></div><label>Business phone<input defaultValue="+1 312 555 0188" /></label><label>Contact email<input defaultValue="hello@allanlimousine.com" /></label><label>Service area<input defaultValue="Chicago, Illinois · Available citywide & beyond" /></label><button className="outline-button dark small">Save profile</button></section><section className="panel settings-card"><div className="panel-header"><div><p className="eyebrow brass">Security</p><h2>Admin access</h2></div><ShieldCheck /></div><div className="security-row"><span><b>Two-factor authentication</b><small>Protect administrator accounts with an additional verification step.</small></span><span className="coming-soon">Coming soon</span></div><div className="security-row"><span><b>Active sessions</b><small>1 active session on this workspace.</small></span><button className="text-button">Review <ArrowRight /></button></div></section></div></div>; }
+
+function AdminCreateModal({ close, created }: { close: () => void; created: () => void }) {
+  const [form, setForm] = useState({ name: "", email: "", password: "", role: "ADMIN" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const update = (key: keyof typeof form, value: string) => setForm(current => ({ ...current, [key]: value }));
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await api("/api/admin/users", { method: "POST", body: JSON.stringify(form) });
+      created();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to add this administrator.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <div className="vehicle-modal-backdrop" onClick={close}>
+    <section className="vehicle-modal" role="dialog" aria-modal="true" aria-labelledby="admin-create-title" onClick={event => event.stopPropagation()}>
+      <div className="vehicle-modal-top"><div><p className="eyebrow brass">Security / new account</p><h2 id="admin-create-title">Add an<br /><em>administrator.</em></h2></div><button type="button" onClick={close} aria-label="Close"><X /></button></div>
+      <form onSubmit={submit}>
+        <label>Full name<input required minLength={2} maxLength={100} autoComplete="name" value={form.name} onChange={event => update("name", event.target.value)} /></label>
+        <label>Email address<input required type="email" maxLength={254} autoComplete="email" value={form.email} onChange={event => update("email", event.target.value)} /></label>
+        <label>Temporary password<input required type="password" minLength={12} maxLength={200} autoComplete="new-password" value={form.password} onChange={event => update("password", event.target.value)} /><small className="field-help">At least 12 characters. Share it with the new administrator securely.</small></label>
+        <label>Account role<select value={form.role} onChange={event => update("role", event.target.value)}><option value="ADMIN">Admin</option><option value="SUPER_ADMIN">Super admin</option></select></label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="vehicle-modal-actions"><button type="button" className="outline-button dark small" onClick={close}>Cancel</button><button className="solid-button small-button" disabled={saving}>{saving ? "Creating account..." : <>Create account <ArrowUpRight /></>}</button></div>
+      </form>
+    </section>
+  </div>;
+}
+
+function SettingsPage() {
+  const [profile, setProfile] = useState<CompanyProfile>(fallbackContent.companyProfile);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [profileReady, setProfileReady] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [profileMessage, setProfileMessage] = useState("");
+  const [profileError, setProfileError] = useState("");
+  const [sessions, setSessions] = useState<AdminSession[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(true);
+  const [sessionError, setSessionError] = useState("");
+  const [revoking, setRevoking] = useState(false);
+  const [sessionMessage, setSessionMessage] = useState("");
+  const updateProfile = (key: keyof CompanyProfile, value: string) => setProfile(current => ({ ...current, [key]: value }));
+  const loadProfile = async () => {
+    setLoadingProfile(true);
+    setProfileError("");
+    try {
+      const result = await api("/api/admin/company-profile");
+      setProfile(result.companyProfile);
+      setProfileReady(true);
+    } catch (reason) {
+      setProfileError(reason instanceof Error ? reason.message : "Unable to load the saved company profile.");
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+  const loadSessions = async () => {
+    setSessionError("");
+    try { const result = await api("/api/admin/sessions"); setSessions(result.sessions); }
+    catch (reason) { setSessionError(reason instanceof Error ? reason.message : "Unable to load active sessions."); }
+    finally { setLoadingSessions(false); }
+  };
+  useEffect(() => {
+    void loadProfile();
+    void loadSessions();
+  }, []);
+  const saveProfile = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setProfileError("");
+    setProfileMessage("");
+    try {
+      const result = await api("/api/admin/company-profile", { method: "PATCH", body: JSON.stringify(profile) });
+      setProfile(result.companyProfile);
+      setProfileMessage("Company profile saved and published to the public site.");
+    } catch (reason) {
+      setProfileError(reason instanceof Error ? reason.message : "Unable to save the company profile.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const revokeOtherSessions = async () => {
+    if (!sessions.some(session => !session.isCurrent)) return;
+    if (!window.confirm("Sign out all other sessions for your administrator account? This device will stay signed in.")) return;
+    setRevoking(true);
+    setSessionError("");
+    setSessionMessage("");
+    try {
+      const result = await api("/api/admin/sessions/others", { method: "DELETE" });
+      setSessionMessage(`${result.revoked} other session${result.revoked === 1 ? "" : "s"} signed out.`);
+      await loadSessions();
+    } catch (reason) {
+      setSessionError(reason instanceof Error ? reason.message : "Unable to revoke other sessions.");
+    } finally {
+      setRevoking(false);
+    }
+  };
+  return <div className="admin-page"><AdminHeader eyebrow="Workspace / configuration" title="Settings" /><div className="settings-grid">
+    <section className="panel settings-card">
+      <div className="panel-header"><div><p className="eyebrow brass">Company profile</p><h2>Public contact details</h2></div><Pencil /></div>
+      <form onSubmit={saveProfile}>
+        <label>Business phone<input type="tel" autoComplete="tel" required minLength={7} maxLength={30} value={profile.businessPhone} onChange={event => updateProfile("businessPhone", event.target.value)} /></label>
+        <label>Contact email<input type="email" autoComplete="email" required maxLength={254} value={profile.contactEmail} onChange={event => updateProfile("contactEmail", event.target.value)} /></label>
+        <label>Service area<input required minLength={2} maxLength={160} value={profile.serviceArea} onChange={event => updateProfile("serviceArea", event.target.value)} /></label>
+        {loadingProfile && <p className="field-help">Loading saved company details…</p>}
+        {profileError && <p className="form-error" role="alert">{profileError}</p>}
+        {!profileReady && !loadingProfile && <button type="button" className="text-button" onClick={loadProfile}>Retry loading company profile <RefreshCw /></button>}
+        {profileMessage && <p className="dispatch-success" role="status"><Check />{profileMessage}</p>}
+        <button className="outline-button dark small" disabled={saving || loadingProfile || !profileReady}>{saving ? "Saving…" : "Save profile"}</button>
+      </form>
+    </section>
+    <section className="panel settings-card session-settings">
+      <div className="panel-header"><div><p className="eyebrow brass">Security</p><h2>Admin sessions</h2></div><ShieldCheck /></div>
+      <p className="session-intro">Review signed-in devices for your account. You can sign out every other session without affecting this device.</p>
+      {sessionError && <p className="form-error" role="alert">{sessionError}</p>}
+      {sessionMessage && <p className="dispatch-success" role="status"><Check />{sessionMessage}</p>}
+      {loadingSessions ? <p className="field-help">Loading sessions…</p> : <div className="admin-session-list">
+        {sessions.map(session => <article className="admin-session-row" key={session.id}>
+          <span className={session.isCurrent ? "session-indicator current" : "session-indicator"} />
+          <div><b>{session.isCurrent ? "This device" : "Signed-in device"}</b><small>Started {formatDateTime(session.createdAt)} · Expires {formatDateTime(session.expiresAt)}</small></div>
+          <span className={session.isCurrent ? "active-label session-current" : "session-other"}>{session.isCurrent ? "Current" : "Active"}</span>
+        </article>)}
+        {!sessions.length && <div className="empty-state compact-empty"><ShieldCheck /><p>No active sessions were found.</p></div>}
+      </div>}
+      <button type="button" className="outline-button dark small revoke-sessions" disabled={revoking || loadingSessions || !sessions.some(session => !session.isCurrent)} onClick={revokeOtherSessions}>{revoking ? "Signing out other sessions…" : "Sign out other sessions"}</button>
+    </section>
+  </div></div>;
+}
 
 export default function App() {
   const location = useLocation();

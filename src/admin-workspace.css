@@ -1,0 +1,25 @@
+.settings-card form{display:grid;gap:17px}
+.settings-card .outline-button:disabled,.revoke-sessions:disabled{opacity:.48;cursor:not-allowed}
+.field-help{display:block;margin:7px 0 0;color:#89867f;font-size:10px;line-height:1.5}
+.session-intro{margin:0 0 8px;color:#77776f;font-size:11px;line-height:1.65}
+.admin-session-list{display:grid;gap:1px;background:#dedbd3}
+.admin-session-row{display:grid;grid-template-columns:9px minmax(0,1fr) auto;align-items:center;gap:12px;padding:15px 13px;background:#f4f1eb}
+.session-indicator{width:7px;height:7px;border-radius:50%;background:#bc9a5c}
+.session-indicator.current{background:#64866a}
+.admin-session-row b,.admin-session-row small{display:block}
+.admin-session-row b{font-size:11px}
+.admin-session-row small{margin-top:5px;color:#88847b;font-size:9px;line-height:1.5}
+.session-current,.session-other{font-size:8px;white-space:nowrap}
+.session-other{color:#89867f;text-transform:uppercase;letter-spacing:.08em}
+.revoke-sessions{margin-top:17px}
+.settings-card .form-error{margin:0}
+.settings-card .dispatch-success{line-height:1.5}
+.user-list-row select:focus-visible,.vehicle-modal input:focus-visible,.vehicle-modal select:focus-visible,.vehicle-modal textarea:focus-visible{outline:2px solid #a98b5e;outline-offset:2px}
+.user-list-row select{min-width:90px;padding:8px 4px}
+.user-list-row button:disabled{opacity:.6;cursor:not-allowed}
+.user-list-row button:not(:disabled){cursor:pointer}
+.user-list .form-error{margin:0 24px 14px}
+.vehicle-modal form>.form-error{margin:12px 0 0}
+.vehicle-modal form .field-help{color:#77736b}
+@media(max-width:850px){.user-list-head,.user-list-row{grid-template-columns:minmax(170px,1.5fr) minmax(95px,.7fr) minmax(75px,.65fr) minmax(75px,.5fr);gap:10px;padding-left:17px;padding-right:17px}.user-list{overflow-x:auto}.user-list-head,.user-list-row{min-width:610px}}
+@media(max-width:650px){.admin-session-row{grid-template-columns:8px minmax(0,1fr);gap:9px}.admin-session-row>.session-current,.admin-session-row>.session-other{grid-column:2}.settings-card .outline-button{width:100%;justify-content:center}.revoke-sessions{width:100%;justify-content:center}}
