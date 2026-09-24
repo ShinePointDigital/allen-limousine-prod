@@ -363,9 +363,9 @@ export default function LocationAutocomplete({
         {input}
         {onUseLocation && <button type="button" className="use-location-button" onClick={onUseLocation} disabled={locationState === "locating"} aria-label="Use my current location" title="Use my current location"><LocateFixed /></button>}
       </div>
+      {suggestionList}
       {locationState && <small className={`location-status location-${locationState}`}>{locationState === "locating" ? "Finding your current location…" : locationState === "live" ? "Current location added" : locationState === "unavailable" ? "Location unavailable—enter your pickup manually" : locationState === "manual" ? "Manual pickup location" : ""}</small>}
       {quickPicks}
-      {suggestionList}
     </div>;
   }
 
@@ -376,7 +376,7 @@ export default function LocationAutocomplete({
       {input}
       {onUseLocation && <button type="button" onClick={onUseLocation} aria-label="Use current location"><LocateFixed /></button>}
     </div>
-    {quickPicks}
     {suggestionList}
+    {quickPicks}
   </div>;
 }

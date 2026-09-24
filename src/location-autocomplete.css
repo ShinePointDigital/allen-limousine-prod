@@ -64,6 +64,11 @@
   padding: 0;
 }
 
+.location-autocomplete.wizard-location > section {
+  position: static;
+  margin-top: 7px;
+}
+
 .wizard-location > section > .location-searching {
   display: block;
   padding: 12px;
@@ -71,7 +76,8 @@
 }
 
 .location-field .location-suggestions {
-  top: calc(100% + 7px);
+  position: static;
+  margin-top: 7px;
 }
 
 @media(max-width:700px) {
