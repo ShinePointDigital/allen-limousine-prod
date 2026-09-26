@@ -126,7 +126,7 @@ function Home() {
     {!pwaMode && <DestinationBookingCards />}
     {pwaMode && <BookingWizard />}
     <section id="about" className="about-section section-pad">
-      <div className="about-kicker"><p className="eyebrow brass">— About Allan Limousine</p><span>Luxury, without compromise</span></div>
+      <div className="about-kicker"><p className="eyebrow brass text-[25px]">— About Allan Limousine</p><span>Luxury, without compromise</span></div>
       <div className="about-content">
         <h2>More than a ride.<br /><em>A standard of care.</em></h2>
         <div className="about-copy">
