@@ -115,7 +115,6 @@ function Home() {
       <PublicNav companyProfile={content.companyProfile} />
       <div className="hero-grid">
         <div className="hero-copy">
-          <p className="eyebrow">— PRIVATE CHAUFFEUR SERVICE · CHICAGO</p>
           <h1>The city,<br /><em>on your schedule.</em></h1>
           <p className="hero-description">{content.siteContent.heroDescription}</p>
           <div className="hero-ctas"><a href="#reserve" className="solid-button">Arrange your chauffeur <ArrowUpRight /></a></div>
