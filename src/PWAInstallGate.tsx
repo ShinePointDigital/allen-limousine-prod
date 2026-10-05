@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ArrowRight, Check, Download } from "lucide-react";
+import { isPwaPhone } from "./pwa-device.js";
 
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -11,14 +12,10 @@ const deferredInstallPrompt = () => (window as InstallPromptWindow).__allanInsta
 const isStandalone = () =>
   window.matchMedia("(display-mode: standalone)").matches ||
   Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
-const isMobileDevice = () =>
-  /android|iphone|ipad|ipod/i.test(navigator.userAgent) ||
-  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-
 export default function PWAInstallGate({ children }: { children: ReactNode }) {
   const [continueInBrowser, setContinueInBrowser] = useState(() => sessionStorage.getItem("allan-browser-booking") === "true");
   const [prompt, setPrompt] = useState<InstallPromptEvent | null>(deferredInstallPrompt);
-  const mobile = isMobileDevice();
+  const mobile = isPwaPhone();
   useEffect(() => {
     if (!mobile) return;
     const handler = (event: Event) => {

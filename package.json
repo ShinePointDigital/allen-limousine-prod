@@ -11,6 +11,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "test:pwa": "node scripts/test-pwa-update.mjs",
+    "test:pwa-routing": "tsx --test src/pwa-device.test.ts",
     "test:booking-flow": "tsx --test src/booking-success.test.ts",
     "test:admin": "tsx --test server/admin-workspace.test.ts",
     "test:twilio": "tsx --test server/twilio.test.ts",

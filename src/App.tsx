@@ -13,6 +13,7 @@ import LocationAutocomplete from "./LocationAutocomplete";
 import { PWABottomNav } from "./PWANavigation";
 import PWAInstallGate from "./PWAInstallGate";
 import heroCadillac from "./assets/hero-cadillac-downtown-night.jpg";
+import { isPwaPhone } from "./pwa-device.js";
 
 type Service = { id: string; slug: string; title: string; eyebrow: string; description: string; imageUrl: string; active: boolean };
 type Vehicle = { id: string; name: string; category: string; description: string; imageUrl: string; passengers: string; luggage: string; defaultDriverName: string | null; defaultDriverPhone: string | null; active: boolean };
@@ -102,9 +103,9 @@ function DestinationBookingCards() {
 function Home() {
   const [content, setContent] = useState(fallbackContent);
   const pwaLaunch = new URLSearchParams(window.location.search).get("source") === "pwa";
-  const pwaMode = pwaLaunch ||
+  const pwaMode = isPwaPhone() && (pwaLaunch ||
     window.matchMedia("(display-mode: standalone)").matches ||
-    Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+    Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
   useEffect(() => { api("/api/content").then(data => setContent(data)).catch(() => undefined); }, []);
   return <main className={`public-page${pwaMode ? " pwa-launch" : ""}`}>
     <section className="hero">

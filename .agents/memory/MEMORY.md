@@ -7,3 +7,4 @@
 - [Vercel deployment diagnostics](vercel-deployment-diagnostics.md) — GitHub status shows success/failure, but build details require an attached Vercel connection.
 - [GitHub connector publishing](github-connector-publishing.md) — when HTTPS Git auth is unavailable, publish a complete tree through the connected GitHub API and realign only after tree hashes match.
 - [Google Places autocomplete](google-places-autocomplete.md) — prefer AutocompleteSuggestion and Place.fetchFields; legacy Places services may be unavailable even when maps render.
+- [PWA device policy](pwa-device-policy.md) — iPads, tablets, and desktops go directly to the website; keep PWA entry limited to phones.

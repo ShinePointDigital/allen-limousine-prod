@@ -6,6 +6,7 @@ import DispatchTrackingStep, { type ActiveReservation } from "./DispatchTracking
 import { readSavedPayment, rememberPwaTrip, saveSavedPayment } from "./pwa-state.js";
 import LocationAutocomplete, { type QuickLocation } from "./LocationAutocomplete.js";
 import { bookingSuccessTransition, isPwaLaunch } from "./booking-success.js";
+import { isPwaPhone } from "./pwa-device.js";
 
 type Point = { latitude: number; longitude: number };
 type Fare = { fareCents: number; miles: number; minutes: number; eventVenue?: { name: string } | null; eventSurchargeCents?: number };
@@ -45,7 +46,7 @@ const localDateTime = (offsetMinutes = 0) => {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
 const launchedAsPwa = () =>
-  isPwaLaunch(
+  isPwaPhone() && isPwaLaunch(
     window.location.search,
     window.matchMedia("(display-mode: standalone)").matches,
     Boolean((navigator as Navigator & { standalone?: boolean }).standalone),

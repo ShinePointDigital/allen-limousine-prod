@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Download, Home, Share, X } from "lucide-react";
+import { isPwaPhone } from "./pwa-device.js";
 
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -7,17 +8,16 @@ type InstallPromptEvent = Event & {
 };
 
 const standalone = () => window.matchMedia("(display-mode: standalone)").matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
-const isAppleMobile = () =>
-  /iphone|ipad|ipod/i.test(navigator.userAgent) ||
-  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isApplePhone = () => /iphone|ipod/i.test(navigator.userAgent.toLowerCase()) && isPwaPhone();
 
 export function PWAInstallBanner() {
   const [prompt, setPrompt] = useState<InstallPromptEvent | null>(null);
   const [iosGuide, setIosGuide] = useState(false);
   const [visible, setVisible] = useState(false);
-  const ios = isAppleMobile();
+  const phone = isPwaPhone();
+  const ios = isApplePhone();
   useEffect(() => {
-    if (standalone() || localStorage.getItem("allan-pwa-install-dismissed")) return;
+    if (!phone || standalone() || localStorage.getItem("allan-pwa-install-dismissed")) return;
     const handler = (event: Event) => {
       event.preventDefault();
       setPrompt(event as InstallPromptEvent);
@@ -26,7 +26,7 @@ export function PWAInstallBanner() {
     window.addEventListener("beforeinstallprompt", handler);
     if (ios) setVisible(true);
     return () => window.removeEventListener("beforeinstallprompt", handler);
-  }, [ios]);
+  }, [ios, phone]);
   const dismiss = () => { setVisible(false); setIosGuide(false); localStorage.setItem("allan-pwa-install-dismissed", "true"); };
   const install = async () => {
     if (ios) { setIosGuide(true); return; }
