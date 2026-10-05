@@ -12,6 +12,8 @@ import { classifyTwilioMessageStatus, findDriverDispatchSms, getDriverDispatchSm
 import { estimateFare, reverseGeocode, searchLocations } from "./fare-estimate.js";
 import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "./stripe-client.js";
 import { createAdminRecoveryRouter } from "./admin-recovery-routes.js";
+import { accountLoginLimiter, createAccountRouter, staffGuard } from "./account-routes.js";
+import { hasAccess } from "../shared/access.js";
 
 export const app = express();
 const port = Number(process.env.PORT) || 5000;
@@ -284,12 +286,7 @@ async function completeRideWithCapture(rideId: string, preCompletionUpdate: Para
   }
   return updateRide(rideId, { status: "COMPLETED" });
 }
-const admin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const user = await sessionUser(req.cookies.allan_session);
-  if (!user) return res.status(401).json({ error: "Your session has expired. Please sign in again." });
-  res.locals.user = user;
-  next();
-};
+const admin = staffGuard;
 function normalizePhone(value: string | null | undefined) {
   if (!value) return null;
   const digits = value.replace(/\D/g, "");
@@ -773,6 +770,9 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
   } = parsed.data;
   try {
     const input = { ...rawInput, email: rawInput.email.toLowerCase(), phone: normalizeCustomerPhone(rawInput.phone) };
+    const customer = await sessionUser(req.cookies.allan_customer_session);
+    if (req.cookies.allan_customer_session && (!customer || customer.role !== "USER")) return res.status(401).json({ error: "Your customer session expired. Sign in again before booking, or sign out to book as a guest." });
+    if (customer && customer.role === "USER" && customer.email !== input.email) return res.status(403).json({ error: "Use your customer account email for this reservation." });
     const bookingRequestFingerprint = crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex");
     const priorRequest = await getInquiryByBookingRequestId(input.bookingRequestId);
     if (priorRequest) {
@@ -785,6 +785,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
     const trackingExpiresAt = new Date(Math.min(Math.max(pickupExpiry, Date.now() + 24 * 60 * 60 * 1000), Date.now() + 30 * 24 * 60 * 60 * 1000));
     const { inquiry, created } = await addInquiry({
       ...input,
+      customerUserId: customer?.role === "USER" ? customer.id : null,
       bookingRequestFingerprint,
       estimatedFareCents: canonicalEstimate?.fareCents,
       grossFareCents: canonicalEstimate?.fareCents,
@@ -862,7 +863,7 @@ app.get("/api/tracking/:token", publicReadLimiter, async (req, res) => {
     },
   });
 });
-app.post("/api/admin/login", async (req, res) => {
+app.post("/api/admin/login", accountLoginLimiter, async (req, res) => {
   const parsed = authSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Enter a valid email and password." });
   const result = await authenticate(parsed.data.email, parsed.data.password);
@@ -872,6 +873,7 @@ app.post("/api/admin/login", async (req, res) => {
 });
 app.get("/api/admin/session", admin, (_req, res) => res.json({ user: res.locals.user }));
 app.use(createAdminRecoveryRouter({ admin, superAdmin, origin: publicOrigin }));
+app.use(createAccountRouter());
 app.post("/api/admin/logout", (req, res) => { logout(req.cookies.allan_session); res.clearCookie("allan_session"); res.status(204).end(); });
 app.get("/api/admin/sessions", admin, async (req, res) => {
   res.json({ sessions: await listAdminSessions(res.locals.user.id, req.cookies.allan_session) });
@@ -894,6 +896,9 @@ app.patch("/api/admin/rides/:id", admin, async (req, res) => {
   try {
     const currentRide = await getRideById(String(req.params.id));
     if (!currentRide) return res.status(404).json({ error: "Ride not found." });
+    const paymentAccess = hasAccess(res.locals.user, "payments");
+    const amounts = [[quote, currentRide.quoteCents], [deposit, currentRide.depositCents], [collected, currentRide.collectedCents], [expense, currentRide.expenseCents]];
+    if (!paymentAccess && (amounts.some(([value, current]) => value !== undefined && value !== current) || (["COMPLETED", "CANCELLED"].includes(rest.status || "") && !!currentRide.inquiry.stripePaymentIntentId))) return res.status(403).json({ error: "Payment access is required to change financial amounts or complete/cancel a paid ride." });
     if (rest.status && rest.status !== currentRide.status) {
       const allowedNextStatus: Record<string, string[]> = {
         UNASSIGNED: ["ASSIGNED", "CANCELLED"],
@@ -908,7 +913,7 @@ app.patch("/api/admin/rides/:id", admin, async (req, res) => {
       }
     }
     const locationChanged = rest.driverLatitude !== undefined || rest.driverLongitude !== undefined;
-    const rideData = { ...rest, ...(locationChanged ? { locationUpdatedAt: rest.driverLatitude === null ? null : new Date().toISOString() } : {}), ...(driverPhone !== undefined ? { driverPhone: normalizePhone(driverPhone) } : {}), ...(quote !== undefined ? { quoteCents: quote } : {}), ...(deposit !== undefined ? { depositCents: deposit } : {}), ...(collected !== undefined ? { collectedCents: collected } : {}), ...(expense !== undefined ? { expenseCents: expense } : {}) };
+    const rideData = { ...rest, ...(locationChanged ? { locationUpdatedAt: rest.driverLatitude === null ? null : new Date().toISOString() } : {}), ...(driverPhone !== undefined ? { driverPhone: normalizePhone(driverPhone) } : {}), ...(paymentAccess && quote !== undefined ? { quoteCents: quote } : {}), ...(paymentAccess && deposit !== undefined ? { depositCents: deposit } : {}), ...(paymentAccess && collected !== undefined ? { collectedCents: collected } : {}), ...(paymentAccess && expense !== undefined ? { expenseCents: expense } : {}) };
     const { status, ...preCompletionUpdate } = rideData;
     let item;
     if (status === "COMPLETED") item = await completeRideWithCapture(String(req.params.id), preCompletionUpdate);
@@ -1074,6 +1079,10 @@ app.get("/api/admin/inquiries", admin, async (req, res) => {
 app.patch("/api/admin/inquiries/:id", admin, async (req, res) => {
   const parsed = z.object({ status: z.enum(["NEW", "CONTACTED", "CONFIRMED", "COMPLETED", "CANCELLED"]).optional(), notes: z.string().max(1000).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid inquiry update." });
+  if (["COMPLETED", "CANCELLED"].includes(parsed.data.status || "")) {
+    const inquiry = (await getInquiries()).find(item => item.id === String(req.params.id));
+    if (inquiry?.stripePaymentIntentId && !hasAccess(res.locals.user, "payments")) return res.status(403).json({ error: "Payment access is required to complete or cancel a paid booking." });
+  }
   if (parsed.data.status === "COMPLETED") {
     const inquiry = (await getInquiries()).find(item => item.id === String(req.params.id));
     if (!inquiry) return res.status(404).json({ error: "Inquiry not found." });
@@ -1114,7 +1123,10 @@ app.post("/api/admin/inquiries/:id/notes", admin, async (req, res) => {
   if (!item) return res.status(404).json({ error: "Inquiry not found." });
   res.json({ inquiry: item });
 });
-app.get("/api/admin/content", admin, async (_req, res) => res.json(await getAdminContent()));
+app.get("/api/admin/content", admin, async (_req, res) => {
+  const content = await getAdminContent();
+  res.json({ services: hasAccess(res.locals.user, "services") ? content.services : [], fleet: hasAccess(res.locals.user, "fleet") ? content.fleet : [], siteContent: hasAccess(res.locals.user, "content") ? content.siteContent : {}, companyProfile: await getCompanyProfile() });
+});
 app.get("/api/admin/company-profile", admin, async (_req, res) => res.json({ companyProfile: await getCompanyProfile() }));
 app.patch("/api/admin/company-profile", admin, async (req, res) => {
   const parsed = z.object({
@@ -1170,27 +1182,6 @@ app.post("/api/admin/content/fleet", admin, async (req, res) => {
 });
 app.delete("/api/admin/content/fleet/:id", admin, async (req, res) => {
   await deleteFleet(String(req.params.id)); res.status(204).end();
-});
-app.get("/api/admin/users", admin, superAdmin, async (_req, res) => res.json({ users: await listAdmins() }));
-app.post("/api/admin/users", admin, superAdmin, async (req, res) => {
-  const parsed = z.object({ email: z.string().trim().email().max(254).transform(value => value.toLowerCase()), name: z.string().trim().min(2).max(100), password: z.string().min(12).max(200), role: z.enum(["SUPER_ADMIN", "ADMIN"]) }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Use a valid email and a password of at least 12 characters." });
-  try {
-    res.status(201).json({ user: await createAdmin(parsed.data) });
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("already exists")) return res.status(409).json({ error: error.message });
-    if (typeof error === "object" && error && "code" in error && error.code === "P2002") return res.status(409).json({ error: "An administrator with this email already exists." });
-    throw error;
-  }
-});
-app.patch("/api/admin/users/:id", admin, superAdmin, async (req, res) => {
-  if (String(req.params.id) === res.locals.user.id && req.body.active === false) return res.status(400).json({ error: "You cannot disable your own account." });
-  const parsed = z.object({ active: z.boolean().optional(), role: z.enum(["SUPER_ADMIN", "ADMIN"]).optional() }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid administrator update." });
-  const updated = await updateAdmin(String(req.params.id), parsed.data);
-  if (!updated) return res.status(404).json({ error: "Administrator not found." });
-  if (updated === "LAST_SUPER_ADMIN") return res.status(409).json({ error: "At least one active super-admin is required." });
-  res.json({ user: updated });
 });
 app.get("/api/admin/export.csv", admin, async (_req, res) => {
   const headers = ["Name", "Email", "Phone", "Service", "Pickup date", "Pickup", "Destination", "Passengers", "Status", "Created"];

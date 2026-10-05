@@ -13,6 +13,7 @@ model AdminUser {
   name             String
   passwordHash     String
   role             String            @default("SUPER_ADMIN")
+  permissions      String[]          @default([])
   active           Boolean           @default(true)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -21,6 +22,7 @@ model AdminUser {
   notes            InquiryNote[]
   dispatchMessages DispatchMessage[]
   reconciledMessages DispatchMessage[] @relation("DispatchReconciler")
+  customerBookings Inquiry[]         @relation("CustomerBookings")
 }
 
 model AdminSession {
@@ -45,6 +47,8 @@ model AdminPasswordReset {
 
 model Inquiry {
   id            String              @id @default(cuid())
+  customerUserId String?
+  customerUser  AdminUser?           @relation("CustomerBookings", fields: [customerUserId], references: [id], onDelete: SetNull)
   fullName      String
   email         String
   phone         String
@@ -91,6 +95,7 @@ model Inquiry {
   @@index([status, createdAt])
   @@index([email])
   @@index([pickupAt])
+  @@index([customerUserId])
 }
 
 model StripeSetupSession {
@@ -119,10 +124,11 @@ model InquiryNote {
   id        String    @id @default(cuid())
   body      String
   inquiryId String
-  authorId  String
+  authorId  String?
+  authorName String?
   createdAt DateTime  @default(now())
   inquiry   Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
-  author    AdminUser @relation(fields: [authorId], references: [id])
+  author    AdminUser? @relation(fields: [authorId], references: [id], onDelete: SetNull)
 }
 
 model Service {
@@ -169,7 +175,8 @@ model Ride {
 model DispatchMessage {
   id                String    @id @default(cuid())
   rideId            String
-  adminId           String
+  adminId           String?
+  adminName         String?
   toPhone           String
   body              String
   status            String    @default("SENT")
@@ -179,9 +186,10 @@ model DispatchMessage {
   errorMessage      String?
   reconciledAt      DateTime?
   reconciledById    String?
+  reconciledByName  String?
   createdAt         DateTime  @default(now())
   ride              Ride      @relation(fields: [rideId], references: [id], onDelete: Cascade)
-  admin             AdminUser @relation(fields: [adminId], references: [id], onDelete: Restrict)
+  admin             AdminUser? @relation(fields: [adminId], references: [id], onDelete: SetNull)
   reconciledBy      AdminUser? @relation("DispatchReconciler", fields: [reconciledById], references: [id], onDelete: SetNull)
 
   @@index([rideId, createdAt])

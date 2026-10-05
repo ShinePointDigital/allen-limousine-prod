@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, CarFront, Check, Clock3, MapPin, Plane, ShieldCheck, UserRound } from "lucide-react";
 import { RATE_TIER_PRICING, type RateTier } from "../shared/pricing.js";
 import StripeCardSetup, { type SavedPayment } from "./StripeCardSetup.js";
@@ -7,6 +7,7 @@ import { readSavedPayment, rememberPwaTrip, saveSavedPayment } from "./pwa-state
 import LocationAutocomplete, { type QuickLocation } from "./LocationAutocomplete.js";
 import { bookingSuccessTransition, isPwaLaunch } from "./booking-success.js";
 import { isPwaPhone } from "./pwa-device.js";
+import { Link } from "react-router-dom";
 
 type Point = { latitude: number; longitude: number };
 type Fare = { fareCents: number; miles: number; minutes: number; eventVenue?: { name: string } | null; eventSurchargeCents?: number };
@@ -104,6 +105,10 @@ export default function BookingWizard() {
   const [airport, setAirport] = useState<{ code: AirportCode | null; terminal: string; flight: string; airline: string; originCode: string; destinationCode: string }>({ code: null, terminal: "", flight: "", airline: "", originCode: "", destinationCode: "" });
   const [flightLookup, setFlightLookup] = useState<FlightLookupState>({ status: "idle" });
   const [contact, setContact] = useState({ fullName: "", phone: "", email: "", passengers: "1", notes: "" });
+  const [customerIdentity, setCustomerIdentity] = useState<{ status: "checking" | "guest" | "signed-in" | "error"; user?: { id: string; name: string; email: string }; message?: string }>({ status: "checking" });
+  const [customerIdentityRetry, setCustomerIdentityRetry] = useState(0);
+  const appliedCustomerProfile = useRef<{ id: string; name: string; email: string } | null>(null);
+  const customerSessionRequestId = useRef(0);
   const [needsOnboarding, setNeedsOnboarding] = useState(() => launchedAsPwa() && !["rider_name", "rider_phone", "rider_email"].every(key => localStorage.getItem(key)?.trim()));
   const [hasRiderProfile, setHasRiderProfile] = useState(() => ["rider_name", "rider_phone", "rider_email"].every(key => localStorage.getItem(key)?.trim()));
   const [editingProfile, setEditingProfile] = useState(false);
@@ -142,6 +147,74 @@ export default function BookingWizard() {
     else setContact(current => ({ ...current, ...riderProfile }));
     if (!needsOnboarding) useCurrentLocation();
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const clearPersistedAccountProfile = (email: string) => {
+      try {
+        if (localStorage.getItem("rider_email") === email) {
+          localStorage.removeItem("rider_email");
+          localStorage.removeItem("rider_name");
+        }
+        const saved = localStorage.getItem("allan-booking-contact");
+        if (saved) {
+          const parsed = JSON.parse(saved) as { email?: string; fullName?: string };
+          if (parsed.email === email) {
+            parsed.email = "";
+            parsed.fullName = "";
+            localStorage.setItem("allan-booking-contact", JSON.stringify(parsed));
+          }
+        }
+        if (localStorage.getItem("allan_customer_profile_email") === email) localStorage.removeItem("allan_customer_profile_email");
+      } catch { /* Storage is optional in private browsing. */ }
+    };
+    const checkCustomerSession = async () => {
+      const requestId = ++customerSessionRequestId.current;
+      try {
+        const response = await fetch("/api/customer/session", { credentials: "include", headers: { "Content-Type": "application/json" } });
+        if (response.status === 401) throw Object.assign(new Error("Not signed in"), { status: 401 });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "Unable to verify your customer account.");
+        if (cancelled || requestId !== customerSessionRequestId.current) return;
+        const customer = result.user as { id: string; name: string; email: string };
+        const previous = appliedCustomerProfile.current;
+        let markedEmail = "";
+        try { markedEmail = localStorage.getItem("allan_customer_profile_email") || ""; } catch { /* Storage is optional. */ }
+        if (markedEmail && markedEmail !== customer.email) clearPersistedAccountProfile(markedEmail);
+        try { localStorage.setItem("allan_customer_profile_email", customer.email); } catch { /* Storage is optional. */ }
+        setContact(current => ({
+          ...current,
+          fullName: !previous || previous.id !== customer.id || current.fullName === previous.name ? customer.name : current.fullName,
+          email: customer.email,
+        }));
+        appliedCustomerProfile.current = customer;
+        setCustomerIdentity({ status: "signed-in", user: customer });
+      } catch (reason) {
+        if (cancelled || requestId !== customerSessionRequestId.current) return;
+        const previous = appliedCustomerProfile.current;
+        let markedEmail = "";
+        try { markedEmail = localStorage.getItem("allan_customer_profile_email") || ""; } catch { /* Storage is optional. */ }
+        if (markedEmail) clearPersistedAccountProfile(markedEmail);
+        if (previous && previous.email !== markedEmail) clearPersistedAccountProfile(previous.email);
+        setContact(current => ({
+          ...current,
+          fullName: previous && current.fullName === previous.name ? "" : markedEmail && current.email === markedEmail ? "" : current.fullName,
+          email: (previous && current.email === previous.email) || (markedEmail && current.email === markedEmail) ? "" : current.email,
+        }));
+        if (markedEmail) setHasRiderProfile(false);
+        appliedCustomerProfile.current = null;
+        const status = typeof reason === "object" && reason !== null && "status" in reason ? Number(reason.status) : 0;
+        setCustomerIdentity(status === 401
+          ? { status: "guest" }
+          : { status: "error", message: reason instanceof Error ? reason.message : "Unable to verify your customer account." });
+      }
+    };
+    void checkCustomerSession();
+    const onFocus = () => { void checkCustomerSession(); };
+    const onVisibility = () => { if (document.visibilityState === "visible") void checkCustomerSession(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { cancelled = true; window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVisibility); };
+  }, [customerIdentityRetry]);
   useEffect(() => {
     const updatePayment = () => setSavedPayment(readSavedPayment());
     window.addEventListener("allan-wallet-changed", updatePayment);
@@ -473,7 +546,7 @@ export default function BookingWizard() {
       setHasRiderProfile(true);
       useCurrentLocation();
     };
-    return <section className="pwa-onboarding"><div className="onboarding-card"><div className="onboarding-offer">$15 FIRST-RIDE CREDIT</div><p className="eyebrow brass">Welcome to Allan Limousine</p><h1>Set up once.<br /><em>Ride in one tap.</em></h1><p>Save your passenger profile and payment method for faster bookings and direct chauffeur updates.</p><div className="onboarding-fields"><label className="wizard-field">Full name<input autoFocus value={contact.fullName} onChange={event => setContact(current => ({ ...current, fullName: event.target.value }))} placeholder="Your name" /></label><label className="wizard-field">Phone number<input value={contact.phone} onChange={event => setContact(current => ({ ...current, phone: event.target.value }))} placeholder="+1 214…" /></label><label className="wizard-field">Email<input type="email" value={contact.email} onChange={event => setContact(current => ({ ...current, email: event.target.value }))} placeholder="you@example.com" /></label></div><StripeCardSetup fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} /><button className="solid-button" disabled={!contact.fullName || !contact.phone || !contact.email} onClick={saveProfile}>{savedPayment ? "Save profile & start booking" : "Continue — pay later"} <ArrowRight /></button><small>Card details are tokenized by Stripe. Allan Limousine never stores your card number.</small></div></section>;
+    return <section className="pwa-onboarding"><div className="onboarding-card"><div className="onboarding-offer">$15 FIRST-RIDE CREDIT</div><p className="eyebrow brass">Welcome to Allan Limousine</p><h1>Set up once.<br /><em>Ride in one tap.</em></h1><p>Save your passenger profile and payment method for faster bookings and direct chauffeur updates.</p>{customerIdentity.status === "signed-in" && customerIdentity.user ? <p className="wizard-customer-identity">Signed in as {customerIdentity.user.name} · <Link to="/account">My bookings</Link></p> : customerIdentity.status === "error" ? <p className="wizard-customer-error" role="alert">Customer account check failed: {customerIdentity.message} <button type="button" onClick={() => setCustomerIdentityRetry(value => value + 1)}>Retry</button></p> : customerIdentity.status === "guest" ? <p className="wizard-customer-identity">Have an account? <Link to="/account/login">Sign in</Link></p> : <p className="wizard-customer-checking">Checking customer account…</p>}<div className="onboarding-fields"><label className="wizard-field">Full name<input autoFocus value={contact.fullName} onChange={event => setContact(current => ({ ...current, fullName: event.target.value }))} placeholder="Your name" /></label><label className="wizard-field">Phone number<input value={contact.phone} onChange={event => setContact(current => ({ ...current, phone: event.target.value }))} placeholder="+1 214…" /></label><label className="wizard-field">Email<input type="email" readOnly={customerIdentity.status === "signed-in"} value={contact.email} onChange={event => setContact(current => ({ ...current, email: event.target.value }))} placeholder="you@example.com" /></label></div><StripeCardSetup fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} /><button className="solid-button" disabled={!contact.fullName || !contact.phone || !contact.email} onClick={saveProfile}>{savedPayment ? "Save profile & start booking" : "Continue — pay later"} <ArrowRight /></button><small>Card details are tokenized by Stripe. Allan Limousine never stores your card number.</small></div></section>;
   }
 
   if (trackingLinkState === "loading") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><p className="eyebrow brass">Secure reservation link</p><h2>Loading your<br /><em>ride updates.</em></h2><p>We’re retrieving the latest details for your reservation.</p></div></section>;
@@ -492,6 +565,7 @@ export default function BookingWizard() {
   return <section id="reserve" className="booking-wizard-section section-pad">
     <div className="wizard-shell">
        <header className="wizard-header"><div><p className="eyebrow brass">{isPrivateFBO ? "Private aviation coordination" : "Book your chauffeur"}</p><h2>{["Where are you going?", "Choose your vehicle", "Schedule your ride", "Review & payment"][step - 1]}</h2></div><span>0{step} / 04</span></header>
+       <div className="wizard-account-reminder">{customerIdentity.status === "signed-in" && customerIdentity.user ? <>Signed in as <b>{customerIdentity.user.name}</b><Link to="/account">My bookings <ArrowRight /></Link></> : customerIdentity.status === "error" ? <>Account check failed: {customerIdentity.message}<button type="button" onClick={() => setCustomerIdentityRetry(value => value + 1)}>Retry</button></> : customerIdentity.status === "checking" ? "Checking customer account…" : <>Already have a booking account? <Link to="/account/login">Sign in to view reservations <ArrowRight /></Link></>}</div>
       <nav className="wizard-progress" aria-label="Booking progress">{[1, 2, 3, 4].map(number => <i key={number} className={number <= step ? "active" : ""} />)}</nav>
       <main className="wizard-body">
         {step === 1 && <div className="wizard-step">
@@ -510,7 +584,7 @@ export default function BookingWizard() {
           {timing === "RESERVE_LATER" && <label className="wizard-field">Pickup date &amp; time<input type="datetime-local" required min={localDateTime()} value={pickupAt} onChange={event => setPickupAt(event.target.value)} /></label>}
           {!withinAuthorizationWindow && <p className="form-error">Card authorization holds can be placed up to six days before pickup. Choose an earlier pickup time to continue.</p>}
            {!isPrivateFBO && <div className="wizard-toggle"><button className={serviceType === "Point-to-Point" ? "active" : ""} onClick={() => setServiceType("Point-to-Point")}>Point-to-Point</button><button className={serviceType === "Hourly Charter" ? "active" : ""} onClick={() => setServiceType("Hourly Charter")}>Hourly Charter</button></div>}
-          {hasRiderProfile && !editingProfile ? <div className="wizard-profile-summary"><UserRound /><div><small>Rider profile</small><b>{contact.fullName}</b><span>{contact.phone} · {contact.email}</span></div><button type="button" onClick={() => setEditingProfile(true)}>Edit</button><Check /></div> : <><div className="wizard-contact-grid"><label className="wizard-field">Full name<input required value={contact.fullName} onChange={event => setContact(current => ({ ...current, fullName: event.target.value }))} placeholder="Your name" /></label><label className="wizard-field">Phone<input required value={contact.phone} onChange={event => setContact(current => ({ ...current, phone: event.target.value }))} placeholder="+1 312…" /></label><label className="wizard-field">Email<input required type="email" value={contact.email} onChange={event => setContact(current => ({ ...current, email: event.target.value }))} placeholder="you@example.com" /></label></div>{!profileValid && <small className="wizard-profile-help">Enter a valid name, phone number, and email to enable one-tap booking.</small>}</>}
+          {hasRiderProfile && !editingProfile ? <div className="wizard-profile-summary"><UserRound /><div><small>Rider profile</small><b>{contact.fullName}</b><span>{contact.phone} · {contact.email}</span></div><button type="button" onClick={() => setEditingProfile(true)}>Edit</button><Check /></div> : <><div className="wizard-contact-grid"><label className="wizard-field">Full name<input required value={contact.fullName} onChange={event => setContact(current => ({ ...current, fullName: event.target.value }))} placeholder="Your name" /></label><label className="wizard-field">Phone<input required value={contact.phone} onChange={event => setContact(current => ({ ...current, phone: event.target.value }))} placeholder="+1 312…" /></label><label className="wizard-field">Email<input required type="email" readOnly={customerIdentity.status === "signed-in"} value={contact.email} onChange={event => setContact(current => ({ ...current, email: event.target.value }))} placeholder="you@example.com" /></label></div>{!profileValid && <small className="wizard-profile-help">Enter a valid name, phone number, and email to enable one-tap booking.</small>}</>}
           <div className="wizard-trip-options"><label className="wizard-field">Passengers<select value={contact.passengers} onChange={event => setContact(current => ({ ...current, passengers: event.target.value }))}>{Array.from({ length: selectedVehicle.capacity }, (_, index) => index + 1).map(number => <option key={number}>{number}</option>)}</select></label><label className="wizard-field">Notes<textarea value={contact.notes} onChange={event => setContact(current => ({ ...current, notes: event.target.value }))} placeholder="Luggage, accessibility, or itinerary notes…" /></label></div>
           {error && <p className="form-error">{error}</p>}
           <div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(2)}><ArrowLeft /> Back</button><button className="solid-button" disabled={!canBook} onClick={next}>Continue to payment <ArrowRight /></button></div>

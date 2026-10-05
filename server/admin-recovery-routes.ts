@@ -15,7 +15,7 @@ export function createAdminRecoveryRouter(options: {
   complete?: typeof completeAdminPasswordReset;
   send?: typeof sendAdminResetEmail;
   assertConfigured?: () => void;
-  users?: typeof listAdmins;
+  users?: () => Promise<Array<{ id: string; email: string; active: boolean }>>;
 }) {
   const router = express.Router();
   const issue = options.issue || issueAdminPasswordReset;

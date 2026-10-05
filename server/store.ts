@@ -2,11 +2,13 @@ import "dotenv/config";
 import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
+import { ALL_PERMISSIONS, canCreateAccount, canEditAccount, effectivePermissions, isStaff, type AccountAccess, type Permission, type Role } from "../shared/access.js";
 
 export type InquiryStatus = "PAYMENT_PENDING" | "NEW" | "CONTACTED" | "CONFIRMED" | "COMPLETED" | "CANCELLED";
 export type RideStatus = "UNASSIGNED" | "ASSIGNED" | "EN_ROUTE" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
 export type Inquiry = {
   id: string; fullName: string; email: string; phone: string; serviceType: string;
+  customerUserId?: string | null;
   pickupAt: string; pickup: string; destination: string; passengers: number;
   notes?: string; airportCode?: string | null; airportTerminal?: string | null;
   flightNumber?: string | null; flightScheduledAt?: string | null; pickupPreference?: string | null;
@@ -105,7 +107,7 @@ const notifications: AdminNotification[] = [{
 }];
 
 const fallbackPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD || crypto.randomBytes(48).toString("hex");
-type DemoAdmin = { id: string; email: string; name: string; passwordHash: string; role: string; active: boolean; createdAt: Date };
+type DemoAdmin = { id: string; email: string; name: string; passwordHash: string; role: string; permissions?: string[]; active: boolean; createdAt: Date };
 const fallbackAdmin: DemoAdmin = { id: "admin-001", email: process.env.ADMIN_EMAIL || "admin@allanlimousine.com", name: "Avery Reed", passwordHash: bcrypt.hashSync(fallbackPassword, 10), role: "SUPER_ADMIN", active: true, createdAt: new Date() };
 const demoAdmins: DemoAdmin[] = [fallbackAdmin];
 const sessions = new Map<string, { id: string; userId: string; expiresAt: number; createdAt: number }>();
@@ -170,7 +172,7 @@ export async function updateCompanyProfile(values: CompanyProfile): Promise<Comp
   })));
   return { ...values };
 }
-const mapInquiry = (item: any): Inquiry => ({ ...item, pickupAt: item.pickupAt.toISOString(), flightScheduledAt: item.flightScheduledAt?.toISOString() || null, trackingExpiresAt: item.trackingExpiresAt?.toISOString() || null, createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(), history: (item.inquiryNotes || []).map((note: any) => ({ body: note.body, author: note.author.name, createdAt: note.createdAt.toISOString() })) });
+const mapInquiry = (item: any): Inquiry => ({ ...item, pickupAt: item.pickupAt.toISOString(), flightScheduledAt: item.flightScheduledAt?.toISOString() || null, trackingExpiresAt: item.trackingExpiresAt?.toISOString() || null, createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(), history: (item.inquiryNotes || []).map((note: any) => ({ body: note.body, author: note.author?.name || note.authorName || "Deleted staff", createdAt: note.createdAt.toISOString() })) });
 export async function getInquiries() {
   if (!databaseConfigured) return inquiries.filter(item => item.status !== "PAYMENT_PENDING").sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
   return (await prisma.inquiry.findMany({ where: { status: { not: "PAYMENT_PENDING" } }, include: { inquiryNotes: { include: { author: true }, orderBy: { createdAt: "asc" } } }, orderBy: { createdAt: "desc" } })).map(mapInquiry);
@@ -398,16 +400,16 @@ export async function addInquiryNote(id: string, body: string, authorId: string)
   return item;
 }
 const tokenHash = (token: string) => crypto.createHmac("sha256", process.env.SESSION_SECRET || "development-only-session-secret").update(token).digest("hex");
-export async function authenticate(email: string, password: string) {
+export async function authenticate(email: string, password: string, audience: "staff" | "customer" = "staff") {
   if (production && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) return null;
   if (!databaseConfigured && (!demoAdminEnabled || !process.env.ADMIN_BOOTSTRAP_PASSWORD)) return null;
   const admin = databaseConfigured ? await prisma.adminUser.findUnique({ where: { email } }) : demoAdmins.find(item => item.email === email);
-  if (!admin || admin.email !== email || !admin.active || !(await bcrypt.compare(password, admin.passwordHash))) return null;
+  if (!admin || admin.email !== email || !admin.active || (audience === "staff" ? !isStaff(admin.role) : admin.role !== "USER") || !(await bcrypt.compare(password, admin.passwordHash))) return null;
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 12);
   if (databaseConfigured) await prisma.adminSession.create({ data: { tokenHash: tokenHash(token), userId: admin.id, expiresAt } });
   else sessions.set(tokenHash(token), { id: crypto.randomUUID(), userId: admin.id, expiresAt: expiresAt.getTime(), createdAt: Date.now() });
-  return { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role } };
+  return { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, permissions: effectivePermissions(admin) } };
 }
 export async function sessionUser(token?: string) {
   if (production && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) return null;
@@ -416,13 +418,13 @@ export async function sessionUser(token?: string) {
   if (databaseConfigured) {
     const session = await prisma.adminSession.findUnique({ where: { tokenHash: hash }, include: { user: true } });
     if (!session || session.expiresAt < new Date() || !session.user.active) return null;
-    return { id: session.user.id, name: session.user.name, email: session.user.email, role: session.user.role };
+    return { id: session.user.id, name: session.user.name, email: session.user.email, role: session.user.role, permissions: effectivePermissions(session.user) };
   }
   const session = sessions.get(hash);
   if (!session || session.expiresAt < Date.now()) { sessions.delete(hash); return null; }
   const user = demoAdmins.find(item => item.id === session.userId && item.active);
   if (!user) { sessions.delete(hash); return null; }
-  return { id: user.id, name: user.name, email: user.email, role: user.role };
+  return { id: user.id, name: user.name, email: user.email, role: user.role, permissions: effectivePermissions(user) };
 }
 export async function logout(token?: string) {
   if (!token) return;
@@ -553,9 +555,9 @@ const mapRide = (item: any): Ride => ({
     deliveryStatus: message.deliveryStatus || null,
     errorMessage: message.errorMessage || null,
     createdAt: message.createdAt instanceof Date ? message.createdAt.toISOString() : message.createdAt,
-    adminName: message.admin?.name,
+    adminName: message.admin?.name || message.adminName || "Deleted staff",
     reconciledAt: message.reconciledAt instanceof Date ? message.reconciledAt.toISOString() : message.reconciledAt || null,
-    reconciledByName: message.reconciledBy?.name || null,
+    reconciledByName: message.reconciledBy?.name || message.reconciledByName || null,
   })),
 });
 const hydrateMemoryRide = (ride: Ride) => {
@@ -779,9 +781,9 @@ function mapDispatchMessage(message: any): DispatchActivity {
     deliveryStatus: message.deliveryStatus || null,
     errorMessage: message.errorMessage || null,
     createdAt: message.createdAt instanceof Date ? message.createdAt.toISOString() : message.createdAt,
-    adminName: message.admin?.name,
+    adminName: message.admin?.name || message.adminName || "Deleted staff",
     reconciledAt: message.reconciledAt instanceof Date ? message.reconciledAt.toISOString() : message.reconciledAt || null,
-    reconciledByName: message.reconciledBy?.name || null,
+    reconciledByName: message.reconciledBy?.name || message.reconciledByName || null,
   };
 }
 export async function finishDispatchAttempt(id: string, data: { status: "SENT" | "FAILED"; providerMessageId?: string | null; providerStatus?: string | null; deliveryStatus?: string | null; errorMessage?: string | null }) {
@@ -856,37 +858,144 @@ export async function deleteFleet(id: string) {
   const index = fleet.findIndex(item => item.id === id); if (index < 0) return null; return fleet.splice(index, 1)[0];
 }
 export async function listAdmins() {
-  if (!databaseConfigured) return demoAdmins.map(({ id, email, name, role, active, createdAt }) => ({ id, email, name, role, active, createdAt: createdAt.toISOString() }));
-  return prisma.adminUser.findMany({ select: { id: true, email: true, name: true, role: true, active: true, createdAt: true }, orderBy: { createdAt: "asc" } });
+  if (!databaseConfigured) return demoAdmins.map(user => ({ id: user.id, email: user.email, name: user.name, role: user.role, permissions: effectivePermissions(user), active: user.active, createdAt: user.createdAt.toISOString() }));
+  const users = await prisma.adminUser.findMany({ select: { id: true, email: true, name: true, role: true, permissions: true, active: true, createdAt: true }, orderBy: { createdAt: "asc" } });
+  return users.map(user => ({ ...user, permissions: effectivePermissions(user) }));
 }
-export async function createAdmin(data: { email: string; name: string; password: string; role: string }) {
+export async function createAdmin(data: { email: string; name: string; password: string; role: string; permissions?: Permission[] }, actor?: AccountAccess) {
   const passwordHash = await bcrypt.hash(data.password, 12);
+  const permissions = data.role === "ADMIN" ? data.permissions ?? [...ALL_PERMISSIONS] : [];
   if (!databaseConfigured) {
+    const currentActor = actor ? demoAdmins.find(item => item.id === actor.id) : undefined;
+    if (actor && (!currentActor?.active || !canCreateAccount(currentActor, data.role as Role, permissions))) throw new Error("FORBIDDEN_ACCOUNT_CREATE");
     if (demoAdmins.some(item => item.email === data.email)) throw new Error("An administrator with this email already exists.");
-    const user: DemoAdmin = { id: `admin-${crypto.randomUUID().slice(0, 12)}`, email: data.email, name: data.name, passwordHash, role: data.role, active: true, createdAt: new Date() };
+    const user: DemoAdmin = { id: `admin-${crypto.randomUUID().slice(0, 12)}`, email: data.email, name: data.name, passwordHash, role: data.role, permissions, active: true, createdAt: new Date() };
     demoAdmins.push(user);
     const { passwordHash: _passwordHash, ...safeUser } = user;
-    return { ...safeUser };
+    return { ...safeUser, permissions: effectivePermissions(user) };
   }
-  return prisma.adminUser.create({ data: { email: data.email, name: data.name, passwordHash, role: data.role }, select: { id: true, email: true, name: true, role: true, active: true, createdAt: true } });
+  const user = await prisma.$transaction(async tx => {
+    const currentActor = actor ? await tx.adminUser.findUnique({ where: { id: actor.id } }) : null;
+    if (actor && (!currentActor?.active || !canCreateAccount(currentActor, data.role as Role, permissions))) throw new Error("FORBIDDEN_ACCOUNT_CREATE");
+    return tx.adminUser.create({ data: { email: data.email, name: data.name, passwordHash, role: data.role, permissions }, select: { id: true, email: true, name: true, role: true, permissions: true, active: true, createdAt: true } });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  return { ...user, permissions: effectivePermissions(user) };
 }
-export async function updateAdmin(id: string, data: { active?: boolean; role?: string }) {
+export async function updateAdmin(id: string, data: { name?: string; active?: boolean; role?: string; permissions?: Permission[] }, actor?: AccountAccess) {
   if (!databaseConfigured) {
     const target = demoAdmins.find(item => item.id === id);
     if (!target) return null;
+    const currentActor = actor ? demoAdmins.find(item => item.id === actor.id) : undefined;
+    if (actor && (!currentActor?.active || !canEditAccount(currentActor, target))) return "FORBIDDEN" as const;
     const removesSuperAccess = target.role === "SUPER_ADMIN" && target.active && (data.active === false || (data.role && data.role !== "SUPER_ADMIN"));
     if (removesSuperAccess && demoAdmins.filter(item => item.role === "SUPER_ADMIN" && item.active).length <= 1) return "LAST_SUPER_ADMIN" as const;
     Object.assign(target, data);
+    if (target.role !== "ADMIN") target.permissions = [];
+    if (data.role === "ADMIN" && data.permissions === undefined) target.permissions = [...ALL_PERMISSIONS];
+    if (data.active !== undefined || data.role !== undefined || data.permissions !== undefined) await revokeOtherAdminSessions(id);
     const { passwordHash: _passwordHash, ...safeUser } = target;
-    return { ...safeUser };
+    return { ...safeUser, permissions: effectivePermissions(target) };
   }
   return prisma.$transaction(async tx => {
     const target = await tx.adminUser.findUnique({ where: { id } });
     if (!target) return null;
+    const currentActor = actor ? await tx.adminUser.findUnique({ where: { id: actor.id } }) : null;
+    if (actor && (!currentActor?.active || !canEditAccount(currentActor, target))) return "FORBIDDEN" as const;
     const removesSuperAccess = target.role === "SUPER_ADMIN" && target.active && (data.active === false || (data.role && data.role !== "SUPER_ADMIN"));
     if (removesSuperAccess && await tx.adminUser.count({ where: { role: "SUPER_ADMIN", active: true } }) <= 1) return "LAST_SUPER_ADMIN" as const;
-    return tx.adminUser.update({ where: { id }, data, select: { id: true, email: true, name: true, role: true, active: true, createdAt: true } });
+    const role = data.role ?? target.role;
+    const patch = { ...data, ...(role !== "ADMIN" ? { permissions: [] } : data.role === "ADMIN" && !data.permissions ? { permissions: [...ALL_PERMISSIONS] } : {}) };
+    const user = await tx.adminUser.update({ where: { id }, data: patch, select: { id: true, email: true, name: true, role: true, permissions: true, active: true, createdAt: true } });
+    if (data.active !== undefined || data.role !== undefined || data.permissions !== undefined) await tx.adminSession.deleteMany({ where: { userId: id } });
+    return { ...user, permissions: effectivePermissions(user) };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+export async function setStaffPassword(id: string, password: string, actor: AccountAccess) {
+  const passwordHash = await bcrypt.hash(password, 12);
+  if (!databaseConfigured) {
+    const currentActor = demoAdmins.find(user => user.id === actor.id);
+    if (!currentActor?.active || currentActor.role !== "SUPER_ADMIN") return "FORBIDDEN" as const;
+    const target = demoAdmins.find(user => user.id === id);
+    if (!target) return "NOT_FOUND" as const;
+    if (!isStaff(target.role)) return "NOT_STAFF" as const;
+    target.passwordHash = passwordHash;
+    await revokeOtherAdminSessions(id);
+    return "UPDATED" as const;
+  }
+  return prisma.$transaction(async tx => {
+    const currentActor = await tx.adminUser.findUnique({ where: { id: actor.id } });
+    if (!currentActor?.active || currentActor.role !== "SUPER_ADMIN") return "FORBIDDEN" as const;
+    const target = await tx.adminUser.findUnique({ where: { id } });
+    if (!target) return "NOT_FOUND" as const;
+    if (!isStaff(target.role)) return "NOT_STAFF" as const;
+    await tx.adminUser.update({ where: { id }, data: { passwordHash } });
+    await tx.adminPasswordReset.deleteMany({ where: { userId: id } });
+    await tx.adminSession.deleteMany({ where: { userId: id } });
+    return "UPDATED" as const;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+export async function deleteStaffAccount(id: string, actor: AccountAccess) {
+  if (!databaseConfigured) {
+    const currentActor = demoAdmins.find(user => user.id === actor.id);
+    if (!currentActor?.active || currentActor.role !== "SUPER_ADMIN") return "FORBIDDEN" as const;
+    const target = demoAdmins.find(user => user.id === id);
+    if (!target) return "NOT_FOUND" as const;
+    if (!isStaff(target.role)) return "NOT_STAFF" as const;
+    if (target.active && target.role === "SUPER_ADMIN" && demoAdmins.filter(user => user.active && user.role === "SUPER_ADMIN").length <= 1) return "LAST_SUPER_ADMIN" as const;
+    if (actor.id === id) return "SELF_DELETE" as const;
+    await revokeOtherAdminSessions(id);
+    demoAdmins.splice(demoAdmins.indexOf(target), 1);
+    return "DELETED" as const;
+  }
+  return prisma.$transaction(async tx => {
+    const currentActor = await tx.adminUser.findUnique({ where: { id: actor.id } });
+    if (!currentActor?.active || currentActor.role !== "SUPER_ADMIN") return "FORBIDDEN" as const;
+    const target = await tx.adminUser.findUnique({ where: { id } });
+    if (!target) return "NOT_FOUND" as const;
+    if (!isStaff(target.role)) return "NOT_STAFF" as const;
+    if (target.active && target.role === "SUPER_ADMIN" && await tx.adminUser.count({ where: { role: "SUPER_ADMIN", active: true } }) <= 1) return "LAST_SUPER_ADMIN" as const;
+    if (actor.id === id) return "SELF_DELETE" as const;
+    // Snapshot the actual historical staff name before SET NULL removes links.
+    await tx.inquiryNote.updateMany({ where: { authorId: id }, data: { authorName: target.name } });
+    await tx.dispatchMessage.updateMany({ where: { adminId: id }, data: { adminName: target.name } });
+    await tx.dispatchMessage.updateMany({ where: { reconciledById: id }, data: { reconciledByName: target.name } });
+    // Sessions and reset tokens cascade; bookings, notes and dispatches remain.
+    await tx.adminUser.delete({ where: { id } });
+    return "DELETED" as const;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+export async function getCustomerBookings(customerUserId: string) {
+  const select = { id: true, serviceType: true, pickupAt: true, pickup: true, destination: true, passengers: true, status: true, estimatedFareCents: true, paymentStatus: true, createdAt: true, ride: { select: { status: true } } } as const;
+  const records = databaseConfigured
+    ? await prisma.inquiry.findMany({ where: { customerUserId, status: { not: "PAYMENT_PENDING" } }, select, orderBy: { createdAt: "desc" } })
+    : inquiries.filter(item => item.customerUserId === customerUserId && item.status !== "PAYMENT_PENDING").map(item => ({ ...item, ride: rides.find(ride => ride.inquiryId === item.id) }));
+  return records.map(item => ({
+    id: item.id, reference: item.id.slice(-6).toUpperCase(), serviceType: item.serviceType,
+    pickupAt: item.pickupAt, pickup: item.pickup, destination: item.destination, passengers: item.passengers,
+    status: item.ride?.status || item.status, fareCents: item.estimatedFareCents ?? null,
+    paymentStatus: item.paymentStatus ?? null, createdAt: item.createdAt,
+  }));
+}
+
+export async function changeCustomerPassword(id: string, currentPassword: string, password: string) {
+  const user = databaseConfigured ? await prisma.adminUser.findUnique({ where: { id } }) : demoAdmins.find(item => item.id === id);
+  if (!user || !user.active || user.role !== "USER" || !await bcrypt.compare(currentPassword, user.passwordHash)) return false;
+  const originalHash = user.passwordHash;
+  const passwordHash = await bcrypt.hash(password, 12);
+  if (databaseConfigured) return prisma.$transaction(async tx => {
+    const changed = await tx.adminUser.updateMany({ where: { id, role: "USER", active: true, passwordHash: originalHash }, data: { passwordHash } });
+    if (!changed.count) return false;
+    await tx.adminSession.deleteMany({ where: { userId: id } });
+    return true;
+  });
+  const target = demoAdmins.find(item => item.id === id)!;
+  if (target.passwordHash !== originalHash || !target.active || target.role !== "USER") return false;
+  target.passwordHash = passwordHash;
+  await revokeOtherAdminSessions(id);
+  return true;
 }
 
 export async function updateDispatchProviderStatus(id: string, data: { providerMessageId?: string | null; providerStatus?: string | null; deliveryStatus?: string | null }) {
