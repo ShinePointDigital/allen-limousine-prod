@@ -17,6 +17,7 @@ model AdminUser {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   sessions         AdminSession[]
+  passwordReset    AdminPasswordReset?
   notes            InquiryNote[]
   dispatchMessages DispatchMessage[]
   reconciledMessages DispatchMessage[] @relation("DispatchReconciler")
@@ -29,6 +30,17 @@ model AdminSession {
   expiresAt DateTime
   createdAt DateTime  @default(now())
   user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AdminPasswordReset {
+  id        String    @id @default(cuid())
+  userId    String    @unique
+  tokenHash String    @unique
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }
 
 model Inquiry {

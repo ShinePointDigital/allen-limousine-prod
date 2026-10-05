@@ -14,6 +14,7 @@
     "test:pwa-routing": "tsx --test src/pwa-device.test.ts",
     "test:booking-flow": "tsx --test src/booking-success.test.ts",
     "test:admin": "tsx --test server/admin-workspace.test.ts",
+    "test:admin-recovery": "tsx --test server/admin-recovery.test.ts",
     "test:twilio": "tsx --test server/twilio.test.ts",
     "typecheck": "tsc --noEmit"
   },

@@ -11,6 +11,7 @@ import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, cr
 import { classifyTwilioMessageStatus, findDriverDispatchSms, getDriverDispatchSms, sendSms, sendDriverDispatchSms, twilioPhonesEqual, TwilioRequestError } from "./twilio.js";
 import { estimateFare, reverseGeocode, searchLocations } from "./fare-estimate.js";
 import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "./stripe-client.js";
+import { createAdminRecoveryRouter } from "./admin-recovery-routes.js";
 
 export const app = express();
 const port = Number(process.env.PORT) || 5000;
@@ -870,6 +871,7 @@ app.post("/api/admin/login", async (req, res) => {
   res.json({ user: result.user });
 });
 app.get("/api/admin/session", admin, (_req, res) => res.json({ user: res.locals.user }));
+app.use(createAdminRecoveryRouter({ admin, superAdmin, origin: publicOrigin }));
 app.post("/api/admin/logout", (req, res) => { logout(req.cookies.allan_session); res.clearCookie("allan_session"); res.status(204).end(); });
 app.get("/api/admin/sessions", admin, async (req, res) => {
   res.json({ sessions: await listAdminSessions(res.locals.user.id, req.cookies.allan_session) });

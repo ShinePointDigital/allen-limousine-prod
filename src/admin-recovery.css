@@ -1,0 +1,8 @@
+.login-recovery-link{display:inline-block;color:var(--brass);font-size:12px;text-decoration:underline;text-underline-offset:4px}
+.login-recovery-link:focus-visible,.recovery-success a:focus-visible,.recovery-success button:focus-visible{outline:2px solid var(--brass);outline-offset:5px}
+.recovery-success{padding:18px;border:1px solid rgba(201,165,106,.4);color:var(--bone-dim);font-size:14px;line-height:1.65}
+.recovery-success p{margin:0 0 16px}.recovery-success .text-button{display:flex;margin-top:14px}
+.admin-access-actions{display:flex;flex-direction:column;align-items:flex-start;gap:12px}
+.admin-reset-link{color:#6e5737;font-size:11px;text-decoration:underline;text-underline-offset:3px}
+.admin-reset-link:disabled{opacity:.5;cursor:not-allowed}.admin-reset-link:focus-visible{outline:2px solid var(--brass);outline-offset:4px}
+.admin-recovery-message{margin:16px 0;padding:14px;border:1px solid #b3c6ab;background:#edf3e9;color:#35452f;font-size:13px;line-height:1.5}

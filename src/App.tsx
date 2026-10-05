@@ -14,6 +14,8 @@ import { PWABottomNav } from "./PWANavigation";
 import PWAInstallGate from "./PWAInstallGate";
 import heroCadillac from "./assets/hero-cadillac-downtown-night.jpg";
 import { isPwaPhone } from "./pwa-device.js";
+import AdminPasswordRecovery from "./AdminPasswordRecovery";
+import "./admin-recovery.css";
 
 type Service = { id: string; slug: string; title: string; eyebrow: string; description: string; imageUrl: string; active: boolean };
 type Vehicle = { id: string; name: string; category: string; description: string; imageUrl: string; passengers: string; luggage: string; defaultDriverName: string | null; defaultDriverPhone: string | null; active: boolean };
@@ -373,7 +375,7 @@ function Reservation({ services, companyProfile }: { services: Service[]; compan
 function AdminLogin() {
   const navigate = useNavigate(); const [email, setEmail] = useState("admin@allanlimousine.com"); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   const submit = async (e: React.FormEvent) => { e.preventDefault(); setBusy(true); setError(""); try { await api("/api/admin/login", { method: "POST", body: JSON.stringify({ email, password }) }); navigate("/admin"); } catch (err) { setError(err instanceof Error ? err.message : "Unable to sign in."); } finally { setBusy(false); } };
-  return <div className="login-page"><div className="login-image" /><div className="login-panel"><Mark /><div className="login-form"><p className="eyebrow brass">Private access</p><h1>Welcome<br /><em>back.</em></h1><p className="muted">Sign in to manage your Allan Limousine operations.</p><form onSubmit={submit}><label>Email address<input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label><label>Password<input type="password" autoComplete="current-password" required minLength={8} value={password} onChange={e => setPassword(e.target.value)} /></label>{error && <p className="form-error">{error}</p>}<button className="solid-button submit-button" disabled={busy}>{busy ? "Signing in..." : <>Sign in <ArrowUpRight /></>}</button></form><p className="login-note">Authorized personnel only · <Link to="/">Return to site</Link></p></div></div></div>;
+  return <div className="login-page"><div className="login-image" /><div className="login-panel"><Mark /><div className="login-form"><p className="eyebrow brass">Private access</p><h1>Welcome<br /><em>back.</em></h1><p className="muted">Sign in to manage your Allan Limousine operations.</p><form onSubmit={submit}><label>Email address<input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label><label>Password<input type="password" autoComplete="current-password" required minLength={8} value={password} onChange={e => setPassword(e.target.value)} /></label><Link className="login-recovery-link" to="/admin/forgot-password">Forgot password?</Link>{error && <p className="form-error">{error}</p>}<button className="solid-button submit-button" disabled={busy}>{busy ? "Signing in..." : <>Sign in <ArrowUpRight /></>}</button></form><p className="login-note">Authorized personnel only · <Link to="/">Return to site</Link></p></div></div></div>;
 }
 
 function AdminShell() {
@@ -852,6 +854,8 @@ function AdminUsers({ currentUserId }: { currentUserId: string }) {
   const [users, setUsers] = useState<{ id: string; name: string; email: string; role: string; active: boolean; createdAt: string }[]>([]);
   const [error, setError] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  const [resettingId, setResettingId] = useState<string | null>(null);
+  const [resetMessage, setResetMessage] = useState("");
   const load = () => api("/api/admin/users").then(data => setUsers(data.users)).catch((reason: Error) => setError(reason.message));
   useEffect(() => { load(); }, []);
   const updateUser = async (user: typeof users[number], changes: { active?: boolean; role?: string }) => {
@@ -859,7 +863,14 @@ function AdminUsers({ currentUserId }: { currentUserId: string }) {
     try { await api(`/api/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify(changes) }); await load(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to update this administrator."); }
   };
-  return <div className="admin-page"><AdminHeader eyebrow="Security / team access" title="Admin users"><button className="outline-button dark small" onClick={() => setAddOpen(true)}><Plus /> Add administrator</button></AdminHeader>{error && <p className="form-error" role="alert">{error}</p>}<section className="panel user-list"><div className="user-list-head"><span>Administrator</span><span>Role</span><span>Added</span><span>Status</span></div>{users.map(user => <div className="user-list-row" key={user.id}><div className="inquiry-person"><span className="person-initials">{user.name.split(" ").map(v => v[0]).join("").slice(0, 2)}</span><div><b>{user.name}{user.id === currentUserId ? " (you)" : ""}</b><small>{user.email}</small></div></div><select aria-label={`Role for ${user.name}`} value={user.role} onChange={e => updateUser(user, { role: e.target.value })}><option value="ADMIN">Admin</option><option value="SUPER_ADMIN">Super admin</option></select><span>{formatDate(user.createdAt)}</span><button type="button" disabled={user.id === currentUserId} aria-label={user.id === currentUserId ? "Your account cannot be disabled here" : `${user.active ? "Disable" : "Enable"} ${user.name}`} className={user.active ? "active-label user-status" : "inactive-label user-status"} onClick={() => updateUser(user, { active: !user.active })}><i />{user.active ? "Active" : "Disabled"}</button></div>)}</section>{addOpen && <AdminCreateModal close={() => setAddOpen(false)} created={() => { setAddOpen(false); load(); }} />}</div>;
+  const sendReset = async (user: typeof users[number]) => {
+    if (!window.confirm(`Email a password-reset link to ${user.email}? Their password and sessions stay unchanged until they complete the reset.`)) return;
+    setResettingId(user.id); setError(""); setResetMessage("");
+    try { const result = await api(`/api/admin/users/${user.id}/password-reset`, { method: "POST" }); setResetMessage(result.message); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to send a reset link."); }
+    finally { setResettingId(null); }
+  };
+  return <div className="admin-page"><AdminHeader eyebrow="Security / team access" title="Admin users"><button className="outline-button dark small" onClick={() => setAddOpen(true)}><Plus /> Add administrator</button></AdminHeader>{error && <p className="form-error" role="alert">{error}</p>}{resetMessage && <p className="admin-recovery-message" role="status">{resetMessage}</p>}<section className="panel user-list"><div className="user-list-head"><span>Administrator</span><span>Role</span><span>Added</span><span>Access</span></div>{users.map(user => <div className="user-list-row" key={user.id}><div className="inquiry-person"><span className="person-initials">{user.name.split(" ").map(v => v[0]).join("").slice(0, 2)}</span><div><b>{user.name}{user.id === currentUserId ? " (you)" : ""}</b><small>{user.email}</small></div></div><select aria-label={`Role for ${user.name}`} value={user.role} onChange={e => updateUser(user, { role: e.target.value })}><option value="ADMIN">Admin</option><option value="SUPER_ADMIN">Super admin</option></select><span>{formatDate(user.createdAt)}</span><div className="admin-access-actions"><button type="button" disabled={user.id === currentUserId} aria-label={user.id === currentUserId ? "Your account cannot be disabled here" : `${user.active ? "Disable" : "Enable"} ${user.name}`} className={user.active ? "active-label user-status" : "inactive-label user-status"} onClick={() => updateUser(user, { active: !user.active })}><i />{user.active ? "Active" : "Disabled"}</button><button type="button" className="admin-reset-link" disabled={!user.active || resettingId !== null} onClick={() => sendReset(user)}>{resettingId === user.id ? "Sending…" : "Send reset link"}</button></div></div>)}</section>{addOpen && <AdminCreateModal close={() => setAddOpen(false)} created={() => { setAddOpen(false); load(); }} />}</div>;
 }
 
 function AdminCreateModal({ close, created }: { close: () => void; created: () => void }) {
@@ -997,6 +1008,8 @@ function SettingsPage() {
 export default function App() {
   const location = useLocation();
   if (location.pathname === "/admin/login") return <AdminLogin />;
+  if (location.pathname === "/admin/forgot-password") return <AdminPasswordRecovery mode="forgot" />;
+  if (location.pathname === "/admin/reset-password") return <AdminPasswordRecovery mode="reset" />;
   if (location.pathname.startsWith("/admin")) return <AdminShell />;
   return <PWAInstallGate><Home /></PWAInstallGate>;
 }
