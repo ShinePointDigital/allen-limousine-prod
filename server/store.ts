@@ -401,10 +401,20 @@ export async function addInquiryNote(id: string, body: string, authorId: string)
 }
 const tokenHash = (token: string) => crypto.createHmac("sha256", process.env.SESSION_SECRET || "development-only-session-secret").update(token).digest("hex");
 export async function authenticate(email: string, password: string, audience: "staff" | "customer" = "staff") {
-  if (production && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) return null;
-  if (!databaseConfigured && (!demoAdminEnabled || !process.env.ADMIN_BOOTSTRAP_PASSWORD)) return null;
+  // Keep failure details in private server logs, never in the login response.
+  // Do not include submitted credentials, account identifiers, or secret values.
+  const reject = (reason: string) => {
+    console.warn(JSON.stringify({ event: "authentication_rejected", audience, reason }));
+    return null;
+  };
+  if (production && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) return reject("session_secret_invalid");
+  if (!databaseConfigured && (!demoAdminEnabled || !process.env.ADMIN_BOOTSTRAP_PASSWORD)) return reject("database_not_configured");
   const admin = databaseConfigured ? await prisma.adminUser.findUnique({ where: { email } }) : demoAdmins.find(item => item.email === email);
-  if (!admin || admin.email !== email || !admin.active || (audience === "staff" ? !isStaff(admin.role) : admin.role !== "USER") || !(await bcrypt.compare(password, admin.passwordHash))) return null;
+  if (!admin) return reject("account_not_found");
+  if (admin.email !== email) return reject("account_email_mismatch");
+  if (!admin.active) return reject("account_inactive");
+  if (audience === "staff" ? !isStaff(admin.role) : admin.role !== "USER") return reject("account_role_not_allowed");
+  if (!(await bcrypt.compare(password, admin.passwordHash))) return reject("password_mismatch");
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 12);
   if (databaseConfigured) await prisma.adminSession.create({ data: { tokenHash: tokenHash(token), userId: admin.id, expiresAt } });
