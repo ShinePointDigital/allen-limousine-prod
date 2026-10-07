@@ -33,7 +33,7 @@ export const privacyDocument: LegalDocument = {
     </> },
     { id: "information-sharing", title: "Service providers & limited disclosures", content: <>
       <p>We disclose only information reasonably needed to fulfill a service or support our operations. Relevant providers include:</p>
-      <ul><li><strong>Stripe:</strong> payment processing and authorization.</li><li><strong>Twilio:</strong> SMS delivery, inbound messages, and messaging status.</li><li><strong>Google Maps Platform:</strong> address lookup, mapping, and route calculations.</li><li><strong>Aviationstack:</strong> flight-status lookup using flight details.</li><li><strong>SendGrid:</strong> service-related email delivery.</li><li><strong>Replit and Vercel:</strong> application hosting, infrastructure, and data storage as applicable.</li></ul>
+      <ul><li><strong>Stripe:</strong> payment processing and authorization.</li><li><strong>Twilio:</strong> SMS delivery, inbound messages, and messaging status.</li><li><strong>Google Maps Platform:</strong> address lookup, mapping, and route calculations.</li><li><strong>Aviationstack:</strong> flight-status lookup using flight details.</li><li><strong>SendGrid:</strong> service-related email delivery.</li></ul>
       <p>Chauffeurs and authorized staff receive the trip and contact details needed to coordinate your transportation. Providers process information under their own applicable privacy terms and our service arrangements.</p>
       <p>We may disclose information when required by law or reasonably necessary to protect safety, investigate fraud, or defend legal rights. These limited operational or legal disclosures do not permit marketing use of your mobile information or SMS consent data.</p>
     </> },

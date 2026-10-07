@@ -15,6 +15,14 @@ test("privacy explicitly protects mobile information and SMS opt-in data from th
   assert.ok(html.includes("not for their own marketing"));
 });
 
+test("the service provider list omits Replit and Vercel without removing the other providers", () => {
+  const section = privacyDocument.sections.find(section => section.id === "information-sharing")!;
+  const html = render({ ...privacyDocument, sections: [section] });
+  assert.ok(!html.includes("Replit"));
+  assert.ok(!html.includes("Vercel"));
+  for (const provider of ["Stripe", "Twilio", "Google Maps Platform", "Aviationstack", "SendGrid"]) assert.ok(html.includes(provider), provider);
+});
+
 test("SMS terms disclose variable frequency, message and data rates, STOP, HELP and support", () => {
   const html = render(termsDocument);
   for (const text of ["Message frequency varies", "Message and data rates may apply", "STOP", "HELP", "START", "not a condition of purchasing services", LEGAL_PHONE]) assert.ok(html.includes(text), text);
