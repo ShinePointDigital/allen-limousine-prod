@@ -19,6 +19,9 @@ import "./admin-recovery.css";
 import { hasAccess, type Permission, type Role } from "../shared/access";
 import UserManagement from "./UserManagement";
 import CustomerAccount from "./CustomerAccount";
+import LegalPage from "./legal/LegalPage";
+import { privacyDocument, termsDocument } from "./legal/legal-content";
+import "./legal/footer-links.css";
 
 type Service = { id: string; slug: string; title: string; eyebrow: string; description: string; imageUrl: string; active: boolean };
 type Vehicle = { id: string; name: string; category: string; description: string; imageUrl: string; passengers: string; luggage: string; defaultDriverName: string | null; defaultDriverPhone: string | null; active: boolean };
@@ -115,6 +118,9 @@ function Home() {
     window.matchMedia("(display-mode: standalone)").matches ||
     Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
   useEffect(() => { api("/api/content").then(data => setContent(data)).catch(() => undefined); }, []);
+  useEffect(() => {
+    if (window.location.hash === "#reserve") requestAnimationFrame(() => document.getElementById("reserve")?.scrollIntoView());
+  }, []);
   return <main className={`public-page${pwaMode ? " pwa-launch" : ""}`}>
     <section className="hero">
       <video className="hero-video" autoPlay muted loop playsInline preload="metadata" poster={heroCadillac} aria-hidden="true">
@@ -159,7 +165,7 @@ function Home() {
     </section>
     {!pwaMode && <BookingWizard />}
     <PWABottomNav companyProfile={content.companyProfile} />
-    <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · {content.companyProfile.serviceArea}</p><span>© {new Date().getFullYear()} Allan Limousine</span></div><div className="footer-contact"><a href={phoneHref(content.companyProfile.businessPhone)}>{content.companyProfile.businessPhone}</a><a href={`mailto:${content.companyProfile.contactEmail}`}>{content.companyProfile.contactEmail}</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>{content.companyProfile.serviceArea}</span><span className="site-credit">Built with <strong>Shine Point Digital</strong></span><Link to="/admin/login">Client access ↗</Link></div></footer>
+    <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · {content.companyProfile.serviceArea}</p><span>© {new Date().getFullYear()} Allan Limousine</span></div><div className="footer-contact"><a href={phoneHref(content.companyProfile.businessPhone)}>{content.companyProfile.businessPhone}</a><a href={`mailto:${content.companyProfile.contactEmail}`}>{content.companyProfile.contactEmail}</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>{content.companyProfile.serviceArea}</span><nav className="site-legal-links" aria-label="Legal information"><Link to="/privacy">Privacy Policy</Link><Link to="/terms">Terms and Conditions</Link></nav><span className="site-credit">Built with <strong>Shine Point Digital</strong></span><Link to="/admin/login">Client access ↗</Link></div></footer>
   </main>;
 }
 
@@ -1025,6 +1031,9 @@ function SettingsPage() {
 
 export default function App() {
   const location = useLocation();
+  const publicPath = location.pathname.replace(/\/+$/, "") || "/";
+  if (publicPath === "/privacy") return <LegalPage document={privacyDocument} />;
+  if (publicPath === "/terms") return <LegalPage document={termsDocument} />;
   if (location.pathname === "/account/login" || location.pathname === "/account") return <CustomerAccount />;
   if (location.pathname === "/admin/login") return <AdminLogin />;
   if (location.pathname === "/admin/forgot-password") return <AdminPasswordRecovery mode="forgot" />;

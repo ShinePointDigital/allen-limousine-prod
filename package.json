@@ -17,6 +17,7 @@
     "test:account-access": "tsx --test server/account-access.test.ts server/account-database.test.ts",
     "test:admin-recovery": "tsx --test server/admin-recovery.test.ts",
     "test:twilio": "tsx --test server/twilio.test.ts",
+    "test:legal-pages": "tsx --test src/legal/legal-content.test.tsx",
     "typecheck": "tsc --noEmit"
   },
   "type": "module",

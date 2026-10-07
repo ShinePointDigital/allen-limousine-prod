@@ -1,0 +1,6 @@
+.site-footer .footer-bottom { flex-wrap: wrap; gap: 18px 28px; }
+.site-legal-links { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+.site-footer .footer-bottom .site-legal-links a { margin-left: 0; }
+.site-legal-links a:hover { color: var(--brass-light); }
+.site-legal-links a:focus-visible { outline: 2px solid var(--brass); outline-offset: 5px; border-radius: 2px; }
+@media (max-width: 640px) { .site-legal-links { width: 100%; gap: 12px 20px; } }
