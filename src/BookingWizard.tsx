@@ -8,6 +8,8 @@ import LocationAutocomplete, { type QuickLocation } from "./LocationAutocomplete
 import { bookingSuccessTransition, isPwaLaunch } from "./booking-success.js";
 import { isPwaPhone } from "./pwa-device.js";
 import { Link } from "react-router-dom";
+import { ReservationSmsConsent } from "./ReservationSmsConsent";
+import "./reservation-sms-consent.css";
 
 type Point = { latitude: number; longitude: number };
 type Fare = { fareCents: number; miles: number; minutes: number; eventVenue?: { name: string } | null; eventSurchargeCents?: number };
@@ -105,6 +107,8 @@ export default function BookingWizard() {
   const [airport, setAirport] = useState<{ code: AirportCode | null; terminal: string; flight: string; airline: string; originCode: string; destinationCode: string }>({ code: null, terminal: "", flight: "", airline: "", originCode: "", destinationCode: "" });
   const [flightLookup, setFlightLookup] = useState<FlightLookupState>({ status: "idle" });
   const [contact, setContact] = useState({ fullName: "", phone: "", email: "", passengers: "1", notes: "" });
+  const [smsConsent, setSmsConsent] = useState(false);
+  useEffect(() => { setSmsConsent(false); }, [contact.phone, bookingRequestId]);
   const [customerIdentity, setCustomerIdentity] = useState<{ status: "checking" | "guest" | "signed-in" | "error"; user?: { id: string; name: string; email: string }; message?: string }>({ status: "checking" });
   const [customerIdentityRetry, setCustomerIdentityRetry] = useState(0);
   const appliedCustomerProfile = useRef<{ id: string; name: string; email: string } | null>(null);
@@ -446,6 +450,7 @@ export default function BookingWizard() {
         method: "POST",
         body: JSON.stringify({
           ...contact,
+          smsConsent,
           passengers: Number(contact.passengers),
           pickup: route.pickup,
           destination: route.destination,
@@ -560,7 +565,7 @@ export default function BookingWizard() {
     useCurrentLocation();
   }} />;
 
-  if (submitState === "success") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><Check /><p className="eyebrow brass">Request received</p><h2>Your ride is<br /><em>in motion.</em></h2><p>We saved your trip and sent it to the Allan Limousine team for confirmation. We’ll text a secure tracking link to {contact.phone} so you can follow your reservation.</p>{paymentNotice && <p className="payment-result">{paymentNotice}</p>}<button className="solid-button" onClick={() => { setSubmitState("idle"); setStep(1); setBookingRequestId(crypto.randomUUID()); setPaymentNotice(""); useCurrentLocation(); }}>Book another ride</button></div></section>;
+  if (submitState === "success") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><Check /><p className="eyebrow brass">Request received</p><h2>Your ride is<br /><em>in motion.</em></h2><p>We saved your trip and sent it to the Allan Limousine team for confirmation. {smsConsent ? `SMS updates were requested for ${contact.phone}.` : "SMS notifications were not requested."}</p>{paymentNotice && <p className="payment-result">{paymentNotice}</p>}<button className="solid-button" onClick={() => { setSubmitState("idle"); setStep(1); setBookingRequestId(crypto.randomUUID()); setPaymentNotice(""); useCurrentLocation(); }}>Book another ride</button></div></section>;
 
   return <section id="reserve" className="booking-wizard-section section-pad">
     <div className="wizard-shell">
@@ -592,6 +597,7 @@ export default function BookingWizard() {
         {step === 4 && <div className="wizard-step">
           <div className="wizard-final-summary"><ShieldCheck /><div><b>{timing === "RIDE_NOW" ? "Pickup as soon as possible" : new Date(pickupAt).toLocaleString()}</b><span>{RATE_TIER_PRICING[tier].label} · {serviceType} · {route.pickup} → {route.destination}</span>{isPrivateFBO && <span>{fboDetails.fboName} · Tail {fboDetails.specificTailNumber} · Principal {fboDetails.principalName}</span>}</div><strong>{selectedFare && money(finalFareCents)}</strong></div>
           <StripeCardSetup compact requiredPayment fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} />
+          <ReservationSmsConsent checked={smsConsent} onChange={setSmsConsent} />
           <div className="wizard-pay-later"><ShieldCheck /><span><b>Authorization hold today</b><small>{money(finalFareCents)} will be authorized now and captured only after your driver completes the ride.</small></span></div>
           {error && <p className="form-error">{error}</p>}
           <div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(3)}><ArrowLeft /> Back</button><button className="solid-button wizard-instant-book" disabled={submitState === "sending" || !canBook || !savedPayment?.capability} onClick={submit}>{submitState === "sending" ? "Authorizing…" : <>Authorize &amp; book · {money(finalFareCents)} <Check /></>}</button></div>

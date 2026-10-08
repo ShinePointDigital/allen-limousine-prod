@@ -2,6 +2,8 @@ import "dotenv/config";
 import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
+import { applicationDatabaseUrl } from "./database-config.js";
+import { bookingHasSmsConsent, smsConsentAuditBody, SMS_CONSENT_AUTHOR } from "../shared/sms-consent.js";
 import { ALL_PERMISSIONS, canCreateAccount, canEditAccount, effectivePermissions, isStaff, type AccountAccess, type Permission, type Role } from "../shared/access.js";
 
 export type InquiryStatus = "PAYMENT_PENDING" | "NEW" | "CONTACTED" | "CONFIRMED" | "COMPLETED" | "CANCELLED";
@@ -9,6 +11,7 @@ export type RideStatus = "UNASSIGNED" | "ASSIGNED" | "EN_ROUTE" | "IN_PROGRESS" 
 export type Inquiry = {
   id: string; fullName: string; email: string; phone: string; serviceType: string;
   customerUserId?: string | null;
+  smsConsent?: boolean;
   pickupAt: string; pickup: string; destination: string; passengers: number;
   notes?: string; airportCode?: string | null; airportTerminal?: string | null;
   flightNumber?: string | null; flightScheduledAt?: string | null; pickupPreference?: string | null;
@@ -54,8 +57,10 @@ export type AdminNotification = { id: string; type: string; title: string; body:
 export type CompanyProfile = { businessPhone: string; contactEmail: string; serviceArea: string };
 export type AdminSessionSummary = { id: string; createdAt: string; expiresAt: string; isCurrent: boolean };
 
-export const prisma = new PrismaClient();
-export const databaseConfigured = Boolean(process.env.DATABASE_URL);
+const databaseUrl = applicationDatabaseUrl();
+const prismaOptions: Prisma.PrismaClientOptions = databaseUrl ? { datasourceUrl: databaseUrl } : {};
+export const prisma = new PrismaClient(prismaOptions);
+export const databaseConfigured = Boolean(databaseUrl);
 const production = process.env.NODE_ENV === "production";
 const demoAdminEnabled = !production && process.env.ALLOW_IN_MEMORY_DEMO === "true";
 
@@ -172,7 +177,7 @@ export async function updateCompanyProfile(values: CompanyProfile): Promise<Comp
   })));
   return { ...values };
 }
-const mapInquiry = (item: any): Inquiry => ({ ...item, pickupAt: item.pickupAt.toISOString(), flightScheduledAt: item.flightScheduledAt?.toISOString() || null, trackingExpiresAt: item.trackingExpiresAt?.toISOString() || null, createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(), history: (item.inquiryNotes || []).map((note: any) => ({ body: note.body, author: note.author?.name || note.authorName || "Deleted staff", createdAt: note.createdAt.toISOString() })) });
+const mapInquiry = (item: any): Inquiry => ({ ...item, smsConsent: bookingHasSmsConsent(item.inquiryNotes || [], item.phone), pickupAt: item.pickupAt.toISOString(), flightScheduledAt: item.flightScheduledAt?.toISOString() || null, trackingExpiresAt: item.trackingExpiresAt?.toISOString() || null, createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(), history: (item.inquiryNotes || []).map((note: any) => ({ body: note.body, author: note.author?.name || note.authorName || "Deleted staff", createdAt: note.createdAt.toISOString() })) });
 export async function getInquiries() {
   if (!databaseConfigured) return inquiries.filter(item => item.status !== "PAYMENT_PENDING").sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
   return (await prisma.inquiry.findMany({ where: { status: { not: "PAYMENT_PENDING" } }, include: { inquiryNotes: { include: { author: true }, orderBy: { createdAt: "asc" } } }, orderBy: { createdAt: "desc" } })).map(mapInquiry);
@@ -286,6 +291,7 @@ export async function consumeStripeSetupSession(tokenHash: string, expected: {
   return prisma.stripeSetupSession.findUnique({ where: { tokenHash } });
 }
 export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "createdAt" | "updatedAt" | "history">) {
+  const { smsConsent = false, ...bookingInput } = input;
   if (databaseConfigured) {
     if (input.bookingRequestId) {
       const existing = await prisma.inquiry.findUnique({ where: { bookingRequestId: input.bookingRequestId }, include: { inquiryNotes: { include: { author: true } } } });
@@ -299,13 +305,14 @@ export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "created
       }) : null;
       const promoDiscountCents = welcomePromo && !priorPromo ? Math.min(1500, input.grossFareCents || 0) : 0;
       const canonicalInput = {
-        ...input,
+        ...bookingInput,
         promoCode: promoDiscountCents > 0 ? "WELCOME15" : null,
         promoDiscountCents,
         estimatedFareCents: input.grossFareCents != null ? input.grossFareCents - promoDiscountCents : null,
       };
       const paymentPending = input.paymentStatus === "authorization_pending";
       const inquiry = await tx.inquiry.create({ data: { ...canonicalInput, status: paymentPending ? "PAYMENT_PENDING" : "NEW", pickupAt: new Date(input.pickupAt), flightScheduledAt: input.flightScheduledAt ? new Date(input.flightScheduledAt) : null } });
+      await tx.inquiryNote.create({ data: { inquiryId: inquiry.id, body: smsConsentAuditBody(smsConsent, inquiry.phone), authorId: null, authorName: SMS_CONSENT_AUTHOR } });
       if (!paymentPending && input.isPrivateFBO) await tx.ride.create({ data: { inquiryId: inquiry.id, quoteCents: canonicalInput.estimatedFareCents || 0 } });
       if (!paymentPending) await tx.adminNotification.create({ data: { type: "NEW_INQUIRY", title: "New reservation request", body: `${input.fullName} requested ${input.serviceType} for ${new Date(input.pickupAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`, inquiryId: inquiry.id } });
       return tx.inquiry.findUniqueOrThrow({ where: { id: inquiry.id }, include: { inquiryNotes: { include: { author: true } } } });
@@ -321,7 +328,7 @@ export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "created
   const promoDiscountCents = welcomePromo && !priorPromo ? Math.min(1500, input.grossFareCents || 0) : 0;
   const now = new Date().toISOString();
   const paymentPending = input.paymentStatus === "authorization_pending";
-  const inquiry: Inquiry = { ...input, promoCode: promoDiscountCents ? "WELCOME15" : null, promoDiscountCents, estimatedFareCents: input.grossFareCents != null ? input.grossFareCents - promoDiscountCents : null, id: `inq-${crypto.randomUUID().slice(0, 8)}`, status: paymentPending ? "PAYMENT_PENDING" : "NEW", createdAt: now, updatedAt: now, history: [] };
+  const inquiry: Inquiry = { ...bookingInput, smsConsent, promoCode: promoDiscountCents ? "WELCOME15" : null, promoDiscountCents, estimatedFareCents: input.grossFareCents != null ? input.grossFareCents - promoDiscountCents : null, id: `inq-${crypto.randomUUID().slice(0, 8)}`, status: paymentPending ? "PAYMENT_PENDING" : "NEW", createdAt: now, updatedAt: now, history: [{ body: smsConsentAuditBody(smsConsent, input.phone), author: SMS_CONSENT_AUTHOR, createdAt: now }] };
   inquiries.unshift(inquiry);
   if (!paymentPending && input.isPrivateFBO) rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: inquiry.id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: inquiry.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: now, updatedAt: now, inquiry: { fullName: inquiry.fullName, serviceType: inquiry.serviceType, pickupAt: inquiry.pickupAt, pickup: inquiry.pickup, destination: inquiry.destination, passengers: inquiry.passengers, notes: inquiry.notes, isPrivateFBO: true, specificTailNumber: inquiry.specificTailNumber, principalName: inquiry.principalName, fboName: inquiry.fboName, tarmacInstructions: inquiry.tarmacInstructions }, vehicle: null, dispatchMessages: [] });
   if (!paymentPending) notifications.unshift({ id: `notification-${crypto.randomUUID().slice(0, 8)}`, type: "NEW_INQUIRY", title: "New reservation request", body: `${input.fullName} requested ${input.serviceType}.`, inquiryId: inquiry.id, readAt: null, createdAt: now });

@@ -1,4 +1,5 @@
 import { ReplitConnectors } from "@replit/connectors-sdk";
+import crypto from "node:crypto";
 
 const connectors = new ReplitConnectors();
 let accountSidPromise: Promise<string> | undefined;
@@ -23,11 +24,18 @@ export class TwilioRequestError extends Error {
   }
 }
 
-function normalizeTwilioPhone(value: string, label: "sender" | "recipient") {
+export function normalizeTwilioPhone(value: string, label: "sender" | "recipient") {
   const digits = value.replace(/\D/g, "");
   const normalized = digits.length === 10 ? `+1${digits}` : digits.length >= 11 && digits.length <= 15 ? `+${digits}` : "";
   if (!normalized) throw new TwilioRequestError(`The Twilio ${label} number must be a valid E.164 phone number.`, true);
   return normalized;
+}
+
+export function validTwilioSignature(authToken: string, callbackUrl: string, signature: string, params: Record<string, unknown>) {
+  const payload = Object.keys(params).sort().reduce((value, key) => `${value}${key}${String(params[key])}`, callbackUrl);
+  const expected = Buffer.from(crypto.createHmac("sha1", authToken).update(payload).digest("base64"));
+  const supplied = Buffer.from(signature);
+  return expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
 }
 
 export function twilioPhonesEqual(left: string | null, right: string | null) {
@@ -95,6 +103,7 @@ function mapTwilioMessage(payload: TwilioMessage, accountSid: string) {
     body: payload.body || null,
     errorCode: payload.error_code ? String(payload.error_code) : null,
     errorMessage: payload.error_message || null,
+    createdAt: payload.date_created || payload.date_sent || null,
   };
 }
 

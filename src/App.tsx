@@ -6,6 +6,8 @@ import {
   Pencil, Plane, Plus, Search, Settings, ShieldCheck, Sparkles, UserRound, Trash2, WalletCards, X, Navigation, RefreshCw,
 } from "lucide-react";
 import "./dispatch.css";
+import DispatchWizardModal from "../components/admin/DispatchWizardModal";
+import DispatchBookingPicker from "../components/admin/DispatchBookingPicker";
 import "./admin-workspace.css";
 import { RATE_TIER_PRICING, type RateTier } from "../shared/pricing.js";
 import BookingWizard from "./BookingWizard";
@@ -455,6 +457,7 @@ function Overview({ access }: { access: StaffAccess }) {
   const navigate = useNavigate();
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState("");
+  const [wizardBookingId, setWizardBookingId] = useState<string | null>(null);
   const load = () => api("/api/admin/dashboard").then(setData).catch((reason: Error) => setError(reason.message));
   const exportCsv = () => { window.location.href = "/api/admin/export.csv"; };
   useEffect(() => { load(); }, []);
@@ -478,14 +481,16 @@ function Overview({ access }: { access: StaffAccess }) {
       <div className="operation-callout"><CalendarDays /><span><b>{stats.upcoming} upcoming rides</b><small>Scheduled and active work</small></span></div>
     </div>
     <div className="overview-grid operations-grid">
-      <section className="panel rides-panel"><div className="panel-header"><div><p className="eyebrow brass">Dispatch queue</p><h2>Upcoming rides</h2></div>{hasAccess(access, "rides") && <Link to="/admin/rides">View all <ArrowRight /></Link>}</div><div className="ride-table">{data.upcomingRides.map(ride => <RideRow key={ride.id} ride={ride} onClick={hasAccess(access, "rides") ? () => navigate("/admin/rides") : undefined} />)}{!data.upcomingRides.length && <div className="empty-state compact-empty"><CarFront /><p>No upcoming rides yet.</p></div>}</div></section>
-      {hasAccess(access, "inquiries") && <NotificationsPanel notifications={data.notifications} onChange={load} />}
+      <section className="panel rides-panel"><div className="panel-header"><div><p className="eyebrow brass">Dispatch queue</p><h2>Upcoming rides</h2></div>{hasAccess(access, "rides") && <Link to="/admin/rides">View all <ArrowRight /></Link>}</div><div className="ride-table">{data.upcomingRides.map(ride => <RideRow key={ride.id} ride={ride} onClick={hasAccess(access, "rides") ? () => setWizardBookingId(ride.inquiryId) : undefined} />)}{!data.upcomingRides.length && <div className="empty-state compact-empty"><CarFront /><p>No upcoming rides yet.</p></div>}</div></section>
+      {hasAccess(access, "inquiries") && <NotificationsPanel notifications={data.notifications} onChange={load} onSelect={hasAccess(access, "rides") ? setWizardBookingId : undefined} />}
     </div>
+    {(hasAccess(access, "inquiries") || hasAccess(access, "rides")) && <section className="panel inquiry-list-panel"><div className="panel-header"><h2>New reservations & inquiries</h2></div>{data.recent.filter(item => item.status === "NEW").map(item => <InquiryRow key={item.id} inquiry={item} onClick={() => hasAccess(access, "rides") ? setWizardBookingId(item.id) : navigate(`/admin/inquiries?inquiry=${item.id}`)} />)}{!data.recent.some(item => item.status === "NEW") && <div className="empty-state compact-empty"><p>No new reservations to review.</p></div>}</section>}
+    {wizardBookingId && <DispatchWizardModal bookingId={wizardBookingId} onClose={() => setWizardBookingId(null)} onUpdated={load} onManageRide={id => navigate(`/admin/rides?ride=${encodeURIComponent(id)}`)} />}
   </div>;
 }
-function NotificationsPanel({ notifications, onChange }: { notifications: AdminNotification[]; onChange: () => void }) {
+function NotificationsPanel({ notifications, onChange, onSelect }: { notifications: AdminNotification[]; onChange: () => void; onSelect?: (id: string) => void }) {
   const navigate = useNavigate();
-  const markRead = async (item: AdminNotification) => { if (!item.readAt) await api(`/api/admin/notifications/${item.id}/read`, { method: "PATCH" }); onChange(); if (item.inquiryId) navigate(`/admin/inquiries?inquiry=${item.inquiryId}`); };
+  const markRead = async (item: AdminNotification) => { if (!item.readAt) await api(`/api/admin/notifications/${item.id}/read`, { method: "PATCH" }); onChange(); if (item.inquiryId) { if (onSelect) onSelect(item.inquiryId); else navigate(`/admin/inquiries?inquiry=${item.inquiryId}`); } };
   return <section className="panel notifications-panel"><div className="panel-header"><div><p className="eyebrow brass">Inbox</p><h2>New booking alerts</h2></div><span className="panel-icon"><Bell /></span></div><div className="notification-list">{notifications.map(item => <button key={item.id} className={item.readAt ? "notification-item" : "notification-item unread"} onClick={() => markRead(item)}><i /><span><b>{item.title}</b><small>{item.body}</small><time>{formatDateTime(item.createdAt)}</time></span></button>)}{!notifications.length && <div className="empty-state compact-empty"><Bell /><p>You’re all caught up.</p></div>}</div></section>;
 }
 function Stat({ label, value, delta, icon, tone = "" }: { label: string; value: string | number; delta: string; icon: React.ReactNode; tone?: string }) { return <div className={`stat-card ${tone}`}><div className="stat-top"><span>{label}</span><span className="stat-icon">{icon}</span></div><strong>{value}</strong><small>{delta}</small></div>; }
@@ -496,6 +501,7 @@ function RideRow({ ride, onClick }: { ride: Ride; onClick?: () => void }) {
   return onClick ? <button className="ride-row" onClick={onClick}>{content}</button> : <div className="ride-row ride-row-static">{content}</div>;
 }
 function RidesManager({ access }: { access: StaffAccess }) {
+  const location = useLocation();
   const canManageFleet = hasAccess(access, "fleet");
   const canReviewInquiries = hasAccess(access, "inquiries");
   const [rides, setRides] = useState<Ride[]>([]);
@@ -504,7 +510,7 @@ function RidesManager({ access }: { access: StaffAccess }) {
   const [date, setDate] = useState("");
   const [unassigned, setUnassigned] = useState(false);
   const [selected, setSelected] = useState<Ride | null>(null);
-  const [assignmentRide, setAssignmentRide] = useState<Ride | null>(null);
+  const [wizardBookingId, setWizardBookingId] = useState<string | null>(null);
   const [availableVehicle, setAvailableVehicle] = useState<DispatchVehicle | null>(null);
   const [deletingVehicleId, setDeletingVehicleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -514,7 +520,7 @@ function RidesManager({ access }: { access: StaffAccess }) {
     const query = new URLSearchParams({ status });
     if (date) query.set("date", date);
     if (unassigned) query.set("unassigned", "true");
-    api(`/api/admin/rides?${query}`).then(data => { setRides(data.rides); setVehicles(data.vehicles); }).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false));
+    api(`/api/admin/rides?${query}`).then(data => { setRides(data.rides); setVehicles(data.vehicles); const requested = new URLSearchParams(location.search).get("ride"); if (requested) setSelected(data.rides.find((ride: Ride) => ride.id === requested) || null); }).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false));
   };
   const removeVehicle = async (event: React.MouseEvent, vehicle: typeof vehicles[number]) => {
     event.stopPropagation();
@@ -522,14 +528,22 @@ function RidesManager({ access }: { access: StaffAccess }) {
     setDeletingVehicleId(vehicle.id); setError("");
     try { await api(`/api/admin/content/fleet/${vehicle.id}`, { method: "DELETE" }); load(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to delete this vehicle."); } finally { setDeletingVehicleId(null); }
   };
-  useEffect(() => { load(); }, [status, date, unassigned]);
+  useEffect(() => { load(); }, [status, date, unassigned, location.search]);
+  const openTripControls = async (id: string) => {
+    try {
+      const data = await api("/api/admin/rides");
+      const ride = data.rides.find((item: Ride) => item.id === id);
+      if (!ride) throw new Error("This ride is no longer available.");
+      setWizardBookingId(null); setSelected(ride);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to load ride controls."); }
+  };
   return <div className="admin-page">
     <AdminHeader eyebrow="Operations / live schedule" title="Rides & dispatch"><div className="header-actions">{canManageFleet && <Link className="outline-button dark small" to="/admin/fleet"><Plus /> Add vehicle</Link>}{canReviewInquiries && <Link className="outline-button dark small" to="/admin/inquiries"><Plus /> Review inquiries</Link>}</div></AdminHeader>
      <div className="dispatch-toolbar"><div className="filter-tabs">{["ALL", "UNASSIGNED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "COMPLETED", "CANCELLED"].map(item => <button className={status === item ? "selected" : ""} key={item} onClick={() => setStatus(item)}>{item === "ALL" ? "All rides" : titleCaseStatus(item)}</button>)}</div><div className="dispatch-filters"><label>Service date<input type="date" value={date} onChange={event => setDate(event.target.value)} /></label><button className={unassigned ? "assignment-toggle selected" : "assignment-toggle"} onClick={() => setUnassigned(value => !value)}><CarFront /> Needs assignment</button></div></div>
-      <section className="panel dispatch-panel"><div className="ride-list-head"><span>Date</span><span>Client & service</span><span>Assignment</span><span>Quote</span><span>Status</span></div>{loading ? <div className="admin-inline-loading"><span className="spinner" />Loading dispatch</div> : error ? <div className="empty-state"><Clock3 /><p>{error}</p><button onClick={load}>Try again</button></div> : <div className="ride-table">{rides.map(ride => <RideRow key={ride.id} ride={ride} onClick={() => ride.status === "UNASSIGNED" || !ride.vehicleId ? setAssignmentRide(ride) : setSelected(ride)} />)}{!rides.length && <div className="empty-state"><CarFront /><p>No rides match these filters.</p><small>Available vehicles are listed below and will appear in assignment selectors when a ride is booked.</small></div>}</div>}</section>
+      <section className="panel dispatch-panel"><div className="ride-list-head"><span>Date</span><span>Client & service</span><span>Assignment</span><span>Quote</span><span>Status</span></div>{loading ? <div className="admin-inline-loading"><span className="spinner" />Loading dispatch</div> : error ? <div className="empty-state"><Clock3 /><p>{error}</p><button onClick={load}>Try again</button></div> : <div className="ride-table">{rides.map(ride => <RideRow key={ride.id} ride={ride} onClick={() => ["UNASSIGNED", "ASSIGNED"].includes(ride.status) ? setWizardBookingId(ride.inquiryId) : setSelected(ride)} />)}{!rides.length && <div className="empty-state"><CarFront /><p>No rides match these filters.</p><small>Available vehicles are listed below and will appear in assignment selectors when a ride is booked.</small></div>}</div>}</section>
      <section className="panel dispatch-fleet-panel"><div className="panel-header"><div><p className="eyebrow brass">Dispatch fleet</p><h2>Available vehicles</h2></div>{canManageFleet && <Link to="/admin/fleet" className="text-button">Manage fleet <ArrowRight /></Link>}</div><div className="dispatch-fleet-grid">{vehicles.map(vehicle => <article className="dispatch-fleet-card" key={vehicle.id} role="button" tabIndex={0} onClick={() => setAvailableVehicle(vehicle)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") setAvailableVehicle(vehicle); }}><div className="dispatch-fleet-card-top"><div><b>{vehicle.name}</b><small>{vehicle.category} · Up to {vehicle.passengers} guests · {vehicle.luggage}</small></div><div className="dispatch-fleet-card-tools"><span className="active-label"><i />Available</span>{canManageFleet && <button type="button" className="dispatch-fleet-delete" disabled={deletingVehicleId === vehicle.id} aria-label={`Delete ${vehicle.name}`} title="Delete vehicle" onClick={event => removeVehicle(event, vehicle)}>{deletingVehicleId === vehicle.id ? <span className="spinner" /> : <Trash2 />}</button>}</div></div><div className="dispatch-driver"><span>Default driver</span>{vehicle.defaultDriverName ? <strong>{vehicle.defaultDriverName}<a href={`tel:${vehicle.defaultDriverPhone || ""}`} onClick={event => event.stopPropagation()}>{vehicle.defaultDriverPhone || "Phone not added"}</a></strong> : <strong className="missing-driver">Add driver details in Fleet</strong>}</div><span className="dispatch-fleet-action">View available rides <ArrowUpRight /></span></article>)}{!vehicles.length && <div className="empty-state compact-empty"><CarFront /><p>No active vehicles yet.</p>{canManageFleet && <Link to="/admin/fleet" className="text-button">Add a vehicle <ArrowRight /></Link>}</div>}</div></section>
-     {availableVehicle && <AvailableRidesModal vehicle={availableVehicle} close={() => setAvailableVehicle(null)} refresh={load} />}
-    {assignmentRide && <RideAssignmentModal ride={assignmentRide} vehicles={vehicles} canManageFleet={canManageFleet} close={() => setAssignmentRide(null)} assigned={() => { setAssignmentRide(null); load(); }} />}
+     {availableVehicle && <DispatchBookingPicker vehicle={availableVehicle} onClose={() => setAvailableVehicle(null)} onSelect={id => { setAvailableVehicle(null); setWizardBookingId(id); }} />}
+    {wizardBookingId && <DispatchWizardModal bookingId={wizardBookingId} onClose={() => setWizardBookingId(null)} onUpdated={load} onManageRide={openTripControls} />}
     {selected && <RideDetail ride={selected} vehicles={vehicles} access={access} close={() => setSelected(null)} refresh={load} />}
   </div>;
 }
@@ -852,11 +866,25 @@ function DispatchReconciliationView({ ride, activity, sid, setSid, busy, error, 
 }
 function InquiryManager({ access }: { access: StaffAccess }) {
   const [items, setItems] = useState<Inquiry[]>([]); const [q, setQ] = useState(""); const [status, setStatus] = useState("ALL"); const [selected, setSelected] = useState<Inquiry | null>(null);
+  const [wizardBookingId, setWizardBookingId] = useState<string | null>(null);
+  const openedRequest = useRef("");
+  const navigate = useNavigate();
   const location = useLocation();
-  const load = () => api(`/api/admin/inquiries?q=${encodeURIComponent(q)}&status=${status}`).then(data => { setItems(data.inquiries); const requested = new URLSearchParams(location.search).get("inquiry"); if (requested) setSelected(data.inquiries.find((item: Inquiry) => item.id === requested) || null); });
-  useEffect(() => { load(); }, [status]);
+  const openInquiry = (item: Inquiry) => {
+    if (hasAccess(access, "rides") && !["CANCELLED", "COMPLETED"].includes(item.status)) { setSelected(null); setWizardBookingId(item.id); }
+    else setSelected(item);
+  };
+  const load = () => api(`/api/admin/inquiries?q=${encodeURIComponent(q)}&status=${status}`).then(data => {
+    setItems(data.inquiries);
+    const requested = new URLSearchParams(location.search).get("inquiry");
+    if (requested && openedRequest.current !== requested) {
+      const item = data.inquiries.find((candidate: Inquiry) => candidate.id === requested);
+      if (item) { openedRequest.current = requested; openInquiry(item); }
+    }
+  });
+  useEffect(() => { load(); }, [status, location.search]);
   const exportCsv = () => { window.location.href = "/api/admin/export.csv"; };
-  return <div className="admin-page"><AdminHeader eyebrow="Operations / 24 total" title="Inquiries">{hasAccess(access, "export") && <button className="outline-button dark small" onClick={exportCsv}><FileDown /> Export CSV</button>}</AdminHeader><div className="toolbar"><div className="search-box"><Search /><input placeholder="Search by name, email or location" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && load()} /></div><div className="filter-tabs">{["ALL", "NEW", "CONTACTED", "CONFIRMED", "COMPLETED", "CANCELLED"].map(item => <button className={status === item ? "selected" : ""} key={item} onClick={() => setStatus(item)}>{item === "ALL" ? "All inquiries" : item[0] + item.slice(1).toLowerCase()}</button>)}</div></div><section className="panel inquiry-list-panel"><div className="inquiry-list-head"><span>Client</span><span>Journey</span><span>Pickup</span><span>Status</span></div><div className="inquiry-table">{items.map(item => <InquiryRow key={item.id} inquiry={item} onClick={() => setSelected(item)} />)}</div>{!items.length && <div className="empty-state"><MessageSquareText /><p>No inquiries match these filters.</p></div>}</section>{selected && <InquiryDetail access={access} inquiry={selected} close={() => setSelected(null)} refresh={load} />}</div>;
+  return <div className="admin-page"><AdminHeader eyebrow={`Operations / ${items.length} shown`} title="Inquiries">{hasAccess(access, "export") && <button className="outline-button dark small" onClick={exportCsv}><FileDown /> Export CSV</button>}</AdminHeader><div className="toolbar"><div className="search-box"><Search /><input placeholder="Search by name, email or location" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && load()} /></div><div className="filter-tabs">{["ALL", "NEW", "CONTACTED", "CONFIRMED", "COMPLETED", "CANCELLED"].map(item => <button className={status === item ? "selected" : ""} key={item} onClick={() => setStatus(item)}>{item === "ALL" ? "All inquiries" : item[0] + item.slice(1).toLowerCase()}</button>)}</div></div><section className="panel inquiry-list-panel"><div className="inquiry-list-head"><span>Client</span><span>Journey</span><span>Pickup</span><span>Status</span></div><div className="inquiry-table">{items.map(item => <InquiryRow key={item.id} inquiry={item} onClick={() => openInquiry(item)} />)}</div>{!items.length && <div className="empty-state"><MessageSquareText /><p>No inquiries match these filters.</p></div>}</section>{selected && <InquiryDetail access={access} inquiry={selected} close={() => setSelected(null)} refresh={load} />}{wizardBookingId && <DispatchWizardModal bookingId={wizardBookingId} onClose={() => setWizardBookingId(null)} onUpdated={load} onManageRide={id => navigate(`/admin/rides?ride=${encodeURIComponent(id)}`)} />}</div>;
 }
 function InquiryDetail({ inquiry, access, close, refresh }: { inquiry: Inquiry; access: StaffAccess; close: () => void; refresh: () => void }) {
   const [note, setNote] = useState(""); const [saving, setSaving] = useState(false);

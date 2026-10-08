@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import { createDispatchWizardRouter } from "./dispatch-wizard-routes.js";
 import cookieParser from "cookie-parser";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
@@ -14,6 +15,13 @@ import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "
 import { createAdminRecoveryRouter } from "./admin-recovery-routes.js";
 import { accountLoginLimiter, createAccountRouter, staffGuard } from "./account-routes.js";
 import { hasAccess } from "../shared/access.js";
+import { createSmsInboxRouter } from "./sms-inbox-routes.js";
+import { smsRecipientOptedOut } from "./sms-inbox-store.js";
+
+async function sendOperationalSms(to: string, body: string) {
+  if (await smsRecipientOptedOut(to)) throw new TwilioRequestError("This recipient opted out of SMS. They must text START before more messages can be sent.", true);
+  return sendSms(to, body);
+}
 
 export const app = express();
 const port = Number(process.env.PORT) || 5000;
@@ -57,6 +65,7 @@ const inquirySchema = z.object({
   destination: z.string().trim().min(2).max(180),
   passengers: z.coerce.number().int().min(1).max(50),
   notes: z.string().max(1000).optional().default(""),
+  smsConsent: z.boolean().optional().default(false),
   airportCode: z.enum(["ORD", "MDW", "DFW", "DAL"]).optional(),
   airportTerminal: z.string().trim().max(100).optional(),
   flightNumber: z.string().trim().max(20).optional(),
@@ -125,10 +134,11 @@ const bookingTrackingUrl = (req: express.Request, token: string) => {
   url.searchParams.set("tracking", token);
   return url.toString();
 };
-const sendBookingTrackingSms = async (req: express.Request, inquiry: { id: string; phone: string; estimatedFareCents?: number | null }, trackingToken: string) => {
+const sendBookingTrackingSms = async (req: express.Request, inquiry: { id: string; phone: string; estimatedFareCents?: number | null; smsConsent?: boolean }, trackingToken: string) => {
+  if (inquiry.smsConsent !== true) return;
   const link = bookingTrackingUrl(req, trackingToken);
   const fare = inquiry.estimatedFareCents == null ? "" : ` Estimated fare: $${Math.round(inquiry.estimatedFareCents / 100)}.`;
-  await sendSms(inquiry.phone, `Allan Limousine: Booking ${inquiry.id.slice(-6).toUpperCase()} received.${fare} Follow your reservation and driver updates: ${link}`);
+  await sendOperationalSms(inquiry.phone, `Allan Limousine: Booking ${inquiry.id.slice(-6).toUpperCase()} received.${fare} Follow your reservation and driver updates: ${link} Reply STOP to opt out or HELP for help.`);
 };
 const stripeProfileSchema = z.object({
   fullName: z.string().trim().min(2).max(100),
@@ -766,6 +776,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
     estimatedMiles: _estimatedMiles,
     estimatedMinutes: _estimatedMinutes,
     promoDiscountCents: _promoDiscountCents,
+    smsConsent,
     ...rawInput
   } = parsed.data;
   try {
@@ -773,7 +784,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
     const customer = await sessionUser(req.cookies.allan_customer_session);
     if (req.cookies.allan_customer_session && (!customer || customer.role !== "USER")) return res.status(401).json({ error: "Your customer session expired. Sign in again before booking, or sign out to book as a guest." });
     if (customer && customer.role === "USER" && customer.email !== input.email) return res.status(403).json({ error: "Use your customer account email for this reservation." });
-    const bookingRequestFingerprint = crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    const bookingRequestFingerprint = crypto.createHash("sha256").update(JSON.stringify(smsConsent ? { ...input, smsConsent: true } : input)).digest("hex");
     const priorRequest = await getInquiryByBookingRequestId(input.bookingRequestId);
     if (priorRequest) {
       if (priorRequest.bookingRequestFingerprint !== bookingRequestFingerprint) return res.status(409).json({ error: "This booking request was already used for different trip details." });
@@ -785,6 +796,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
     const trackingExpiresAt = new Date(Math.min(Math.max(pickupExpiry, Date.now() + 24 * 60 * 60 * 1000), Date.now() + 30 * 24 * 60 * 60 * 1000));
     const { inquiry, created } = await addInquiry({
       ...input,
+      smsConsent,
       customerUserId: customer?.role === "USER" ? customer.id : null,
       bookingRequestFingerprint,
       estimatedFareCents: canonicalEstimate?.fareCents,
@@ -817,6 +829,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
         estimatedMiles: _f,
         estimatedMinutes: _g,
         promoDiscountCents: _h,
+        smsConsent: replaySmsConsent,
         ...rawReplayInput
       } = parsed.data;
       let normalizedReplayInput;
@@ -825,7 +838,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
       } catch {
         return res.status(422).json({ error: "Enter a valid passenger phone number." });
       }
-      const fingerprint = crypto.createHash("sha256").update(JSON.stringify(normalizedReplayInput)).digest("hex");
+      const fingerprint = crypto.createHash("sha256").update(JSON.stringify(replaySmsConsent ? { ...normalizedReplayInput, smsConsent: true } : normalizedReplayInput)).digest("hex");
       if (replay.bookingRequestFingerprint !== fingerprint) return res.status(409).json({ error: "This booking request was already used for different trip details." });
       return res.status(200).json({ ok: true, inquiry: { id: replay.id, estimatedFareCents: replay.estimatedFareCents, promoCode: replay.promoCode, promoDiscountCents: replay.promoDiscountCents }, smsNotification: "not_repeated" });
     }
@@ -874,6 +887,8 @@ app.post("/api/admin/login", accountLoginLimiter, async (req, res) => {
 app.get("/api/admin/session", admin, (_req, res) => res.json({ user: res.locals.user }));
 app.use(createAdminRecoveryRouter({ admin, superAdmin, origin: publicOrigin }));
 app.use(createAccountRouter());
+app.use(createSmsInboxRouter({ admin, publicOrigin, inboundOnly: true }));
+app.use(createDispatchWizardRouter({ admin, sendSms: sendOperationalSms }));
 app.post("/api/admin/logout", (req, res) => { logout(req.cookies.allan_session); res.clearCookie("allan_session"); res.status(204).end(); });
 app.get("/api/admin/sessions", admin, async (req, res) => {
   res.json({ sessions: await listAdminSessions(res.locals.user.id, req.cookies.allan_session) });
@@ -1039,7 +1054,7 @@ app.post("/api/admin/rides/:id/dispatch", admin, dispatchLimiter, async (req, re
   let providerMessageId: string | null = null;
   let providerStatus: string | null = null;
   try {
-    const result = await sendDriverDispatchSms(ride.driverPhone, message);
+    const result = await sendOperationalSms(ride.driverPhone, message);
     providerMessageId = result.providerMessageId;
     providerStatus = result.providerStatus;
   } catch (error) {

@@ -21,6 +21,7 @@ model AdminUser {
   passwordReset    AdminPasswordReset?
   notes            InquiryNote[]
   dispatchMessages DispatchMessage[]
+  smsMessages      SmsMessage[]
   reconciledMessages DispatchMessage[] @relation("DispatchReconciler")
   customerBookings Inquiry[]         @relation("CustomerBookings")
 }
@@ -47,6 +48,10 @@ model AdminPasswordReset {
 
 model Inquiry {
   id            String              @id @default(cuid())
+  dispatchStep       Int                 @default(1)
+  dispatchStatus     String              @default("NEW")
+  dispatchVersion    Int                 @default(0)
+  dispatchReviewedAt DateTime?
   customerUserId String?
   customerUser  AdminUser?           @relation("CustomerBookings", fields: [customerUserId], references: [id], onDelete: SetNull)
   fullName      String
@@ -148,6 +153,8 @@ model Service {
 
 model Ride {
   id               String            @id @default(cuid())
+  driverId         String?
+  driver           Chauffeur?        @relation(fields: [driverId], references: [id], onDelete: SetNull)
   inquiryId        String            @unique
   vehicleId        String?
   status           String            @default("UNASSIGNED")
@@ -170,10 +177,22 @@ model Ride {
 
   @@index([status, updatedAt])
   @@index([vehicleId, status])
+  @@index([driverId, status])
+}
+
+model Chauffeur {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  rides     Ride[]
 }
 
 model DispatchMessage {
   id                String    @id @default(cuid())
+  dispatchRecipient String?
   rideId            String
   adminId           String?
   adminName         String?
@@ -193,6 +212,42 @@ model DispatchMessage {
   reconciledBy      AdminUser? @relation("DispatchReconciler", fields: [reconciledById], references: [id], onDelete: SetNull)
 
   @@index([rideId, createdAt])
+  @@index([status, createdAt])
+  @@index([rideId, dispatchRecipient, status])
+}
+
+model SmsConversation {
+  id           String       @id @default(cuid())
+  phone        String       @unique
+  unreadCount  Int          @default(0)
+  optedOutAt   DateTime?
+  lastMessageAt DateTime    @default(now())
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  messages     SmsMessage[]
+
+  @@index([lastMessageAt])
+}
+
+model SmsMessage {
+  id                String          @id @default(cuid())
+  conversationId    String
+  direction         String
+  providerMessageId String?         @unique
+  fromPhone         String
+  toPhone           String
+  body              String
+  status            String          @default("RECEIVED")
+  providerStatus    String?
+  deliveryStatus    String?
+  errorMessage      String?
+  adminId           String?
+  adminName         String?
+  createdAt         DateTime        @default(now())
+  conversation      SmsConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  admin             AdminUser?      @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
   @@index([status, createdAt])
 }
 
