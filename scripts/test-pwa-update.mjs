@@ -73,5 +73,13 @@ assert.equal(successfulInstall.error, null);
 assert.equal(successfulInstall.skipWaitingCalls, 1);
 assert(successfulInstall.cached.some(url => url.endsWith("/assets/app.js")));
 assert(successfulInstall.cached.some(url => url.endsWith("/assets/app.css")));
+for (const font of [
+  "bodoni-moda-latin.woff2",
+  "bodoni-moda-latin-ext.woff2",
+  "bodoni-moda-italic-latin.woff2",
+  "bodoni-moda-italic-latin-ext.woff2",
+]) {
+  assert(successfulInstall.cached.some(url => url.endsWith(`/fonts/${font}`)), `The PWA app shell must cache ${font}.`);
+}
 
 console.log("PWA service-worker lifecycle checks passed.");

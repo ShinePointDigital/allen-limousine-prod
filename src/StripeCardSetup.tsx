@@ -146,7 +146,7 @@ function SetupForm({ clientSecret, setupIntentId, customerId, setupToken, fullNa
         style: {
           base: {
             color: "#f2eee5",
-            fontFamily: "Inter, system-ui, sans-serif",
+            fontFamily: "Bodoni Moda, Georgia, serif",
             fontSize: "15px",
             "::placeholder": { color: "#777b73" },
             iconColor: "#c9a56a",
@@ -183,6 +183,9 @@ export default function StripeCardSetup({ fullName, email, savedPayment, onSaved
   }) : null, [config?.publishableKey]);
   const elementsOptions = useMemo<StripeElementsOptions | undefined>(() => intent ? ({
     clientSecret: intent.clientSecret,
+    fonts: [{
+      cssSrc: "https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..900&display=swap",
+    }],
     appearance: {
       theme: "night",
       variables: {
@@ -190,7 +193,7 @@ export default function StripeCardSetup({ fullName, email, savedPayment, onSaved
         colorBackground: "#171916",
         colorText: "#f2eee5",
         colorDanger: "#ff9d94",
-        fontFamily: "Inter, system-ui, sans-serif",
+        fontFamily: "Bodoni Moda, Georgia, serif",
         borderRadius: "0px",
       },
     },

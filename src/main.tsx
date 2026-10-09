@@ -15,6 +15,7 @@ import "./tracking-recovery.css";
 import "./pwa-gate.css";
 import "./pwa-navigation.css";
 import "./bloom.css";
+import "./global-font.css";
 
 declare const __ALLAN_BUILD_ID__: string;
 const LEGACY_SERVICE_WORKER_RESET = "allan-sw-reset-2026-09-v6";
