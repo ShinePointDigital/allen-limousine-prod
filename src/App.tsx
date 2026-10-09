@@ -136,7 +136,6 @@ function Home() {
           <p className="hero-description">{content.siteContent.heroDescription}</p>
           <div className="hero-ctas"><a href="#reserve" className="solid-button">Arrange your chauffeur <ArrowUpRight /></a></div>
         </div>
-        <div className="hero-side"><span className="vertical-label">PRIVATE CHAUFFEUR SERVICE</span></div>
       </div>
       <div className="hero-bottom hero-stats"><span><b>ORD · MDW</b> Every arrival</span><span><b>Chicago</b> And beyond</span><span><b>Private</b> By design</span></div>
     </section>
@@ -153,7 +152,7 @@ function Home() {
       </div>
     </section>
     <section id="services" className="services-section section-pad">
-      <div className="section-heading services-heading"><div><p className="eyebrow brass">The way we move</p><h2>Every mile,<br /><em>considered.</em></h2></div><div className="section-aside"><p>A private service calibrated to the rhythm of the city—and the people who have places to be.</p><a className="text-button services-booking-link" href="#reserve">Book your service <ArrowUpRight /></a></div></div>
+      <div className="section-heading services-heading"><div><h2>Every mile,<br /><em>considered.</em></h2></div></div>
        <div className="service-list">{content.services.slice(0, 3).map((service, index) => {
          const serviceTitle = index === 0 ? "Executive Travel" : index === 1 ? "Airport Transfers" : "Evenings & Events";
          const serviceImage = index === 0 ? "/images/service-executive-downtown.jpg" : index === 1 ? "/images/service-airport-terminal.jpg" : "/images/service-evening-chicago.jpg";

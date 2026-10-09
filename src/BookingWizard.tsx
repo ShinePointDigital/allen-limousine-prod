@@ -569,7 +569,7 @@ export default function BookingWizard() {
 
   return <section id="reserve" className="booking-wizard-section section-pad">
     <div className="wizard-shell">
-       <header className="wizard-header"><div><p className="eyebrow brass">{isPrivateFBO ? "Private aviation coordination" : "Book your chauffeur"}</p><h2>{["Where are you going?", "Choose your vehicle", "Schedule your ride", "Review & payment"][step - 1]}</h2></div><span>0{step} / 04</span></header>
+       <header className="wizard-header"><div>{isPrivateFBO && <p className="eyebrow brass">Private aviation coordination</p>}<h2>{["Where are you going?", "Choose your vehicle", "Schedule your ride", "Review & payment"][step - 1]}</h2></div></header>
        <div className="wizard-account-reminder">{customerIdentity.status === "signed-in" && customerIdentity.user ? <>Signed in as <b>{customerIdentity.user.name}</b><Link to="/account">My bookings <ArrowRight /></Link></> : customerIdentity.status === "error" ? <>Account check failed: {customerIdentity.message}<button type="button" onClick={() => setCustomerIdentityRetry(value => value + 1)}>Retry</button></> : customerIdentity.status === "checking" ? "Checking customer account…" : <>Already have a booking account? <Link to="/account/login">Sign in to view reservations <ArrowRight /></Link></>}</div>
       <nav className="wizard-progress" aria-label="Booking progress">{[1, 2, 3, 4].map(number => <i key={number} className={number <= step ? "active" : ""} />)}</nav>
       <main className="wizard-body">
