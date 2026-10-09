@@ -27,6 +27,7 @@
 
 :root {
   --font-global: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --font-booking-input: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-body: var(--font-global);
   --font-display: var(--font-global);
   --serif: var(--font-global);
@@ -40,4 +41,29 @@ body *::after {
   font-family: var(--font-global) !important;
   font-style: italic !important;
   font-weight: 600 !important;
+}
+
+/* Customer-entered booking controls use a standard upright system font. */
+.booking-wizard-section :is(input, select, textarea),
+.reservation-form :is(input, select, textarea),
+.pwa-onboarding :is(input, select, textarea) {
+  font-family: var(--font-booking-input) !important;
+  font-style: normal !important;
+  font-weight: 400 !important;
+}
+
+.booking-wizard-section :is(input, textarea)::placeholder,
+.reservation-form :is(input, textarea)::placeholder,
+.pwa-onboarding :is(input, textarea)::placeholder {
+  font-family: var(--font-booking-input) !important;
+  font-style: normal !important;
+  font-weight: 400 !important;
+}
+
+.booking-wizard-section option,
+.reservation-form option,
+.pwa-onboarding option {
+  font-family: var(--font-booking-input) !important;
+  font-style: normal !important;
+  font-weight: 400 !important;
 }
