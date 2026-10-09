@@ -8,6 +8,7 @@ type LegalPageProps = { document: LegalDocument };
 
 export default function LegalPage({ document }: LegalPageProps) {
   const location = useLocation();
+  const updated = document.updated || LEGAL_UPDATED;
 
   useEffect(() => {
     const previousTitle = window.document.title;
@@ -48,7 +49,7 @@ export default function LegalPage({ document }: LegalPageProps) {
           <p className="legal-eyebrow"><span /> Allan Limousine / Legal</p>
           <h1 id="legal-title">{document.title}</h1>
           <p className="legal-introduction">{document.introduction}</p>
-           <p className="legal-updated">Last updated <time dateTime="2026-10-06">{LEGAL_UPDATED}</time></p>
+           <p className="legal-updated">Last updated <time dateTime={updated.dateTime}>{updated.label}</time></p>
         </div>
         <div className="legal-masthead-index" aria-hidden="true">AL <i>/</i> CHI</div>
       </section>

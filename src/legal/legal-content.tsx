@@ -4,9 +4,11 @@ import { Link } from "react-router-dom";
 export const LEGAL_BUSINESS = "Allen Express, LLC";
 export const LEGAL_PHONE = "312-899-6718";
 export const LEGAL_PHONE_HREF = "tel:+13128996718";
-export const LEGAL_UPDATED = "October 6, 2026";
+export const LEGAL_UPDATED = { dateTime: "2026-10-06", label: "October 6, 2026" };
+export const SMS_OPT_IN_CONFIRMATION = "Allen Express, LLC (dba Allan Limousine): You are now opted in to SMS updates. Msg frequency varies. Msg & data rates may apply. Reply HELP for assistance, or STOP to opt out.";
+export const SMS_HELP_CONFIRMATION = "Allen Express, LLC support: For assistance, visit allanlimousine.com or call 312-899-6718. Reply STOP to opt out. Msg & Data Rates May Apply";
 export type LegalSection = { id: string; title: string; content: ReactNode; highlight?: boolean };
-export type LegalDocument = { title: string; introduction: string; sections: LegalSection[] };
+export type LegalDocument = { title: string; introduction: string; sections: LegalSection[]; updated?: { dateTime: string; label: string } };
 const contact = <a href={LEGAL_PHONE_HREF}>{LEGAL_PHONE}</a>;
 
 export const privacyDocument: LegalDocument = {
@@ -54,6 +56,7 @@ export const privacyDocument: LegalDocument = {
 export const termsDocument: LegalDocument = {
   title: "Terms and Conditions",
   introduction: "Please review these terms before using our website or arranging transportation. They explain our services, reservation responsibilities, and SMS program.",
+  updated: { dateTime: "2026-10-08", label: "October 8, 2026" },
   sections: [
     { id: "agreement", title: "Agreement & operator", content: <p>These terms govern your use of Allan Limousine's website and services, operated by Allen Express, LLC, registered in Illinois, United States. By using the website or booking services, you agree to these terms and any specific conditions disclosed and accepted for your reservation. If you do not agree, do not use the services. Our <Link to="/privacy">Privacy Policy</Link> explains our information practices.</p> },
     { id: "reservations", title: "Reservations & customer responsibilities", content: <>
@@ -73,6 +76,8 @@ export const termsDocument: LegalDocument = {
       <li><strong>Opt out:</strong> Reply <strong>STOP</strong> to any Allan Limousine SMS to unsubscribe. You may receive a final opt-out confirmation, after which further program messages will stop unless you opt in again. Opting out does not cancel a reservation.</li>
       <li><strong>Help:</strong> Reply <strong>HELP</strong> for assistance, or call our support team at {contact}.</li>
       <li><strong>Rejoin:</strong> Reply <strong>START</strong> to opt back in where supported, or contact us for assistance.</li></ul>
+      <p><strong>Opt-In Confirmation Message:</strong> {SMS_OPT_IN_CONFIRMATION}</p>
+      <p><strong>Help Confirmation Message:</strong> {SMS_HELP_CONFIRMATION}</p>
       <p>Use only a number you own or are authorized to use, and notify us if it changes. Delivery is subject to carrier and network availability and is not guaranteed. Carriers are not liable for delayed or undelivered messages. Do not rely on SMS for emergencies or time-critical changes; contact our team directly.</p>
       <p>Mobile information and SMS opt-in data will not be shared with third parties or affiliates for marketing purposes. See the <Link to="/privacy#sms-privacy">SMS privacy section</Link> of our Privacy Policy.</p>
     </> },

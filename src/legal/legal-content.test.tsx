@@ -3,7 +3,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { LEGAL_BUSINESS, LEGAL_PHONE, LEGAL_PHONE_HREF, privacyDocument, termsDocument, type LegalDocument } from "./legal-content";
+import { LEGAL_BUSINESS, LEGAL_PHONE, LEGAL_PHONE_HREF, privacyDocument, SMS_HELP_CONFIRMATION, SMS_OPT_IN_CONFIRMATION, termsDocument, type LegalDocument } from "./legal-content";
 
 const render = (document: LegalDocument) => renderToStaticMarkup(createElement(MemoryRouter, null,
   createElement("article", null, ...document.sections.map(section => createElement("section", { id: section.id, key: section.id }, section.content)))));
@@ -27,6 +27,14 @@ test("SMS terms disclose variable frequency, message and data rates, STOP, HELP 
   const html = render(termsDocument);
   for (const text of ["Message frequency varies", "Message and data rates may apply", "STOP", "HELP", "START", "not a condition of purchasing services", LEGAL_PHONE]) assert.ok(html.includes(text), text);
   assert.ok(html.includes(`href="${LEGAL_PHONE_HREF}"`));
+});
+
+test("terms publish the exact approved SMS opt-in and help confirmation messages", () => {
+  const html = render(termsDocument);
+  assert.ok(html.includes(SMS_OPT_IN_CONFIRMATION.replace(/&/g, "&amp;")));
+  assert.ok(html.includes(SMS_HELP_CONFIRMATION.replace(/&/g, "&amp;")));
+  assert.deepEqual(termsDocument.updated, { dateTime: "2026-10-08", label: "October 8, 2026" });
+  assert.equal(privacyDocument.updated, undefined);
 });
 
 test("legal documents use the provided entity, Illinois jurisdiction and dedicated contact", () => {
