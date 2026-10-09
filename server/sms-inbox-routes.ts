@@ -6,7 +6,6 @@ import { createSmsReplyAttempt, finishSmsReplyAttempt, getSmsMessageByProviderId
 import { classifyTwilioMessageStatus, findDriverDispatchSms, getDriverDispatchSms, normalizeTwilioPhone, sendSms, twilioPhonesEqual, TwilioRequestError, validTwilioSignature } from "./twilio.js";
 
 type Options = {
-  inboundOnly?: boolean;
   admin: RequestHandler;
   publicOrigin: (request: Request) => string;
   sendReply?: typeof sendSms;
@@ -55,8 +54,6 @@ export function createSmsInboxRouter(options: Options) {
       return res.status(503).json({ error: "The incoming message could not be saved. Twilio should retry delivery." });
     }
   });
-
-  if (options.inboundOnly) return router;
 
   router.get("/api/admin/sms/inbox", options.admin, async (_req, res) => {
     try { res.json({ conversations: await listSmsConversations() }); }

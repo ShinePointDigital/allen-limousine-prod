@@ -1,6 +1,7 @@
 export const ACCESS_OPTIONS = [
   { key: "dashboard", label: "Overview", description: "Booking summaries, activity and financial totals." },
   { key: "rides", label: "Rides & dispatch", description: "Assign vehicles, dispatch chauffeurs and update trips." },
+  { key: "sms", label: "SMS inbox", description: "Read and reply to customer and chauffeur SMS conversations; honor opt-outs." },
   { key: "inquiries", label: "Inquiries", description: "Read and manage customer inquiries and internal notes." },
   { key: "services", label: "Services", description: "Add, edit and remove service offerings." },
   { key: "fleet", label: "Fleet", description: "Add, edit and remove vehicles and driver defaults." },
@@ -33,6 +34,7 @@ export function canEditAccount(actor: AccountAccess, target: AccountAccess) {
 }
 // Staff account management and personal session controls are role-based.
 export function requiredAccess(method: string, path: string): Permission[] | null {
+  if (method === "GET" && /^\/api\/flights\/[^/]+$/.test(path)) return ["rides"];
   if (/^\/api\/admin\/(session|sessions(?:\/others)?|users(?:\/[^/]+(?:\/(?:password-reset|password))?)?)$/.test(path)) return [];
   if (path === "/api/admin/company-profile") return method === "GET" ? [] : ["settings"];
   if (path === "/api/admin/content") return ["services", "fleet", "content"];
@@ -41,6 +43,7 @@ export function requiredAccess(method: string, path: string): Permission[] | nul
   if (path.startsWith("/api/admin/content/fleet")) return ["fleet"];
   if (path === "/api/admin/dashboard") return ["dashboard"];
   if (path.startsWith("/api/admin/payments/")) return ["payments"];
+  if (path.startsWith("/api/admin/sms/")) return ["sms"];
   if (method === "POST" && /^\/api\/admin\/rides\/[^/]+\/capture$/.test(path)) return ["rides", "payments"];
   if (path.startsWith("/api/admin/rides")) return ["rides"];
   if (path.startsWith("/api/admin/bookings/") || path.startsWith("/api/admin/chauffeurs")) return ["rides"];

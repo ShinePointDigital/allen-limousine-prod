@@ -15,6 +15,7 @@ import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "
 import { createAdminRecoveryRouter } from "./admin-recovery-routes.js";
 import { accountLoginLimiter, createAccountRouter, staffGuard } from "./account-routes.js";
 import { hasAccess } from "../shared/access.js";
+import { createFlightRouter } from "./flight-routes.js";
 import { createSmsInboxRouter } from "./sms-inbox-routes.js";
 import { smsRecipientOptedOut, updateSmsDeliveryStatus } from "./sms-inbox-store.js";
 import { gratuitySelectionSchema, storedAuthorizationAmount } from "../shared/gratuity.js";
@@ -736,6 +737,7 @@ app.get("/api/flight-lookup", publicReadLimiter, async (req, res) => {
   const result = await getFlightLookup(parsed.data.flightNumber);
   res.json(result ? result : { found: false });
 });
+app.use("/api/flights", createFlightRouter());
 app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
   const parsed = inquirySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Please check the highlighted fields and try again.", fields: parsed.error.flatten().fieldErrors });
@@ -870,7 +872,7 @@ app.post("/api/admin/login", accountLoginLimiter, async (req, res) => {
 app.get("/api/admin/session", admin, (_req, res) => res.json({ user: res.locals.user }));
 app.use(createAdminRecoveryRouter({ admin, superAdmin, origin: publicOrigin }));
 app.use(createAccountRouter());
-app.use(createSmsInboxRouter({ admin, publicOrigin, inboundOnly: true }));
+app.use(createSmsInboxRouter({ admin, publicOrigin }));
 const driverTrips = new DriverTripService(captureAuthorizedPayment);
 app.use("/driver/trip", (_req, res, next) => {
   res.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow" });
