@@ -67,6 +67,15 @@ model Inquiry {
   airportTerminal   String?
   flightNumber      String?
   flightScheduledAt DateTime?
+  airlineName       String?
+  flightStatus      String?
+  arrivalTime       DateTime?
+  departureTime     DateTime?
+  arrivalTerminal   String?
+  departureTerminal String?
+  baggageBelt       String?
+  flightUpdatedAt   DateTime?
+  flightDetails     Json?
   pickupPreference  String?
   isPrivateFBO      Boolean             @default(false)
   specificTailNumber String?
@@ -81,6 +90,9 @@ model Inquiry {
   promoCode          String?
   promoDiscountCents Int?
   grossFareCents     Int?
+  gratuitySelection Json?
+  gratuityCents     Int                 @default(0)
+  authorizedTotalCents Int?
   bookingRequestId   String?             @unique
   bookingRequestFingerprint String?
   trackingTokenHash        String?             @unique
@@ -156,6 +168,10 @@ model Ride {
   driverId         String?
   driver           Chauffeur?        @relation(fields: [driverId], references: [id], onDelete: SetNull)
   inquiryId        String            @unique
+  driverAccessNonce String?
+  driverAccessTokenHash String?       @unique
+  driverAccessExpiresAt DateTime?
+  driverAccessAssignment String?
   vehicleId        String?
   status           String            @default("UNASSIGNED")
   driverName       String?
@@ -181,13 +197,15 @@ model Ride {
 }
 
 model Chauffeur {
-  id        String   @id @default(cuid())
-  name      String
-  phone     String   @unique
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  rides     Ride[]
+  id             String       @id @default(cuid())
+  name           String
+  phone          String       @unique
+  fleetVehicleId String?      @unique
+  fleetVehicle   FleetVehicle? @relation(fields: [fleetVehicleId], references: [id], onDelete: Restrict)
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  rides          Ride[]
 }
 
 model DispatchMessage {
@@ -279,6 +297,7 @@ model FleetVehicle {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   rides       Ride[]
+  chauffeur   Chauffeur?
 
   @@index([active, sortOrder])
 }

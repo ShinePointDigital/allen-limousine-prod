@@ -20,8 +20,15 @@ export type DispatchWizardSnapshot = {
   step: DispatchWizardStep;
   completed: boolean;
   blocked: string | null;
-  drivers: { id: string; name: string; phone: string; available: boolean }[];
-  vehicles: { id: string; name: string; category: string; available: boolean }[];
+  drivers: {
+    id: string; name: string; phone: string; fleetVehicleId: string | null;
+    vehicleName: string | null; vehicleCategory: string | null;
+    available: boolean; pairable: boolean;
+  }[];
+  vehicles: {
+    id: string; name: string; category: string;
+    pairedToDriverId: string | null; available: boolean; pairable: boolean;
+  }[];
   assignment: { rideId: string | null; driverId: string | null; driverName: string | null; driverPhone: string | null; vehicleId: string | null; vehicleName: string | null };
   messages: { driver: WizardSmsPreview; customer: WizardSmsPreview };
 };

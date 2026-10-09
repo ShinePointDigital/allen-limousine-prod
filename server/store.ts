@@ -3,12 +3,14 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { applicationDatabaseUrl } from "./database-config.js";
+import { bookingAmounts, gratuitySelectionSchema, type GratuitySelection } from "../shared/gratuity.js";
 import { bookingHasSmsConsent, smsConsentAuditBody, SMS_CONSENT_AUTHOR } from "../shared/sms-consent.js";
+import type { BookingFlightMetadata, FlightInfo } from "../shared/flight.js";
 import { ALL_PERMISSIONS, canCreateAccount, canEditAccount, effectivePermissions, isStaff, type AccountAccess, type Permission, type Role } from "../shared/access.js";
 
 export type InquiryStatus = "PAYMENT_PENDING" | "NEW" | "CONTACTED" | "CONFIRMED" | "COMPLETED" | "CANCELLED";
 export type RideStatus = "UNASSIGNED" | "ASSIGNED" | "EN_ROUTE" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
-export type Inquiry = {
+export type Inquiry = BookingFlightMetadata & {
   id: string; fullName: string; email: string; phone: string; serviceType: string;
   customerUserId?: string | null;
   smsConsent?: boolean;
@@ -21,6 +23,7 @@ export type Inquiry = {
   estimatedMinutes?: number | null; rideTiming?: string | null;
   promoCode?: string | null; promoDiscountCents?: number | null;
   grossFareCents?: number | null; bookingRequestId?: string | null; bookingRequestFingerprint?: string | null;
+  gratuitySelection?: GratuitySelection | null; gratuityCents?: number; authorizedTotalCents?: number | null;
   trackingTokenHash?: string | null; trackingExpiresAt?: string | null;
   stripeCustomerId?: string | null; stripePaymentMethodId?: string | null;
   stripePaymentIntentId?: string | null; paymentStatus?: string | null;
@@ -35,7 +38,8 @@ export type Ride = {
   quoteCents: number; depositCents: number; collectedCents: number; expenseCents: number;
   dispatchNotes: string | null; createdAt: string; updatedAt: string;
   inquiry: Pick<Inquiry, "fullName" | "serviceType" | "pickupAt" | "pickup" | "destination" | "passengers" | "notes" | "isPrivateFBO" | "specificTailNumber" | "principalName" | "fboName" | "tarmacInstructions">
-    & Partial<Pick<Inquiry, "email" | "estimatedFareCents" | "bookingRequestId" | "stripePaymentIntentId" | "paymentStatus">>;
+    & BookingFlightMetadata
+    & Partial<Pick<Inquiry, "email" | "estimatedFareCents" | "grossFareCents" | "promoDiscountCents" | "gratuityCents" | "authorizedTotalCents" | "bookingRequestId" | "stripePaymentIntentId" | "paymentStatus">>;
   vehicle: Pick<FleetVehicle, "id" | "name" | "category" | "active"> | null;
   dispatchMessages: DispatchActivity[];
 };
@@ -118,7 +122,7 @@ const demoAdmins: DemoAdmin[] = [fallbackAdmin];
 const sessions = new Map<string, { id: string; userId: string; expiresAt: number; createdAt: number }>();
 
 export async function initializeStore() {
-  if (production && !databaseConfigured) throw new Error("DATABASE_URL is required in production.");
+  if (production && !databaseConfigured) throw new Error("A database connection is required in production.");
   if (!databaseConfigured) return;
   await prisma.$connect();
   const [serviceCount, fleetCount] = await Promise.all([prisma.service.count(), prisma.fleetVehicle.count()]);
@@ -177,7 +181,37 @@ export async function updateCompanyProfile(values: CompanyProfile): Promise<Comp
   })));
   return { ...values };
 }
-const mapInquiry = (item: any): Inquiry => ({ ...item, smsConsent: bookingHasSmsConsent(item.inquiryNotes || [], item.phone), pickupAt: item.pickupAt.toISOString(), flightScheduledAt: item.flightScheduledAt?.toISOString() || null, trackingExpiresAt: item.trackingExpiresAt?.toISOString() || null, createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(), history: (item.inquiryNotes || []).map((note: any) => ({ body: note.body, author: note.author?.name || note.authorName || "Deleted staff", createdAt: note.createdAt.toISOString() })) });
+const flightMetadata = (item: any): BookingFlightMetadata => ({
+  flightNumber: item.flightNumber || null, airportCode: item.airportCode || null,
+  flightScheduledAt: item.flightScheduledAt instanceof Date ? item.flightScheduledAt.toISOString() : item.flightScheduledAt || null,
+  airlineName: item.airlineName || null, flightStatus: item.flightStatus || null,
+  arrivalTime: item.arrivalTime instanceof Date ? item.arrivalTime.toISOString() : item.arrivalTime || null,
+  departureTime: item.departureTime instanceof Date ? item.departureTime.toISOString() : item.departureTime || null,
+  arrivalTerminal: item.arrivalTerminal || null, departureTerminal: item.departureTerminal || null,
+  baggageBelt: item.baggageBelt || null,
+  flightUpdatedAt: item.flightUpdatedAt instanceof Date ? item.flightUpdatedAt.toISOString() : item.flightUpdatedAt || null,
+  flightDetails: item.flightDetails || null,
+});
+const mapInquiry = (item: any): Inquiry => ({ ...item, ...flightMetadata(item), smsConsent: bookingHasSmsConsent(item.inquiryNotes || [], item.phone), pickupAt: item.pickupAt.toISOString(), trackingExpiresAt: item.trackingExpiresAt?.toISOString() || null, createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(), history: (item.inquiryNotes || []).map((note: any) => ({ body: note.body, author: note.author?.name || note.authorName || "Deleted staff", createdAt: note.createdAt.toISOString() })) });
+
+export async function saveBookingFlightMetadata(inquiryId: string, expectedFlightNumber: string, flight: FlightInfo) {
+  const values = {
+    airlineName: flight.airlineName, flightStatus: flight.flightStatus,
+    arrivalTime: flight.arrivalTime ? new Date(flight.arrivalTime) : null,
+    departureTime: flight.departureTime ? new Date(flight.departureTime) : null,
+    arrivalTerminal: flight.arrivalTerminal, departureTerminal: flight.departureTerminal,
+    baggageBelt: flight.baggageBelt, flightUpdatedAt: new Date(flight.fetchedAt),
+    flightDetails: flight as unknown as Prisma.InputJsonValue,
+  };
+  if (!databaseConfigured) {
+    const item = inquiries.find(item => item.id === inquiryId && item.flightNumber === expectedFlightNumber);
+    if (!item) return false;
+    Object.assign(item, values, { arrivalTime: flight.arrivalTime, departureTime: flight.departureTime, flightUpdatedAt: flight.fetchedAt, flightDetails: flight });
+    return true;
+  }
+  const result = await prisma.inquiry.updateMany({ where: { id: inquiryId, flightNumber: expectedFlightNumber }, data: values });
+  return result.count === 1;
+}
 export async function getInquiries() {
   if (!databaseConfigured) return inquiries.filter(item => item.status !== "PAYMENT_PENDING").sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
   return (await prisma.inquiry.findMany({ where: { status: { not: "PAYMENT_PENDING" } }, include: { inquiryNotes: { include: { author: true }, orderBy: { createdAt: "asc" } } }, orderBy: { createdAt: "desc" } })).map(mapInquiry);
@@ -290,8 +324,9 @@ export async function consumeStripeSetupSession(tokenHash: string, expected: {
   if (result.count !== 1) return null;
   return prisma.stripeSetupSession.findUnique({ where: { tokenHash } });
 }
-export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "createdAt" | "updatedAt" | "history">) {
-  const { smsConsent = false, ...bookingInput } = input;
+export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "createdAt" | "updatedAt" | "history" | keyof Omit<BookingFlightMetadata, "flightNumber" | "flightScheduledAt" | "airportCode">> & { expectedAuthorizedTotalCents?: number }) {
+  const { smsConsent = false, expectedAuthorizedTotalCents, gratuitySelection: rawSelection, ...bookingInput } = input;
+  const gratuitySelection = gratuitySelectionSchema.parse(rawSelection ?? { kind: "none" });
   if (databaseConfigured) {
     if (input.bookingRequestId) {
       const existing = await prisma.inquiry.findUnique({ where: { bookingRequestId: input.bookingRequestId }, include: { inquiryNotes: { include: { author: true } } } });
@@ -304,8 +339,12 @@ export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "created
         select: { id: true },
       }) : null;
       const promoDiscountCents = welcomePromo && !priorPromo ? Math.min(1500, input.grossFareCents || 0) : 0;
+      const amounts = bookingAmounts(input.grossFareCents ?? input.estimatedFareCents ?? 0, promoDiscountCents, gratuitySelection, expectedAuthorizedTotalCents);
       const canonicalInput = {
         ...bookingInput,
+        gratuitySelection,
+        gratuityCents: amounts.gratuityCents,
+        authorizedTotalCents: input.grossFareCents != null || input.estimatedFareCents != null ? amounts.authorizedTotalCents : null,
         promoCode: promoDiscountCents > 0 ? "WELCOME15" : null,
         promoDiscountCents,
         estimatedFareCents: input.grossFareCents != null ? input.grossFareCents - promoDiscountCents : null,
@@ -326,9 +365,10 @@ export async function addInquiry(input: Omit<Inquiry, "id" | "status" | "created
   const welcomePromo = !input.isPrivateFBO && (input.promoCode === "WELCOME15" || input.promoCode === "FIRST15");
   const priorPromo = welcomePromo && inquiries.some(item => item.status !== "PAYMENT_PENDING" && (item.promoCode === "WELCOME15" || item.promoCode === "FIRST15") && (item.email === input.email || item.phone === input.phone));
   const promoDiscountCents = welcomePromo && !priorPromo ? Math.min(1500, input.grossFareCents || 0) : 0;
+  const amounts = bookingAmounts(input.grossFareCents ?? input.estimatedFareCents ?? 0, promoDiscountCents, gratuitySelection, expectedAuthorizedTotalCents);
   const now = new Date().toISOString();
   const paymentPending = input.paymentStatus === "authorization_pending";
-  const inquiry: Inquiry = { ...bookingInput, smsConsent, promoCode: promoDiscountCents ? "WELCOME15" : null, promoDiscountCents, estimatedFareCents: input.grossFareCents != null ? input.grossFareCents - promoDiscountCents : null, id: `inq-${crypto.randomUUID().slice(0, 8)}`, status: paymentPending ? "PAYMENT_PENDING" : "NEW", createdAt: now, updatedAt: now, history: [{ body: smsConsentAuditBody(smsConsent, input.phone), author: SMS_CONSENT_AUTHOR, createdAt: now }] };
+  const inquiry: Inquiry = { ...bookingInput, smsConsent, gratuitySelection, gratuityCents: amounts.gratuityCents, authorizedTotalCents: input.grossFareCents != null || input.estimatedFareCents != null ? amounts.authorizedTotalCents : null, promoCode: promoDiscountCents ? "WELCOME15" : null, promoDiscountCents, estimatedFareCents: input.grossFareCents != null ? input.grossFareCents - promoDiscountCents : null, id: `inq-${crypto.randomUUID().slice(0, 8)}`, status: paymentPending ? "PAYMENT_PENDING" : "NEW", createdAt: now, updatedAt: now, history: [{ body: smsConsentAuditBody(smsConsent, input.phone), author: SMS_CONSENT_AUTHOR, createdAt: now }] };
   inquiries.unshift(inquiry);
   if (!paymentPending && input.isPrivateFBO) rides.push({ id: `ride-${crypto.randomUUID().slice(0, 8)}`, inquiryId: inquiry.id, status: "UNASSIGNED", driverName: null, driverPhone: null, vehicleId: null, driverLatitude: null, driverLongitude: null, driverHeading: null, locationUpdatedAt: null, quoteCents: inquiry.estimatedFareCents || 0, depositCents: 0, collectedCents: 0, expenseCents: 0, dispatchNotes: null, createdAt: now, updatedAt: now, inquiry: { fullName: inquiry.fullName, serviceType: inquiry.serviceType, pickupAt: inquiry.pickupAt, pickup: inquiry.pickup, destination: inquiry.destination, passengers: inquiry.passengers, notes: inquiry.notes, isPrivateFBO: true, specificTailNumber: inquiry.specificTailNumber, principalName: inquiry.principalName, fboName: inquiry.fboName, tarmacInstructions: inquiry.tarmacInstructions }, vehicle: null, dispatchMessages: [] });
   if (!paymentPending) notifications.unshift({ id: `notification-${crypto.randomUUID().slice(0, 8)}`, type: "NEW_INQUIRY", title: "New reservation request", body: `${input.fullName} requested ${input.serviceType}.`, inquiryId: inquiry.id, readAt: null, createdAt: now });
@@ -543,6 +583,7 @@ const mapRide = (item: any): Ride => ({
   createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : item.createdAt,
   updatedAt: item.updatedAt instanceof Date ? item.updatedAt.toISOString() : item.updatedAt,
   inquiry: {
+    ...flightMetadata(item.inquiry),
     fullName: item.inquiry.fullName,
     email: item.inquiry.email,
     serviceType: item.inquiry.serviceType,
@@ -557,6 +598,10 @@ const mapRide = (item: any): Ride => ({
     fboName: item.inquiry.fboName,
     tarmacInstructions: item.inquiry.tarmacInstructions,
     estimatedFareCents: item.inquiry.estimatedFareCents,
+    grossFareCents: item.inquiry.grossFareCents,
+    promoDiscountCents: item.inquiry.promoDiscountCents,
+    gratuityCents: item.inquiry.gratuityCents ?? 0,
+    authorizedTotalCents: item.inquiry.authorizedTotalCents ?? null,
     bookingRequestId: item.inquiry.bookingRequestId,
     stripePaymentIntentId: item.inquiry.stripePaymentIntentId,
     paymentStatus: item.inquiry.paymentStatus,
@@ -584,6 +629,7 @@ const hydrateMemoryRide = (ride: Ride) => {
     ...ride,
     inquiry: {
       ...ride.inquiry,
+      ...flightMetadata(inquiry),
       email: inquiry.email,
       estimatedFareCents: inquiry.estimatedFareCents,
       bookingRequestId: inquiry.bookingRequestId,
@@ -685,7 +731,10 @@ export async function updateRide(id: string, data: RideUpdate) {
       if (next.vehicleId && !await tx.fleetVehicle.findFirst({ where: { id: next.vehicleId, active: true } })) throw new Error("Choose an active vehicle from the fleet.");
       if (next.status === "UNASSIGNED" && (next.vehicleId || next.driverName || next.driverPhone)) throw new Error("Confirm the vehicle and driver together to assign this ride.");
       if (next.status !== "UNASSIGNED" && !["CANCELLED", "COMPLETED"].includes(next.status) && (!next.vehicleId || !next.driverName)) throw new Error("Assign a vehicle and chauffeur before advancing this ride.");
-       const result = await tx.ride.update({ where: { id }, data, include: { inquiry: true, vehicle: true, dispatchMessages: { include: { admin: { select: { name: true } }, reconciledBy: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 10 } } });
+       const assignmentChanged = (["vehicleId", "driverName", "driverPhone"] as const).some(key => data[key] !== undefined && data[key] !== current[key]);
+       const result = await tx.ride.update({ where: { id }, data: { ...data, ...(assignmentChanged ? {
+         driverAccessNonce: null, driverAccessTokenHash: null, driverAccessExpiresAt: null, driverAccessAssignment: null,
+       } : {}) }, include: { inquiry: true, vehicle: true, dispatchMessages: { include: { admin: { select: { name: true } }, reconciledBy: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 10 } } });
       if (data.status === "COMPLETED" || data.status === "CANCELLED") await tx.inquiry.update({ where: { id: current.inquiryId }, data: { status: data.status } });
       else if (data.status && ["COMPLETED", "CANCELLED"].includes(result.inquiry.status)) await tx.inquiry.update({ where: { id: current.inquiryId }, data: { status: "CONFIRMED" } });
       return mapRide(result);
@@ -985,7 +1034,7 @@ export async function deleteStaffAccount(id: string, actor: AccountAccess) {
 }
 
 export async function getCustomerBookings(customerUserId: string) {
-  const select = { id: true, serviceType: true, pickupAt: true, pickup: true, destination: true, passengers: true, status: true, estimatedFareCents: true, paymentStatus: true, createdAt: true, ride: { select: { status: true } } } as const;
+  const select = { id: true, serviceType: true, pickupAt: true, pickup: true, destination: true, passengers: true, status: true, estimatedFareCents: true, gratuityCents: true, authorizedTotalCents: true, paymentStatus: true, createdAt: true, ride: { select: { status: true } } } as const;
   const records = databaseConfigured
     ? await prisma.inquiry.findMany({ where: { customerUserId, status: { not: "PAYMENT_PENDING" } }, select, orderBy: { createdAt: "desc" } })
     : inquiries.filter(item => item.customerUserId === customerUserId && item.status !== "PAYMENT_PENDING").map(item => ({ ...item, ride: rides.find(ride => ride.inquiryId === item.id) }));
@@ -993,6 +1042,8 @@ export async function getCustomerBookings(customerUserId: string) {
     id: item.id, reference: item.id.slice(-6).toUpperCase(), serviceType: item.serviceType,
     pickupAt: item.pickupAt, pickup: item.pickup, destination: item.destination, passengers: item.passengers,
     status: item.ride?.status || item.status, fareCents: item.estimatedFareCents ?? null,
+    gratuityCents: item.gratuityCents ?? 0,
+    authorizedTotalCents: item.authorizedTotalCents ?? (item.estimatedFareCents == null ? null : item.estimatedFareCents + (item.gratuityCents ?? 0)),
     paymentStatus: item.paymentStatus ?? null, createdAt: item.createdAt,
   }));
 }

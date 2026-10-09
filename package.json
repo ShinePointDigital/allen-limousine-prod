@@ -11,6 +11,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy:development": "tsx scripts/migrate-development.ts --development-database",
     "test:dispatch-wizard": "tsx --test server/dispatch-wizard.test.ts",
+    "test:chauffeur-pairing": "tsx --test shared/chauffeur-pairing.test.ts",
+    "test:chauffeur-pairing-browser": "tsx scripts/test-chauffeur-pairing-browser.ts --development-database",
     "db:seed": "tsx prisma/seed.ts",
     "test:pwa": "node scripts/test-pwa-update.mjs",
     "test:pwa-routing": "tsx --test src/pwa-device.test.ts",
@@ -19,9 +21,15 @@
     "test:account-access": "tsx --test server/account-access.test.ts server/account-database.test.ts",
     "test:admin-recovery": "tsx --test server/admin-recovery.test.ts",
     "test:twilio": "tsx --test server/twilio.test.ts",
+    "test:sms-inbox": "tsx --test server/sms-inbox.test.ts server/sms-inbox-database.test.ts",
     "test:legal-pages": "tsx --test src/legal/legal-content.test.tsx src/legal/static-legal-pages.test.tsx",
     "test:sms-consent": "tsx --test shared/sms-consent.test.ts src/ReservationSmsConsent.test.tsx server/sms-consent-store.test.ts",
+    "test:flights": "tsx --test server/flight-tracker.test.ts server/flight-routes.test.ts server/flight-database.test.ts",
     "test:database-config": "tsx --test server/database-config.test.ts",
+    "test:gratuity": "tsx --test shared/gratuity.test.ts server/booking-authorization.test.ts server/booking-gratuity.test.ts",
+    "test:gratuity-browser": "tsx scripts/test-gratuity-browser.ts",
+    "test:driver-trips": "tsx --test server/driver-trip.test.ts src/driver-trip-logic.test.ts",
+    "test:driver-trips-browser": "tsx scripts/test-driver-trip-browser.ts",
     "typecheck": "tsc --noEmit"
   },
   "type": "module",
@@ -40,6 +48,7 @@
     "@vis.gl/react-google-maps": "^1.10.0",
     "@vitejs/plugin-react": "^6.1.1",
     "autoprefixer": "^10.5.4",
+    "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
@@ -64,7 +73,7 @@
   "overrides": {
     "deepmerge-ts": "8.0.2",
     "effect": "3.22.2",
-    "qs": "6.16.0",
-    "proxy-addr": "2.0.8"
+    "proxy-addr": "2.0.8",
+    "qs": "6.16.0"
   }
 }

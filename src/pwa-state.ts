@@ -7,6 +7,8 @@ export type PwaTrip = {
   pickup: string;
   destination: string;
   fareCents: number;
+  gratuityCents?: number;
+  authorizedTotalCents?: number;
   status: string;
   createdAt: string;
 };

@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { applicationDatabaseUrl } from "./database-config.js";
 
 const rl = readline.createInterface({ input, output });
 const email = process.argv[2] || await rl.question("Admin email: ");
@@ -12,12 +13,13 @@ if (password.length < 12 || password === "change-this-before-production") {
   throw new Error("Admin passwords must be at least 12 characters and cannot use the documented placeholder.");
 }
 
-if (!process.env.DATABASE_URL) {
-  console.log(`Set DATABASE_URL, then run again to create ${email}.`);
+const databaseUrl = applicationDatabaseUrl();
+if (!databaseUrl) {
+  console.log(`Set a database connection, then run again to create ${email}.`);
   process.exit(0);
 }
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
 await prisma.adminUser.upsert({
   where: { email },
   update: { passwordHash: await bcrypt.hash(password, 12), active: true },

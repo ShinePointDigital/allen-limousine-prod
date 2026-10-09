@@ -15,6 +15,14 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "build"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "dispatch-pairing"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -26,6 +34,28 @@ waitForPort = 5000
 
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow]]
+name = "build"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "dispatch-pairing"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run test:chauffeur-pairing && npm run test:dispatch-wizard"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [[ports]]
 localPort = 4173
@@ -66,4 +96,5 @@ build = ["npm", "run", "build"]
 NODE_ENV = "production"
 
 [userenv.shared]
-TWILIO_FROM_NUMBER = "7088431292"
+TWILIO_FROM_NUMBER = "+17088347330"
+TWILIO_STATUS_CALLBACK_URL = "https://allanlimousine.com/api/webhooks/twilio/status"

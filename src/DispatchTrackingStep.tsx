@@ -10,6 +10,8 @@ export type ActiveReservation = {
   pickup: string;
   destination: string;
   fareCents: number;
+  gratuityCents?: number;
+  authorizedTotalCents?: number;
   paymentNotice: string;
   cardLast4?: string;
   flightNumber?: string;
@@ -218,7 +220,7 @@ export default function DispatchTrackingStep({ reservation, onComplete }: { rese
       <article className="chauffeur-card"><div className="chauffeur-avatar"><CarFront /></div><div><small>Your chauffeur</small><h2>{live.driverName || "Assignment pending"}</h2><p>{live.driverName && <><Star /> Chauffeur assigned</>} {live.vehicle && <>· {live.vehicle}</>}</p></div><ShieldCheck /></article>
       <article className="tracking-trip-card"><div><MapPin /><span><small>Pickup</small><b>{reservation.pickup}</b></span></div><i /><div><MapPin /><span><small>Drop-off</small><b>{reservation.destination}</b></span></div></article>
       <article className="tracking-detail-card"><Clock3 /><span><small>Pickup time</small><b>{new Date(reservation.pickupAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</b></span></article>
-      <article className="tracking-detail-card"><ShieldCheck /><span><small>Payment</small><b>{reservation.paymentNotice || `${money(reservation.fareCents)} fare confirmed`}</b>{reservation.cardLast4 && <em>Card ending {reservation.cardLast4}</em>}</span></article>
+      <article className="tracking-detail-card tracking-payment-card"><ShieldCheck /><span><small>Payment · authorization placed</small><b>Fare {money(reservation.fareCents)}</b><em>Gratuity {money(reservation.gratuityCents || 0)}</em><strong>Total {money(reservation.authorizedTotalCents ?? reservation.fareCents + (reservation.gratuityCents || 0))}</strong>{reservation.cardLast4 && <em>Card ending {reservation.cardLast4}</em>}</span></article>
       {reservation.flightNumber && <article className="tracking-flight"><Plane /><span><small>Flight monitoring</small><b>Flight {reservation.flightNumber}</b></span><i>MONITORING</i></article>}
     </div>
     <nav className="tracking-actions">
