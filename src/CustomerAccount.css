@@ -38,6 +38,7 @@
 .ca-route i{width:6px;height:6px;flex:none;border:1px solid #aa8c59;border-radius:50%}
 .ca-trip-details{display:grid;justify-items:start;gap:7px}
 .ca-trip-details b{color:#383a35;font-size:13px;font-weight:600}
+.ca-trip-details .ca-financials{font-variant-numeric:tabular-nums}
 .ca-password{display:grid;grid-template-columns:1fr minmax(300px,.9fr);gap:40px;padding:30px 0;border-top:1px solid #dcd9d0}
 .ca-password>div>p:last-child{max-width:350px;margin:9px 0 0;color:#7d7a72;font-size:11px;line-height:1.6}
 .ca-password form{display:grid;gap:12px}

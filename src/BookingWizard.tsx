@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { ReservationSmsConsent } from "./ReservationSmsConsent";
 import "./reservation-sms-consent.css";
 import "./booking-review.css";
+import { bookingAmounts, customGratuityCents, GRATUITY_PERCENTAGES, type GratuitySelection } from "../shared/gratuity.js";
 
 type Point = { latitude: number; longitude: number };
 type Fare = { fareCents: number; miles: number; minutes: number; eventVenue?: { name: string } | null; eventSurchargeCents?: number };
@@ -43,7 +44,7 @@ const AIRLINE_RULES: Record<string, AirlineRule> = {
   F9: { airline: "Frontier Airlines", airport: "MDW", terminal: "Concourse A" },
   PD: { airline: "Porter Airlines", airport: "MDW", terminal: "Concourse A" },
 };
-const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
+const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100);
 const hasWelcomePromo = (code: string | null | undefined) => code === "WELCOME15" || code === "FIRST15";
 const localDateTime = (offsetMinutes = 0) => {
   const value = new Date(Date.now() + offsetMinutes * 60_000);
@@ -80,6 +81,9 @@ const validRiderProfile = (contact: { fullName: string; phone: string; email: st
   contact.fullName.trim().length >= 2 &&
   contact.phone.replace(/\D/g, "").length >= 7 &&
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email.trim());
+class BookingRequestError extends Error {
+  constructor(message: string, readonly authorizationOutcome?: string) { super(message); }
+}
 const request = async (url: string, options?: RequestInit) => {
   const response = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
   const contentType = response.headers.get("content-type") || "";
@@ -87,7 +91,7 @@ const request = async (url: string, options?: RequestInit) => {
     throw new Error("The booking service returned an invalid response.");
   }
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "Something went wrong.");
+  if (!response.ok) throw new BookingRequestError(data.error || "Something went wrong.", data.authorizationOutcome);
   return data;
 };
 
@@ -118,6 +122,13 @@ export default function BookingWizard() {
   const [hasRiderProfile, setHasRiderProfile] = useState(() => ["rider_name", "rider_phone", "rider_email"].every(key => localStorage.getItem(key)?.trim()));
   const [editingProfile, setEditingProfile] = useState(false);
   const [promoCode, setPromoCode] = useState(() => launchedAsPwa() ? localStorage.getItem("allan_first_ride_promo") || "" : "");
+  const [gratuitySelection, setGratuitySelection] = useState<GratuitySelection>({ kind: "none" });
+  const [customTip, setCustomTip] = useState("");
+  const [bookingLocked, setBookingLocked] = useState(false);
+  const [authorizationUncertain, setAuthorizationUncertain] = useState(false);
+  const submissionInFlight = useRef(false);
+  const authorizationInFlight = useRef(false);
+  const [completedAmounts, setCompletedAmounts] = useState<{ grossFareCents: number; discountCents: number; fareCents: number; gratuityCents: number; totalCents: number } | null>(null);
   const [submitState, setSubmitState] = useState<"idle" | "sending" | "success" | "error">("idle");
   const [error, setError] = useState("");
   const [savedPayment, setSavedPayment] = useState<SavedPayment | null>(readSavedPayment);
@@ -244,6 +255,8 @@ export default function BookingWizard() {
           pickup: reservation.pickup,
           destination: reservation.destination,
           fareCents: reservation.fareCents || 0,
+          gratuityCents: reservation.gratuityCents || 0,
+          authorizedTotalCents: reservation.authorizedTotalCents ?? reservation.fareCents ?? 0,
           paymentNotice: reservation.fareCents ? `${money(reservation.fareCents)} fare confirmed` : "Payment authorization confirmed.",
           flightNumber: reservation.flightNumber || undefined,
           pickupPoint: reservation.pickupLatitude != null && reservation.pickupLongitude != null ? { latitude: reservation.pickupLatitude, longitude: reservation.pickupLongitude } : undefined,
@@ -257,6 +270,8 @@ export default function BookingWizard() {
           pickup: reservation.pickup,
           destination: reservation.destination,
           fareCents: reservation.fareCents || 0,
+          gratuityCents: reservation.gratuityCents || 0,
+          authorizedTotalCents: reservation.authorizedTotalCents ?? reservation.fareCents ?? 0,
           status: reservation.status || "NEW",
           createdAt: reservation.updatedAt || new Date().toISOString(),
         });
@@ -271,6 +286,19 @@ export default function BookingWizard() {
     const prefill = (event: Event) => {
       const detail = (event as CustomEvent<{ destination?: string; isPrivateFBO?: boolean }>).detail;
       if (!detail) return;
+      if (submissionInFlight.current || authorizationInFlight.current) {
+        setError("Resolve the current authorization by retrying the same booking before starting another.");
+        return;
+      }
+      setBookingRequestId(crypto.randomUUID());
+      setGratuitySelection({ kind: "none" });
+      setCustomTip("");
+      setBookingLocked(false);
+      setSubmitState("idle");
+      setPendingTrackingToken("");
+      setRideNowPickupAt("");
+      setCompletedAmounts(null);
+      setError("");
       setStep(1);
       setIsPrivateFBO(Boolean(detail.isPrivateFBO));
       setTier("EXECUTIVE_SEDAN");
@@ -348,8 +376,6 @@ export default function BookingWizard() {
       try {
         const entries = await Promise.all(VEHICLES.map(async vehicle => {
            const query = new URLSearchParams({ pickup, destination, tier: vehicle.tier, isPrivateFBO: String(isPrivateFBO) });
-          if (points.pickup) { query.set("pickupLat", String(points.pickup.latitude)); query.set("pickupLon", String(points.pickup.longitude)); }
-          if (points.destination) { query.set("destinationLat", String(points.destination.latitude)); query.set("destinationLon", String(points.destination.longitude)); }
           return [vehicle.tier, await request(`/api/fare/calculate?${query}`, { signal: controller.signal })] as const;
         }));
         setFares(Object.fromEntries(entries));
@@ -393,6 +419,20 @@ export default function BookingWizard() {
   const availableVehicles = isPrivateFBO ? VEHICLES.filter(vehicle => vehicle.tier !== "SPRINTER_CLASS") : VEHICLES;
   const promoDiscount = !isPrivateFBO && hasWelcomePromo(promoCode) && selectedFare ? Math.min(1500, selectedFare.fareCents) : 0;
   const finalFareCents = selectedFare ? selectedFare.fareCents - promoDiscount : 0;
+  let gratuityCents = 0;
+  let gratuityError = "";
+  try {
+    if (gratuitySelection.kind === "custom") gratuityCents = gratuitySelection.amountCents;
+    else gratuityCents = bookingAmounts(selectedFare?.fareCents || 0, promoDiscount, gratuitySelection).gratuityCents;
+  } catch (reason) { gratuityError = reason instanceof Error ? reason.message : "Enter a valid gratuity."; }
+  if (gratuitySelection.kind === "custom") {
+    try { gratuityCents = customGratuityCents(customTip); }
+    catch (reason) { gratuityError = reason instanceof Error ? reason.message : "Enter a valid gratuity."; }
+  }
+  const authorizedTotalCents = finalFareCents + gratuityCents;
+  const gratuitySelectionForRequest: GratuitySelection = gratuitySelection.kind === "custom"
+    ? { kind: "custom", amountCents: gratuityCents }
+    : gratuitySelection;
   const parsedFlight = parseFlightNumber(airport.flight, routeAirport);
   const flightMatchesAirport = !detectedAirport || !parsedFlight.ruleAirport || parsedFlight.ruleAirport === detectedAirport;
   const flightReady = Boolean(parsedFlight.valid && flightMatchesAirport && airport.terminal);
@@ -429,13 +469,33 @@ export default function BookingWizard() {
   const validSchedule = scheduledPickupTime > Date.now() && withinAuthorizationWindow;
   const canBook = Boolean(selectedFare && profileValid && validSchedule && Number(contact.passengers) <= selectedVehicle.capacity);
   const next = () => { setError(""); setStep(current => Math.min(4, current + 1)); };
+  const startFreshBooking = () => {
+    if (submissionInFlight.current || authorizationInFlight.current) {
+      setError("A card hold may already exist. Retry this same booking or contact Allan Limousine before starting another.");
+      return;
+    }
+    setBookingRequestId(crypto.randomUUID());
+    setBookingLocked(false);
+    setCompletedAmounts(null);
+    setGratuitySelection({ kind: "none" });
+    setCustomTip("");
+    setPendingTrackingToken("");
+    setRideNowPickupAt("");
+    setError("");
+    setSubmitState("idle");
+    setPaymentNotice("");
+    setStep(1);
+  };
   const submit = async () => {
+    if (submissionInFlight.current) return;
     if (!selectedFare || !savedPayment?.capability) {
       setError("Add a payment card before booking.");
       return;
     }
+    submissionInFlight.current = true;
     setSubmitState("sending");
     setError("");
+    setBookingLocked(true);
     const effectivePickupAt = timing === "RIDE_NOW"
       ? rideNowPickupAt || new Date(Date.now() + 15 * 60_000).toISOString()
       : new Date(pickupAt).toISOString();
@@ -460,6 +520,8 @@ export default function BookingWizard() {
           rideTiming: timing,
           rateTier: tier,
           estimatedFareCents: finalFareCents,
+          gratuitySelection: gratuitySelectionForRequest,
+          expectedAuthorizedTotalCents: authorizedTotalCents,
           estimatedMiles: selectedFare.miles,
           estimatedMinutes: selectedFare.minutes,
           promoCode: !isPrivateFBO && promoCode ? promoCode : undefined,
@@ -479,9 +541,20 @@ export default function BookingWizard() {
           } : {}),
         }),
       });
+      const quote = result.inquiry;
+      if (!quote || quote.estimatedFareCents !== finalFareCents ||
+          quote.grossFareCents !== selectedFare.fareCents ||
+          quote.promoDiscountCents !== promoDiscount ||
+          quote.gratuityCents !== gratuityCents ||
+          quote.authorizedTotalCents !== authorizedTotalCents) {
+        throw new Error("The fare or gratuity changed. No card authorization was started. Start a fresh booking to review the updated total.");
+      }
+      setCompletedAmounts({ grossFareCents: quote.grossFareCents, discountCents: quote.promoDiscountCents, fareCents: quote.estimatedFareCents, gratuityCents: quote.gratuityCents, totalCents: quote.authorizedTotalCents });
       const trackingToken = typeof result.trackingToken === "string" ? result.trackingToken : pendingTrackingToken;
       if (!trackingToken) throw new Error("The secure booking session expired. Start a new booking and try again.");
       setPendingTrackingToken(trackingToken);
+      authorizationInFlight.current = true;
+      setAuthorizationUncertain(true);
       const payment = await request("/api/create-payment-intent", {
         method: "POST",
         body: JSON.stringify({
@@ -490,10 +563,19 @@ export default function BookingWizard() {
           paymentMethodId: savedPayment.paymentMethodId,
           capability: savedPayment.capability,
           trackingToken,
+          expectedAuthorizedTotalCents: authorizedTotalCents,
         }),
       });
+      if (payment.amount !== authorizedTotalCents) {
+        throw new Error("The card authorization amount did not match your reviewed total. Contact Allan Limousine before retrying.");
+      }
+      if (payment.status === "canceled") {
+        authorizationInFlight.current = false;
+        setAuthorizationUncertain(false);
+        throw new Error("The prior card hold was released. Start a fresh booking to review and authorize the current fare and gratuity.");
+      }
       if (payment.status !== "requires_capture") throw new Error("The card authorization hold was not completed.");
-      const finalPaymentNotice = `A ${money(result.inquiry.estimatedFareCents)} authorization hold was placed on your card. It will be captured when your driver completes the ride.`;
+      const finalPaymentNotice = `A ${money(authorizedTotalCents)} authorization hold was placed on your card. It will be captured when your driver completes the ride.`;
       if (!isPrivateFBO && hasWelcomePromo(promoCode)) {
         localStorage.removeItem("allan_first_ride_promo");
         setPromoCode("");
@@ -507,6 +589,8 @@ export default function BookingWizard() {
          pickup: route.pickup,
          destination: route.destination,
          fareCents: result.inquiry.estimatedFareCents || 0,
+         gratuityCents: result.inquiry.gratuityCents || 0,
+         authorizedTotalCents: result.inquiry.authorizedTotalCents || authorizedTotalCents,
          status: "NEW",
          createdAt: new Date().toISOString(),
         };
@@ -518,6 +602,8 @@ export default function BookingWizard() {
            pickup: route.pickup,
            destination: route.destination,
            fareCents: activeTrip.fareCents,
+           gratuityCents: activeTrip.gratuityCents,
+           authorizedTotalCents: activeTrip.authorizedTotalCents,
            paymentNotice: finalPaymentNotice,
            cardLast4: savedPayment.cardLast4,
            flightNumber: airport.flight || undefined,
@@ -533,9 +619,17 @@ export default function BookingWizard() {
        }
       setPendingTrackingToken("");
       setRideNowPickupAt("");
+      authorizationInFlight.current = false;
+      setAuthorizationUncertain(false);
     } catch (reason) {
+      if (reason instanceof BookingRequestError && reason.authorizationOutcome === "rejected") {
+        authorizationInFlight.current = false;
+        setAuthorizationUncertain(false);
+      }
       setSubmitState("error");
       setError(reason instanceof Error ? reason.message : "Unable to submit your booking.");
+    } finally {
+      submissionInFlight.current = false;
     }
   };
 
@@ -559,14 +653,11 @@ export default function BookingWizard() {
   if (trackingLinkState === "error") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><p className="eyebrow brass">Secure reservation link</p><h2>Tracking is<br /><em>unavailable.</em></h2><p>This link has expired or is no longer available. Please contact Allan Limousine if you need help with this reservation.</p></div></section>;
   if (activeReservation) return <DispatchTrackingStep reservation={activeReservation} onComplete={() => {
     setActiveReservation(null);
-    setSubmitState("idle");
-    setStep(1);
-    setBookingRequestId(crypto.randomUUID());
-    setPaymentNotice("");
+    startFreshBooking();
     useCurrentLocation();
   }} />;
 
-  if (submitState === "success") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><Check /><p className="eyebrow brass">Request received</p><h2>Your ride is<br /><em>in motion.</em></h2><p>We saved your trip and sent it to the Allan Limousine team for confirmation. {smsConsent ? `SMS updates were requested for ${contact.phone}.` : "SMS notifications were not requested."}</p>{paymentNotice && <p className="payment-result">{paymentNotice}</p>}<button className="solid-button" onClick={() => { setSubmitState("idle"); setStep(1); setBookingRequestId(crypto.randomUUID()); setPaymentNotice(""); useCurrentLocation(); }}>Book another ride</button></div></section>;
+  if (submitState === "success") return <section id="reserve" className="booking-wizard-section section-pad"><div className="wizard-success"><Check /><p className="eyebrow brass">Request received</p><h2>Your ride is<br /><em>in motion.</em></h2><p>We saved your trip and sent it to the Allan Limousine team for confirmation. {smsConsent ? `SMS updates were requested for ${contact.phone}.` : "SMS notifications were not requested."}</p>{paymentNotice && <p className="payment-result">{paymentNotice}</p>}{completedAmounts && <div className="booking-success-amounts"><span>Gross fare <b>{money(completedAmounts.grossFareCents)}</b></span>{completedAmounts.discountCents > 0 && <span>Discount <b>−{money(completedAmounts.discountCents)}</b></span>}<span>Fare <b>{money(completedAmounts.fareCents)}</b></span><span>Gratuity <b>{money(completedAmounts.gratuityCents)}</b></span><strong>Card total <b>{money(completedAmounts.totalCents)}</b></strong></div>}<button className="solid-button" onClick={() => { startFreshBooking(); useCurrentLocation(); }}>Book another ride</button></div></section>;
 
   return <section id="reserve" className="booking-wizard-section section-pad">
     <div className="wizard-shell">
@@ -575,7 +666,7 @@ export default function BookingWizard() {
       <nav className="wizard-progress" aria-label="Booking progress">{[1, 2, 3, 4].map(number => <i key={number} className={number <= step ? "active" : ""} />)}</nav>
       <main className="wizard-body">
         {step === 1 && <div className="wizard-step">
-          {!isPrivateFBO && hasWelcomePromo(promoCode) && <div className="wizard-promo"><Check /><span><b>$15 first-ride credit applied</b><small>Promo WELCOME15 will be included with your booking.</small></span></div>}
+          {!isPrivateFBO && hasWelcomePromo(promoCode) && <div className="wizard-promo"><Check /><span><b>$15 first-ride credit applied</b><small>Promo WELCOME15 will be included with your booking.</small></span><button type="button" className="text-button" onClick={() => { setPromoCode(""); localStorage.removeItem("allan_first_ride_promo"); }}>Remove credit</button></div>}
           <LocationAutocomplete id="wizard-pickup-location" label="Pickup location" value={pickup} placeholder="Address, hotel, airport, or landmark" onUseLocation={useCurrentLocation} onChange={value => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: undefined })); }} onSelect={(value, point, quickLocation) => { setRoute(current => ({ ...current, pickup: value })); setPoints(current => ({ ...current, pickup: point })); applyQuickLocation(quickLocation); }} />
           <small className="wizard-location-status">{locationStatus}</small>
            <LocationAutocomplete id="wizard-destination-location" label="Drop-off location" value={destination} placeholder="Where should we take you?" onChange={value => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: undefined })); }} onSelect={(value, point, quickLocation) => { setRoute(current => ({ ...current, destination: value })); setPoints(current => ({ ...current, destination: point })); applyQuickLocation(quickLocation); }} />
@@ -596,12 +687,35 @@ export default function BookingWizard() {
           <div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(2)}><ArrowLeft /> Back</button><button className="solid-button" disabled={!canBook} onClick={next}>Continue to payment <ArrowRight /></button></div>
         </div>}
         {step === 4 && <div className="wizard-step wizard-review-step">
-          <div className="wizard-final-summary"><ShieldCheck /><div><b>{timing === "RIDE_NOW" ? "Pickup as soon as possible" : new Date(pickupAt).toLocaleString()}</b><span>{RATE_TIER_PRICING[tier].label} · {serviceType} · {route.pickup} → {route.destination}</span>{isPrivateFBO && <span>{fboDetails.fboName} · Tail {fboDetails.specificTailNumber} · Principal {fboDetails.principalName}</span>}</div><strong>{selectedFare && money(finalFareCents)}</strong></div>
+          <fieldset className="booking-review-fields" disabled={bookingLocked}>
+          <div className="wizard-final-summary"><ShieldCheck /><div><b>{timing === "RIDE_NOW" ? "Pickup as soon as possible" : new Date(pickupAt).toLocaleString()}</b><span>{RATE_TIER_PRICING[tier].label} · {serviceType} · {route.pickup} → {route.destination}</span>{isPrivateFBO && <span>{fboDetails.fboName} · Tail {fboDetails.specificTailNumber} · Principal {fboDetails.principalName}</span>}</div></div>
+          <section className="gratuity-panel" aria-labelledby="gratuity-title">
+            <div className="gratuity-heading"><div><p className="eyebrow brass">Optional · for your chauffeur</p><h3 id="gratuity-title">Add a gratuity</h3></div><span>Entirely your choice</span></div>
+            <div className="gratuity-options" role="radiogroup" aria-label="Choose a gratuity">
+              <label className={gratuitySelection.kind === "none" ? "chosen" : ""}><input type="radio" name="gratuity" checked={gratuitySelection.kind === "none"} onChange={() => setGratuitySelection({ kind: "none" })} /><span>No gratuity</span><b>{money(0)}</b></label>
+              {GRATUITY_PERCENTAGES.map(percent => {
+                let amount: number | null = null;
+                try { amount = bookingAmounts(selectedFare?.fareCents || 0, promoDiscount, { kind: "percentage", percent }).gratuityCents; } catch { /* Above the contract gratuity cap. */ }
+                return <label key={percent} className={gratuitySelection.kind === "percentage" && gratuitySelection.percent === percent ? "chosen" : ""}><input type="radio" name="gratuity" disabled={amount == null} checked={gratuitySelection.kind === "percentage" && gratuitySelection.percent === percent} onChange={() => setGratuitySelection({ kind: "percentage", percent })} /><span>{percent}%</span><b>{amount == null ? "Unavailable" : money(amount)}</b></label>;
+              })}
+              <label className={`gratuity-custom-choice${gratuitySelection.kind === "custom" ? " chosen" : ""}`}><input type="radio" name="gratuity" checked={gratuitySelection.kind === "custom"} onChange={() => setGratuitySelection({ kind: "custom", amountCents: 0 })} /><span>Custom</span><b>{gratuitySelection.kind === "custom" && !gratuityError ? money(gratuityCents) : "Set amount"}</b><span className="gratuity-dollar">$</span><input aria-label="Custom gratuity in dollars" inputMode="decimal" placeholder="0.00" value={customTip} onFocus={() => { if (gratuitySelection.kind !== "custom") setGratuitySelection({ kind: "custom", amountCents: 0 }); }} onChange={event => { setCustomTip(event.target.value); setGratuitySelection({ kind: "custom", amountCents: 0 }); }} /></label>
+            </div>
+            {gratuitySelection.kind === "custom" && (customTip || gratuityError) && <small className={gratuityError ? "gratuity-validation error" : "gratuity-validation"} role={gratuityError ? "alert" : "status"}>{gratuityError || "Custom amount entered."} {gratuityError ? "" : "Maximum $1,000.00."}</small>}
+          </section>
+          <section className="booking-amounts" aria-label="Authorization total">
+            <div><span>Gross fare</span><b>{money(selectedFare?.fareCents || 0)}</b></div>
+            {promoDiscount > 0 && <div><span>Discount</span><b>−{money(promoDiscount)}</b></div>}
+            <div><span>Discounted fare</span><b>{money(finalFareCents)}</b></div>
+            <div><span>Gratuity</span><b>{money(gratuityCents)}</b></div>
+            <div className="amount-total"><span>Card authorization total</span><b>{money(authorizedTotalCents)}</b></div>
+          </section>
           <StripeCardSetup compact requiredPayment fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} />
           <ReservationSmsConsent checked={smsConsent} onChange={setSmsConsent} />
-          <div className="wizard-pay-later"><ShieldCheck /><span><b>Authorization hold today</b><small>{money(finalFareCents)} will be authorized now and captured only after your driver completes the ride.</small></span></div>
+          <div className="wizard-pay-later"><ShieldCheck /><span><b>Authorization hold today</b><small>{money(authorizedTotalCents)} will be authorized now and captured only after your driver completes the ride.</small></span></div>
+          </fieldset>
           {error && <p className="form-error">{error}</p>}
-          <div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(3)}><ArrowLeft /> Back</button><button className="solid-button wizard-instant-book" disabled={submitState === "sending" || !canBook || !savedPayment?.capability} onClick={submit}>{submitState === "sending" ? "Authorizing…" : <>Authorize &amp; book · {money(finalFareCents)} <Check /></>}</button></div>
+          {bookingLocked && submitState === "error" && <p className="gratuity-lock-note">{authorizationUncertain ? "A card hold may already exist. Retry this same booking, or contact Allan Limousine before starting another. Trip and gratuity remain locked to prevent a duplicate authorization." : "Trip and gratuity are locked for this booking request. To change anything, start a fresh booking with a new secure request."}</p>}
+          <div className="wizard-actions">{bookingLocked ? <button className="wizard-back" disabled={submitState === "sending" || authorizationUncertain} onClick={startFreshBooking}>Start a fresh booking</button> : <button className="wizard-back" onClick={() => setStep(3)}><ArrowLeft /> Back</button>}<button className="solid-button wizard-instant-book" disabled={submitState === "sending" || !canBook || !savedPayment?.capability || Boolean(gratuityError)} onClick={submit}>{submitState === "sending" ? "Authorizing…" : <>{bookingLocked ? "Retry authorization" : "Authorize & book"} · {money(authorizedTotalCents)} <Check /></>}</button></div>
         </div>}
       </main>
     </div>

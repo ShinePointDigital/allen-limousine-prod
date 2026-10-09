@@ -13,16 +13,16 @@ type Booking = Prisma.InquiryGetPayload<{ include: typeof include }>;
 type Attempt = NonNullable<Booking["ride"]>["dispatchMessages"][number];
 type Actor = { id: string; name: string };
 type SendSms = (phone: string, body: string) => Promise<{ providerMessageId: string | null; providerStatus: string | null }>;
-const activeRideStatuses = ["ASSIGNED", "EN_ROUTE", "IN_PROGRESS"];
+export const activeRideStatuses = ["ASSIGNED", "EN_ROUTE", "IN_PROGRESS"];
 const phone = (value: string) => normalizeTwilioPhone(value, "recipient");
-const samePhone = (a: string, b: string) => {
+export const samePhone = (a: string, b: string) => {
   try { return phone(a) === phone(b); } catch { return a === b; }
 };
 
 export class DispatchWizardError extends Error {
   constructor(public statusCode: number, message: string) { super(message); }
 }
-const conflict = (message: string): never => { throw new DispatchWizardError(409, message); };
+function conflict(message: string): never { throw new DispatchWizardError(409, message); }
 
 /** SMS transport is deliberately injected: tests never contact Twilio. */
 export class DispatchWizardService {
@@ -30,6 +30,7 @@ export class DispatchWizardService {
     private sendSms: SendSms,
     private db: PrismaClient = prisma,
     private optedOut: (phone: string) => Promise<boolean> = smsRecipientOptedOut,
+    private driverLink?: (ride: NonNullable<Booking["ride"]>) => string,
   ) {}
 
   private async record(id: string, db: Prisma.TransactionClient = this.db) {
@@ -69,9 +70,14 @@ export class DispatchWizardService {
 
   private bodies(booking: Booking) {
     const ride = booking.ride;
+    // Preserve in-flight legacy messages exactly: changing their bodies makes
+    // an uncertain provider outcome impossible to reconcile safely.
+    const legacyAttempt = ride?.dispatchMessages.some(attempt => attempt.dispatchRecipient === "DRIVER" &&
+      ["RESERVED","PENDING","SENT"].includes(attempt.status) && !attempt.body.includes("Trip controls & navigation:"));
+    const link = ride && !legacyAttempt ? this.driverLink?.(ride) : "";
     const date = booking.pickupAt.toLocaleString("en-US", { timeZone: "America/Chicago", timeZoneName: "short" });
     return {
-      driver: ride ? `${dispatchBrief({ ...ride, inquiry: { ...booking, pickupAt: booking.pickupAt.toISOString() } } as any)}\nChauffeur: ${ride.driverName || "not assigned"}\nVehicle: ${ride.vehicle?.name || "not assigned"}\nReply STOP to opt out or HELP for help.` : "",
+      driver: ride ? `${dispatchBrief({ ...ride, inquiry: { ...booking, pickupAt: booking.pickupAt.toISOString() } } as any)}\nChauffeur: ${ride.driverName || "not assigned"}\nVehicle: ${ride.vehicle?.name || "not assigned"}${link ? `\nTrip controls & navigation: ${link}` : ""}\nReply STOP to opt out or HELP for help.` : "",
       customer: `Allan Limousine: Your chauffeur ${ride?.driverName || "not assigned"}${ride?.driverPhone ? ` (${ride.driverPhone})` : ""} and vehicle ${ride?.vehicle?.name || "not assigned"} are assigned for ${date}. Pickup: ${booking.pickup}. Drop-off: ${booking.destination}. Reply STOP to opt out or HELP for help.`,
     };
   }
@@ -100,8 +106,8 @@ export class DispatchWizardService {
     const ride = booking.ride;
     const consent = bookingHasSmsConsent(booking.inquiryNotes, booking.phone);
     const [drivers, vehicles, busyRides, customerStop, driverStop] = await Promise.all([
-      this.db.chauffeur.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-      this.db.fleetVehicle.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+      this.db.chauffeur.findMany({ where: { active: true }, include: { fleetVehicle: true }, orderBy: { name: "asc" } }),
+      this.db.fleetVehicle.findMany({ where: { active: true }, include: { chauffeur: { select: { id: true } } }, orderBy: { name: "asc" } }),
       this.db.ride.findMany({ where: { status: { in: activeRideStatuses }, inquiryId: { not: id } }, select: { driverId: true, driverPhone: true, vehicleId: true } }),
       consent ? this.optedOut(booking.phone) : false,
       ride?.driverPhone ? this.optedOut(ride.driverPhone) : false,
@@ -142,13 +148,26 @@ export class DispatchWizardService {
       version: booking.dispatchVersion,
       step: completed ? 4 : assigned || started ? 3 : booking.dispatchReviewedAt ? 2 : 1,
       completed, blocked,
-      drivers: drivers.map(driver => ({
-        id: driver.id, name: driver.name, phone: driver.phone,
-        available: !busyRides.some(other => other.driverId === driver.id || (other.driverPhone && samePhone(other.driverPhone, driver.phone))),
-      })),
+      drivers: drivers.map(driver => {
+        const driverBusy = busyRides.some(other => other.driverId === driver.id || (other.driverPhone && samePhone(other.driverPhone, driver.phone)));
+        const currentDriverBusy = Boolean(ride && activeRideStatuses.includes(ride.status) &&
+          (ride.driverId === driver.id || (ride.driverPhone && samePhone(ride.driverPhone, driver.phone))));
+        const vehicleBusy = Boolean(driver.fleetVehicle && busyRides.some(other => other.vehicleId === driver.fleetVehicle!.id));
+        return {
+          id: driver.id, name: driver.name, phone: driver.phone,
+          fleetVehicleId: driver.fleetVehicleId,
+          vehicleName: driver.fleetVehicle?.name || null,
+          vehicleCategory: driver.fleetVehicle?.category || null,
+          available: Boolean(driver.fleetVehicle?.active) && !driverBusy && !vehicleBusy,
+          pairable: !driverBusy && !currentDriverBusy && !driver.fleetVehicleId,
+        };
+      }),
       vehicles: vehicles.map(vehicle => ({
         id: vehicle.id, name: vehicle.name, category: vehicle.category,
+        pairedToDriverId: vehicle.chauffeur?.id || null,
         available: !busyRides.some(other => other.vehicleId === vehicle.id),
+        pairable: !vehicle.chauffeur && !busyRides.some(other => other.vehicleId === vehicle.id) &&
+          !(ride?.vehicleId === vehicle.id && activeRideStatuses.includes(ride.status)),
       })),
       assignment: {
         rideId: ride?.id || null, driverId: ride?.driverId || null, driverName: ride?.driverName || null,
@@ -178,7 +197,7 @@ export class DispatchWizardService {
     return this.snapshot(id);
   }
 
-  async assign(id: string, version: number, driverId: string, vehicleId: string, actor: Actor) {
+  async assign(id: string, version: number, driverId: string, actor: Actor, expectedVehicleId?: string) {
     await this.db.$transaction(async db => {
       const booking = await this.record(id, db);
       this.mutable(booking);
@@ -186,28 +205,30 @@ export class DispatchWizardService {
       if (booking.ride?.dispatchMessages.some(item => ["PENDING", "RESERVED", "SENT"].includes(item.status))) {
         conflict("SMS dispatch has already started. The saved assignment cannot be changed in this wizard.");
       }
-      const [driver, vehicle] = await Promise.all([
-        db.chauffeur.findUnique({ where: { id: driverId } }),
-        db.fleetVehicle.findUnique({ where: { id: vehicleId } }),
-      ]);
-      if (!driver?.active || !vehicle?.active) conflict("Choose an active chauffeur and vehicle.");
+      const driver = await db.chauffeur.findUnique({ where: { id: driverId }, include: { fleetVehicle: true } });
+      if (!driver?.active) conflict("Choose an active chauffeur.");
+      const vehicle = driver.fleetVehicle;
+      if (!vehicle?.active) conflict("This chauffeur needs an active paired vehicle before dispatch.");
+      if (expectedVehicleId && expectedVehicleId !== vehicle.id) {
+        conflict("The selected vehicle does not match this chauffeur's fixed pairing. Refresh before assigning.");
+      }
       const busy = await db.ride.findMany({
         where: { status: { in: activeRideStatuses }, inquiryId: { not: id } },
         select: { vehicleId: true, driverId: true, driverPhone: true },
       });
-      if (busy.some(item => item.vehicleId === vehicleId || item.driverId === driverId || (item.driverPhone && samePhone(item.driverPhone, driver!.phone)))) {
+      if (busy.some(item => item.vehicleId === vehicle.id || item.driverId === driverId || (item.driverPhone && samePhone(item.driverPhone, driver.phone)))) {
         conflict("This chauffeur or vehicle is already assigned to another active ride.");
       }
-      const seats = Math.max(0, ...(vehicle!.passengers.match(/\d+/g) || []).map(Number));
+      const seats = Math.max(0, ...(vehicle.passengers.match(/\d+/g) || []).map(Number));
       if (!seats || seats < booking.passengers) conflict("This vehicle does not have enough configured passenger seats.");
       await this.compareAndAdvance(db, booking, version, { dispatchStep: 3, dispatchStatus: "ASSIGNED", status: "CONFIRMED" });
-      const assignment = { driverId, driverName: driver!.name, driverPhone: phone(driver!.phone), vehicleId, status: "ASSIGNED" };
+      const assignment = { driverId, driverName: driver.name, driverPhone: phone(driver.phone), vehicleId: vehicle.id, status: "ASSIGNED" };
       await db.ride.upsert({
         where: { inquiryId: id },
         create: { ...assignment, inquiryId: id, quoteCents: booking.estimatedFareCents || 0 },
-        update: assignment,
+        update: { ...assignment, driverAccessNonce:null, driverAccessTokenHash:null, driverAccessExpiresAt:null, driverAccessAssignment:null },
       });
-      await db.inquiryNote.create({ data: { inquiryId: id, authorId: actor.id, authorName: actor.name, body: `Dispatch wizard: assigned ${driver!.name} and ${vehicle!.name}. No SMS sent at assignment.` } });
+      await db.inquiryNote.create({ data: { inquiryId: id, authorId: actor.id, authorName: actor.name, body: `Dispatch wizard: assigned ${driver.name} and ${vehicle.name}. No SMS sent at assignment.` } });
     }, { isolationLevel: "Serializable" });
     return this.snapshot(id);
   }

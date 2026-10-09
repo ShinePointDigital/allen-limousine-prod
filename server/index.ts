@@ -9,14 +9,27 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { addInquiry, addInquiryNote, authenticate, consumeStripeSetupSession, createAdmin, createDispatchAttempt, createFleet, createService, createStripeSetupSession, dashboardData, deleteFleet, deleteService, dispatchBrief, finalizeAuthorizedInquiry, finishDispatchAttempt, getAdminContent, getCompanyProfile, getDispatchAttempt, getDispatchAttemptByProviderMessageId, getInquiries, getInquiryByBookingRequestId, getInquiryByTrackingTokenHash, getNotifications, getPendingDispatchAttempt, getPublicContent, getRideById, getRideByInquiryId, getRides, getStripeCustomerProfile, initializeStore, listAdminSessions, listAdmins, logout, markNotificationRead, reconcileDispatchAttempt, revokeOtherAdminSessions, saveStripeCustomerProfile, sessionUser, updateAdmin, updateCompanyProfile, updateDispatchDeliveryStatus, updateDispatchProviderStatus, updateFleet, updateInquiry, updateInquiryPayment, updateInquiryPaymentStatusByIntent, updateRide, updateService, updateSiteContent, validateRideUpdate } from "./store.js";
-import { classifyTwilioMessageStatus, findDriverDispatchSms, getDriverDispatchSms, sendSms, sendDriverDispatchSms, twilioPhonesEqual, TwilioRequestError } from "./twilio.js";
+import { classifyTwilioMessageStatus, findDriverDispatchSms, getDriverDispatchSms, sendSms, twilioPhonesEqual, TwilioRequestError, validTwilioSignature } from "./twilio.js";
 import { estimateFare, reverseGeocode, searchLocations } from "./fare-estimate.js";
 import { getStripeClient, getStripePublicConfig, getStripeWebhookSecret } from "./stripe-client.js";
 import { createAdminRecoveryRouter } from "./admin-recovery-routes.js";
 import { accountLoginLimiter, createAccountRouter, staffGuard } from "./account-routes.js";
 import { hasAccess } from "../shared/access.js";
 import { createSmsInboxRouter } from "./sms-inbox-routes.js";
-import { smsRecipientOptedOut } from "./sms-inbox-store.js";
+import { smsRecipientOptedOut, updateSmsDeliveryStatus } from "./sms-inbox-store.js";
+import { gratuitySelectionSchema, storedAuthorizationAmount } from "../shared/gratuity.js";
+import { authorizeBooking, AuthorizationRejectedError } from "./booking-authorization.js";
+import type { Inquiry } from "./store.js";
+import { DriverTripService, DriverTripError } from "./driver-trip-service.js";
+import { createDriverTripRouter, createDispatcherCaptureRouter } from "./driver-trip-routes.js";
+import { captureBookingPayment } from "./payment-capture.js";
+
+const bookingPaymentSummary = (inquiry: Inquiry) => ({
+  id: inquiry.id, estimatedFareCents: inquiry.estimatedFareCents, grossFareCents: inquiry.grossFareCents,
+  promoCode: inquiry.promoCode, promoDiscountCents: inquiry.promoDiscountCents,
+  gratuityCents: inquiry.gratuityCents ?? 0,
+  authorizedTotalCents: inquiry.estimatedFareCents == null ? null : storedAuthorizationAmount(inquiry),
+});
 
 async function sendOperationalSms(to: string, body: string) {
   if (await smsRecipientOptedOut(to)) throw new TwilioRequestError("This recipient opted out of SMS. They must text START before more messages can be sent.", true);
@@ -83,6 +96,8 @@ const inquirySchema = z.object({
   rideTiming: z.enum(["RIDE_NOW", "RESERVE_LATER"]).optional(),
   promoCode: z.string().trim().max(40).optional(),
   promoDiscountCents: z.number().int().min(0).max(1500).optional(),
+  gratuitySelection: gratuitySelectionSchema.optional(),
+  expectedAuthorizedTotalCents: z.number().int().min(0).max(10100000).optional(),
   bookingRequestId: z.string().uuid(),
   pickupLatitude: z.number().finite().min(-90).max(90).optional(),
   pickupLongitude: z.number().finite().min(-180).max(180).optional(),
@@ -155,6 +170,7 @@ const paymentIntentSchema = z.object({
   paymentMethodId: z.string().regex(/^pm_[A-Za-z0-9]+$/),
   capability: z.string().min(40).max(2000),
   trackingToken: z.string().regex(/^[a-f0-9]{64}$/),
+  expectedAuthorizedTotalCents: z.number().int().min(0).max(10100000).optional(),
 });
 const paymentMethodAccessSchema = z.object({
   customerId: z.string().regex(/^cus_[A-Za-z0-9]+$/),
@@ -210,22 +226,9 @@ const rideUpdateSchema = z.object({
   if ((data.driverLatitude === undefined) !== (data.driverLongitude === undefined)) context.addIssue({ code: "custom", path: ["driverLatitude"], message: "Provide both driver latitude and longitude." });
 });
 async function captureAuthorizedPayment(bookingRequestId: string) {
-  const inquiry = await getInquiryByBookingRequestId(bookingRequestId);
-  if (!inquiry?.stripePaymentIntentId) throw new Error("No card authorization exists for this booking.");
-  const stripe = await getStripeClient();
-  const current = await stripe.paymentIntents.retrieve(inquiry.stripePaymentIntentId);
-  if (current.status === "succeeded") {
-    await updateInquiryPaymentStatusByIntent(current.id, current.status);
-    return current;
-  }
-  if (current.status !== "requires_capture") throw new Error(`Payment cannot be captured while its status is ${current.status}.`);
-  const captured = await stripe.paymentIntents.capture(
-    current.id,
-    {},
-    { idempotencyKey: `capture-${current.id}` },
-  );
-  await updateInquiryPaymentStatusByIntent(captured.id, captured.status);
-  return captured;
+  return captureBookingPayment(bookingRequestId, {
+    findBooking: getInquiryByBookingRequestId, stripe: getStripeClient, sync: updateInquiryPaymentStatusByIntent,
+  });
 }
 async function cancelAuthorizedPayment(bookingRequestId: string) {
   const inquiry = await getInquiryByBookingRequestId(bookingRequestId);
@@ -418,11 +421,7 @@ app.post("/api/webhooks/twilio/status", webhookLimiter, async (req, res) => {
   const callbackUrl = process.env.TWILIO_STATUS_CALLBACK_URL;
   const suppliedSignature = req.header("x-twilio-signature") || "";
   if (!authToken || !callbackUrl) return res.status(503).json({ error: "Twilio status callbacks are not enabled." });
-  const signaturePayload = Object.keys(req.body || {}).sort().reduce((value, key) => `${value}${key}${String(req.body[key])}`, callbackUrl);
-  const expectedSignature = crypto.createHmac("sha1", authToken).update(signaturePayload).digest("base64");
-  const expectedBuffer = Buffer.from(expectedSignature);
-  const suppliedBuffer = Buffer.from(suppliedSignature);
-  if (expectedBuffer.length !== suppliedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, suppliedBuffer)) {
+  if (!validTwilioSignature(authToken, callbackUrl, suppliedSignature, req.body || {})) {
     return res.status(401).json({ error: "Invalid Twilio status callback." });
   }
   const parsed = z.object({
@@ -434,6 +433,8 @@ app.post("/api/webhooks/twilio/status", webhookLimiter, async (req, res) => {
     providerStatus: parsed.data.MessageStatus.toLowerCase(),
     deliveryStatus: parsed.data.MessageStatus.toLowerCase(),
   });
+  await updateSmsDeliveryStatus(parsed.data.MessageSid, parsed.data.MessageStatus.toLowerCase(),
+    typeof req.body.ErrorCode === "string" && req.body.ErrorCode ? `Twilio error ${req.body.ErrorCode}.` : null);
   res.status(204).end();
 });
 
@@ -559,49 +560,26 @@ app.post("/api/create-payment-intent", inquiryLimiter, async (req, res) => {
       || capability.email !== inquiry.email.toLowerCase()) {
       return res.status(403).json({ error: "This saved card is not authorized for the passenger profile." });
     }
-    if (inquiry.stripePaymentIntentId) {
-      const stripe = await getStripeClient();
-      const existing = await stripe.paymentIntents.retrieve(inquiry.stripePaymentIntentId);
-      await updateInquiryPaymentStatusByIntent(existing.id, existing.status);
-      if (!["canceled", "requires_payment_method"].includes(existing.status)) {
-        if (existing.status === "requires_capture") {
-          const activation = await activateAuthorizedBooking(parsed.data.bookingRequestId, parsed.data.trackingToken, inquiry.pickupAt, existing.id);
-          if (activation?.activatedNow) void sendBookingTrackingSms(req, inquiry, parsed.data.trackingToken)
-            .catch(error => console.warn("Booking authorized, but confirmation SMS outcome could not be confirmed:", error instanceof Error ? error.message : error));
-        }
-        return res.json({ paymentIntentId: existing.id, status: existing.status, amount: existing.amount, trackingToken: parsed.data.trackingToken });
-      }
-    }
     const stripe = await getStripeClient();
-    const paymentMethod = await stripe.paymentMethods.retrieve(parsed.data.paymentMethodId);
-    const methodCustomer = typeof paymentMethod.customer === "string" ? paymentMethod.customer : paymentMethod.customer?.id;
-    if (methodCustomer !== parsed.data.customerId) return res.status(403).json({ error: "That card does not belong to this passenger profile." });
-    const priorIntentId = inquiry.stripePaymentIntentId || "initial";
-    const intent = await stripe.paymentIntents.create({
-      amount: inquiry.estimatedFareCents,
-      currency: "usd",
-      customer: parsed.data.customerId,
-      payment_method: parsed.data.paymentMethodId,
-      capture_method: "manual",
-      confirm: true,
-      off_session: true,
-      description: `Allan Limousine booking ${inquiry.id}`,
-      metadata: { inquiryId: inquiry.id, bookingRequestId: parsed.data.bookingRequestId },
-    }, { idempotencyKey: `booking-auth-${parsed.data.bookingRequestId}-${priorIntentId}` });
-    await updateInquiryPayment(parsed.data.bookingRequestId, {
-      stripeCustomerId: parsed.data.customerId,
-      stripePaymentMethodId: parsed.data.paymentMethodId,
-      stripePaymentIntentId: intent.id,
-      paymentStatus: intent.status,
+    const intent = await authorizeBooking(inquiry, parsed.data, stripe, {
+      savePayment: intent => updateInquiryPayment(parsed.data.bookingRequestId, {
+        stripeCustomerId: parsed.data.customerId, stripePaymentMethodId: parsed.data.paymentMethodId,
+        stripePaymentIntentId: intent.id, paymentStatus: intent.status,
+      }),
+      syncStatus: intent => updateInquiryPaymentStatusByIntent(intent.id, intent.status),
+      activate: async intent => {
+        const activation = await activateAuthorizedBooking(parsed.data.bookingRequestId, parsed.data.trackingToken, inquiry.pickupAt, intent.id);
+        if (activation?.activatedNow) void sendBookingTrackingSms(req, inquiry, parsed.data.trackingToken)
+          .catch(error => console.warn("Booking authorized, but confirmation SMS outcome could not be confirmed:", error instanceof Error ? error.message : error));
+      },
     });
-    if (intent.status !== "requires_capture") throw new Error("The card authorization hold was not completed.");
-    const activation = await activateAuthorizedBooking(parsed.data.bookingRequestId, parsed.data.trackingToken, inquiry.pickupAt, intent.id);
-    if (activation?.activatedNow) void sendBookingTrackingSms(req, inquiry, parsed.data.trackingToken)
-      .catch(error => console.warn("Booking authorized, but confirmation SMS outcome could not be confirmed:", error instanceof Error ? error.message : error));
     res.json({ paymentIntentId: intent.id, status: intent.status, amount: intent.amount, trackingToken: parsed.data.trackingToken });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Card authorization was unsuccessful.";
-    res.status(message === "Stripe is not configured yet." ? 503 : 402).json({ error: message });
+    res.status(message === "Stripe is not configured yet." ? 503 : 402).json({
+      error: message,
+      authorizationOutcome: error instanceof AuthorizationRejectedError ? "rejected" : "unknown",
+    });
   }
 });
 const verifyPaymentMethodAccess = (data: z.infer<typeof paymentMethodAccessSchema>) => {
@@ -761,6 +739,9 @@ app.get("/api/flight-lookup", publicReadLimiter, async (req, res) => {
 app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
   const parsed = inquirySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Please check the highlighted fields and try again.", fields: parsed.error.flatten().fieldErrors });
+  if (parsed.data.gratuitySelection && parsed.data.gratuitySelection.kind !== "none" && parsed.data.expectedAuthorizedTotalCents === undefined) {
+    return res.status(400).json({ error: "Review and explicitly approve the fare and gratuity total before booking." });
+  }
   if (parsed.data.isPrivateFBO && (!parsed.data.specificTailNumber || !parsed.data.principalName || !parsed.data.fboName || !parsed.data.tarmacInstructions)) {
     return res.status(400).json({ error: "Complete all private aviation coordination fields before booking." });
   }
@@ -788,7 +769,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
     const priorRequest = await getInquiryByBookingRequestId(input.bookingRequestId);
     if (priorRequest) {
       if (priorRequest.bookingRequestFingerprint !== bookingRequestFingerprint) return res.status(409).json({ error: "This booking request was already used for different trip details." });
-      return res.status(200).json({ ok: true, inquiry: { id: priorRequest.id, estimatedFareCents: priorRequest.estimatedFareCents, promoCode: priorRequest.promoCode, promoDiscountCents: priorRequest.promoDiscountCents }, smsNotification: "not_repeated" });
+      return res.status(200).json({ ok: true, inquiry: bookingPaymentSummary(priorRequest), smsNotification: "not_repeated" });
     }
     const canonicalEstimate = input.rateTier ? await estimateFare(input.pickup, input.destination, input.rateTier, {}, input.isPrivateFBO) : null;
     const trackingToken = crypto.randomBytes(32).toString("hex");
@@ -813,7 +794,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
     }
     res.status(created ? 201 : 200).json({
       ok: true,
-      inquiry: { id: inquiry.id, estimatedFareCents: inquiry.estimatedFareCents, promoCode: inquiry.promoCode, promoDiscountCents: inquiry.promoDiscountCents },
+      inquiry: bookingPaymentSummary(inquiry),
       trackingToken: created ? trackingToken : undefined,
       smsNotification: "pending_payment",
     });
@@ -840,7 +821,7 @@ app.post("/api/inquiries", inquiryLimiter, async (req, res) => {
       }
       const fingerprint = crypto.createHash("sha256").update(JSON.stringify(replaySmsConsent ? { ...normalizedReplayInput, smsConsent: true } : normalizedReplayInput)).digest("hex");
       if (replay.bookingRequestFingerprint !== fingerprint) return res.status(409).json({ error: "This booking request was already used for different trip details." });
-      return res.status(200).json({ ok: true, inquiry: { id: replay.id, estimatedFareCents: replay.estimatedFareCents, promoCode: replay.promoCode, promoDiscountCents: replay.promoDiscountCents }, smsNotification: "not_repeated" });
+      return res.status(200).json({ ok: true, inquiry: bookingPaymentSummary(replay), smsNotification: "not_repeated" });
     }
     res.status(422).json({ error: error instanceof Error ? error.message : "We couldn’t confirm the route and fare." });
   }
@@ -860,6 +841,8 @@ app.get("/api/tracking/:token", publicReadLimiter, async (req, res) => {
       pickup: inquiry.pickup,
       destination: inquiry.destination,
       fareCents: inquiry.estimatedFareCents,
+      gratuityCents: inquiry.gratuityCents ?? 0,
+      authorizedTotalCents: inquiry.estimatedFareCents == null ? null : storedAuthorizationAmount(inquiry),
       flightNumber: inquiry.flightNumber,
       vehicle: ride?.vehicle?.name || null,
       driverName: ride?.driverName || null,
@@ -888,7 +871,14 @@ app.get("/api/admin/session", admin, (_req, res) => res.json({ user: res.locals.
 app.use(createAdminRecoveryRouter({ admin, superAdmin, origin: publicOrigin }));
 app.use(createAccountRouter());
 app.use(createSmsInboxRouter({ admin, publicOrigin, inboundOnly: true }));
-app.use(createDispatchWizardRouter({ admin, sendSms: sendOperationalSms }));
+const driverTrips = new DriverTripService(captureAuthorizedPayment);
+app.use("/driver/trip", (_req, res, next) => {
+  res.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow" });
+  next();
+});
+app.use(createDriverTripRouter(driverTrips));
+app.use(createDispatchWizardRouter({ admin, sendSms: sendOperationalSms, driverAccess: driverTrips, publicOrigin }));
+app.use(createDispatcherCaptureRouter(admin, captureAuthorizedPayment));
 app.post("/api/admin/logout", (req, res) => { logout(req.cookies.allan_session); res.clearCookie("allan_session"); res.status(204).end(); });
 app.get("/api/admin/sessions", admin, async (req, res) => {
   res.json({ sessions: await listAdminSessions(res.locals.user.id, req.cookies.allan_session) });
@@ -1040,7 +1030,16 @@ app.post("/api/admin/rides/:id/dispatch", admin, dispatchLimiter, async (req, re
   if (!ride.vehicleId || !ride.vehicle?.active || !ride.driverName) return res.status(400).json({ code: "INCOMPLETE_ASSIGNMENT", error: "Assign an active vehicle and chauffeur before sending the dispatch brief." });
   const parsed = z.object({ message: z.string().trim().min(20).max(1600).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "The dispatch message must be between 20 and 1,600 characters." });
-  const message = parsed.data.message || dispatchBrief(ride);
+  let message: string;
+  try {
+    const driverAccess = await driverTrips.issue(ride.id);
+    const link = driverTrips.link(driverAccess, publicOrigin(req));
+    const footer = `\nTrip controls & navigation: ${link}\nReply STOP to opt out or HELP for help.`;
+    message = (parsed.data.message || dispatchBrief(ride)) + footer;
+    if (message.length > 1600) return res.status(422).json({ error: "Shorten the dispatch message or notes so the instructions and secure driver link fit within 1,600 characters. No SMS was sent." });
+  } catch (error) {
+    return res.status(error instanceof DriverTripError ? error.status : 503).json({ error: error instanceof DriverTripError ? error.message : "Secure driver access could not be prepared. No SMS was sent." });
+  }
   if (await getPendingDispatchAttempt(ride.id)) return res.status(409).json({ status: "PENDING_RECONCILIATION", error: "A prior dispatch attempt still needs reconciliation. Do not resend this ride yet." });
   let attempt;
   try {
@@ -1196,7 +1195,15 @@ app.post("/api/admin/content/fleet", admin, async (req, res) => {
   }
 });
 app.delete("/api/admin/content/fleet/:id", admin, async (req, res) => {
-  await deleteFleet(String(req.params.id)); res.status(204).end();
+  try {
+    await deleteFleet(String(req.params.id));
+    res.status(204).end();
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    if (code === "P2003") return res.status(409).json({ error: "This vehicle is paired with a chauffeur and cannot be deleted. Deactivate it instead to preserve the pairing and trip history." });
+    if (code === "P2025") return res.status(404).json({ error: "Vehicle not found." });
+    throw error;
+  }
 });
 app.get("/api/admin/export.csv", admin, async (_req, res) => {
   const headers = ["Name", "Email", "Phone", "Service", "Pickup date", "Pickup", "Destination", "Passengers", "Status", "Created"];

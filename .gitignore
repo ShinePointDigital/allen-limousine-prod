@@ -6,3 +6,4 @@ dist
 .DS_Store
 *.log
 prisma/dev.db
+/generated-artifacts/

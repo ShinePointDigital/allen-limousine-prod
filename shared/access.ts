@@ -41,6 +41,7 @@ export function requiredAccess(method: string, path: string): Permission[] | nul
   if (path.startsWith("/api/admin/content/fleet")) return ["fleet"];
   if (path === "/api/admin/dashboard") return ["dashboard"];
   if (path.startsWith("/api/admin/payments/")) return ["payments"];
+  if (method === "POST" && /^\/api\/admin\/rides\/[^/]+\/capture$/.test(path)) return ["rides", "payments"];
   if (path.startsWith("/api/admin/rides")) return ["rides"];
   if (path.startsWith("/api/admin/bookings/") || path.startsWith("/api/admin/chauffeurs")) return ["rides"];
   if (path.startsWith("/api/admin/inquiries") || path.startsWith("/api/admin/notifications")) return ["inquiries"];

@@ -7,6 +7,8 @@ export type BookingSuccessInput = {
   pickup: string;
   destination: string;
   fareCents: number;
+  gratuityCents?: number;
+  authorizedTotalCents?: number;
   paymentNotice: string;
   cardLast4?: string;
   flightNumber?: string;
@@ -36,6 +38,8 @@ export function bookingSuccessTransition(isPwa: boolean, input: BookingSuccessIn
       pickup: input.pickup,
       destination: input.destination,
       fareCents: input.fareCents,
+      gratuityCents: input.gratuityCents || 0,
+      authorizedTotalCents: input.authorizedTotalCents ?? input.fareCents + (input.gratuityCents || 0),
       paymentNotice: input.paymentNotice,
       cardLast4: input.cardLast4,
       flightNumber: input.flightNumber,

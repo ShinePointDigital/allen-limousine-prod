@@ -47,7 +47,13 @@ function TripsPanel({ onClose }: { onClose: () => void }) {
         const response = await fetch(`/api/tracking/${encodeURIComponent(trip.trackingToken)}`);
         if (!response.ok) return { ...trip, status: response.status === 404 ? "EXPIRED" : trip.status };
         const data = await response.json();
-        return { ...trip, status: data.reservation?.status || trip.status };
+        return {
+          ...trip,
+          status: data.reservation?.status || trip.status,
+          fareCents: data.reservation?.fareCents ?? trip.fareCents,
+          gratuityCents: data.reservation?.gratuityCents ?? trip.gratuityCents ?? 0,
+          authorizedTotalCents: data.reservation?.authorizedTotalCents ?? trip.authorizedTotalCents,
+        };
       } catch {
         return trip;
       }
@@ -65,6 +71,7 @@ function TripsPanel({ onClose }: { onClose: () => void }) {
         <div className="pwa-trip-card-top"><span className="eyebrow brass">Ride #{trip.reference}</span><b className={`pwa-status pwa-status-${trip.status.toLowerCase()}`}>{statusLabel(trip.status)}</b></div>
         <strong>{formatTripDate(trip.pickupAt)}</strong>
         <div className="pwa-trip-route"><span><i />{trip.pickup}</span><span><i />{trip.destination}</span></div>
+        <div className="pwa-trip-financials"><span>Fare {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(trip.fareCents / 100)}</span><span>Gratuity {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format((trip.gratuityCents || 0) / 100)}</span><b>Total {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format((trip.authorizedTotalCents ?? (trip.fareCents + (trip.gratuityCents || 0))) / 100)}</b></div>
         <div className="pwa-trip-actions"><button type="button" className="solid-button" onClick={() => window.location.assign(`/?source=pwa&tracking=${encodeURIComponent(trip.trackingToken)}`)}>View trip</button><button type="button" className="pwa-text-button" onClick={() => { forgetPwaTrip(trip.trackingToken); setTrips(current => current.filter(item => item.trackingToken !== trip.trackingToken)); }}>Remove</button></div>
       </article>)}
     </div>}

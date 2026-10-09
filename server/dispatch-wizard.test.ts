@@ -25,9 +25,13 @@ async function fixture(t: TestContext, consent = true) {
   let actorId: string | undefined;
   let driverId: string | undefined;
   let vehicleId: string | undefined;
+  const extraDriverIds: string[] = [];
+  const extraVehicleIds: string[] = [];
   t.after(async () => {
     await prisma.inquiry.deleteMany({ where: { id: { in: bookingIds } } });
+    await prisma.chauffeur.deleteMany({ where: { id: { in: extraDriverIds } } });
     if (driverId) await prisma.chauffeur.delete({ where: { id: driverId } });
+    await prisma.fleetVehicle.deleteMany({ where: { id: { in: extraVehicleIds } } });
     if (vehicleId) await prisma.fleetVehicle.delete({ where: { id: vehicleId } });
     if (actorId) await prisma.adminUser.delete({ where: { id: actorId } });
   });
@@ -45,6 +49,7 @@ async function fixture(t: TestContext, consent = true) {
     imageUrl: "/test-fixture.jpg", passengers: "3", luggage: "2",
   } });
   vehicleId = vehicle.id;
+  await prisma.chauffeur.update({ where: { id: driver.id }, data: { fleetVehicleId: vehicle.id } });
   const createBooking = async () => {
     const booking = await prisma.inquiry.create({ data: {
       fullName: "Test Client", email: "wizard-client@example.invalid", phone: "+13125550189",
@@ -66,9 +71,40 @@ async function fixture(t: TestContext, consent = true) {
   const service = new DispatchWizardService(sender, prisma, async () => false);
   const assign = async (using = service) => {
     const reviewed = await using.review(booking.id, 0, actor);
-    return using.assign(booking.id, reviewed.version, driver.id, vehicle.id, actor);
+    return using.assign(booking.id, reviewed.version, driver.id, actor);
   };
-  return { actor, driver, vehicle, booking, service, sent, sender, assign, createBooking };
+  const unpairedVehicle = async () => {
+    const item = await prisma.fleetVehicle.create({ data: {
+      name: `Test unpaired ${crypto.randomUUID()}`, category: "Sedan", description: "Isolated pairing test",
+      imageUrl: "https://example.invalid/car.jpg", passengers: "3", luggage: "2",
+    } });
+    extraVehicleIds.push(item.id);
+    return item;
+  };
+  const unpairedDriver = async () => {
+    const item = await prisma.chauffeur.create({ data: {
+      name: "Test unpaired chauffeur", phone: `+1312${crypto.randomInt(1000000, 4999999)}`,
+    } });
+    extraDriverIds.push(item.id);
+    return item;
+  };
+  return { actor, driver, vehicle, booking, service, sent, sender, assign, createBooking, unpairedVehicle, unpairedDriver, extraDriverIds, extraVehicleIds };
+}
+
+async function adminApi(t: TestContext, f: Awaited<ReturnType<typeof fixture>>) {
+  const session = await authenticate(f.actor.email, "wizard-test-only-password");
+  assert.ok(session);
+  const app = express();
+  app.use(express.json(), cookieParser(), createDispatchWizardRouter({ admin: staffGuard, sendSms: f.sender, service: f.service }));
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+  await new Promise<void>(resolve => server.once("listening", resolve));
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  return (path: string, body?: unknown, signed = true) => fetch(`${origin}${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "Content-Type": "application/json", ...(signed ? { Cookie: `allan_session=${session.token}` } : {}) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
 }
 
 test("review and assignment persist across service restarts without sending SMS", async t => {
@@ -78,7 +114,7 @@ test("review and assignment persist across service restarts without sending SMS"
   assert.equal(reviewed.step, 2);
   const restarted = new DispatchWizardService(f.sender, prisma, async () => false);
   assert.equal((await restarted.snapshot(f.booking.id)).step, 2);
-  const assigned = await restarted.assign(f.booking.id, reviewed.version, f.driver.id, f.vehicle.id, f.actor);
+  const assigned = await restarted.assign(f.booking.id, reviewed.version, f.driver.id, f.actor);
   assert.equal(assigned.step, 3);
   assert.equal(assigned.booking.status, "CONFIRMED");
   assert.equal(assigned.assignment.driverId, f.driver.id);
@@ -142,7 +178,7 @@ test("uncertain driver outcomes stay locked across restarts and reconcile before
   assert.equal(pending.messages.customer.status, "RESERVED");
   assert.ok(pending.blocked);
   await assert.rejects(f.service.dispatch(f.booking.id, pending.version, f.actor), /reconcile/i);
-  await assert.rejects(f.service.assign(f.booking.id, pending.version, f.driver.id, f.vehicle.id, f.actor), /cannot be changed/i);
+  await assert.rejects(f.service.assign(f.booking.id, pending.version, f.driver.id, f.actor), /cannot be changed/i);
   assert.equal(calls, 1);
   // Simulate the existing reconciliation route's verified provider acceptance.
   await prisma.dispatchMessage.update({ where: { id: pending.messages.driver.attemptId! }, data: { status: "SENT", providerMessageId: sid() } });
@@ -187,12 +223,12 @@ test("a later STOP cannot hide an already uncertain client attempt or mark it co
 test("stale assignment edits and double-booked drivers or units are rejected", async t => {
   const f = await fixture(t);
   const assigned = await f.assign();
-  await assert.rejects(f.service.assign(f.booking.id, assigned.version - 1, f.driver.id, f.vehicle.id, f.actor), /Another dispatcher/);
+  await assert.rejects(f.service.assign(f.booking.id, assigned.version - 1, f.driver.id, f.actor), /Another dispatcher/);
   const second = await f.createBooking();
   const reviewed = await f.service.review(second.id, 0, f.actor);
   assert.equal(reviewed.drivers.find(item => item.id === f.driver.id)?.available, false);
   assert.equal(reviewed.vehicles.find(item => item.id === f.vehicle.id)?.available, false);
-  await assert.rejects(f.service.assign(second.id, reviewed.version, f.driver.id, f.vehicle.id, f.actor), /already assigned/);
+  await assert.rejects(f.service.assign(second.id, reviewed.version, f.driver.id, f.actor), /already assigned/);
   assert.equal(f.sent.length, 0);
 });
 
@@ -266,7 +302,8 @@ test("the actual assign API requires dispatch access, validates versions and sen
   await prisma.adminUser.update({ where: { id: f.actor.id }, data: { permissions: ["rides"] } });
   assert.equal((await request(`${path}/assign`, { action: "save" })).status, 400);
   const reviewed = await (await request(`${path}/review`, { version: 0 })).json();
-  const assignedResponse = await request(`${path}/assign`, { action: "save", version: reviewed.version, driverId: f.driver.id, vehicleId: f.vehicle.id });
+  assert.equal((await request(`${path}/assign`, { action: "save", version: reviewed.version, driverId: f.driver.id, vehicleId: "not-the-paired-vehicle" })).status, 409);
+  const assignedResponse = await request(`${path}/assign`, { action: "save", version: reviewed.version, driverId: f.driver.id });
   assert.equal(assignedResponse.status, 200);
   const assigned = await assignedResponse.json();
   assert.equal(assigned.step, 3);
@@ -275,4 +312,187 @@ test("the actual assign API requires dispatch access, validates versions and sen
   assert.equal(response.status, 200);
   assert.equal((await response.json()).step, 4);
   assert.equal(f.sent.length, 2);
+});
+
+test("unpaired, inactive, undersized and busy paired vehicles cannot be dispatched", async t => {
+  const f = await fixture(t);
+  const legacyDriver = await f.unpairedDriver();
+  const reviewed = await f.service.review(f.booking.id, 0, f.actor);
+  const legacy = reviewed.drivers.find(item => item.id === legacyDriver.id)!;
+  assert.equal(legacy.fleetVehicleId, null);
+  assert.equal(legacy.available, false);
+  assert.equal(legacy.pairable, true);
+  await assert.rejects(f.service.assign(f.booking.id, reviewed.version, legacyDriver.id, f.actor), /paired vehicle/);
+
+  await prisma.inquiry.update({ where: { id: f.booking.id }, data: { passengers: 4 } });
+  await assert.rejects(f.service.assign(f.booking.id, reviewed.version, f.driver.id, f.actor), /passenger seats/);
+  await prisma.inquiry.update({ where: { id: f.booking.id }, data: { passengers: 1 } });
+  await prisma.fleetVehicle.update({ where: { id: f.vehicle.id }, data: { active: false } });
+  assert.equal((await f.service.snapshot(f.booking.id)).drivers.find(item => item.id === f.driver.id)?.available, false);
+  await assert.rejects(f.service.assign(f.booking.id, reviewed.version, f.driver.id, f.actor), /active paired vehicle/);
+  await prisma.fleetVehicle.update({ where: { id: f.vehicle.id }, data: { active: true } });
+
+  const second = await f.createBooking();
+  await prisma.ride.create({ data: {
+    inquiryId: second.id, vehicleId: f.vehicle.id, status: "ASSIGNED",
+    driverName: "Legacy different chauffeur", driverPhone: "+13125550001",
+  } });
+  assert.equal((await f.service.snapshot(f.booking.id)).drivers.find(item => item.id === f.driver.id)?.available, false);
+  await assert.rejects(f.service.assign(f.booking.id, reviewed.version, f.driver.id, f.actor), /already assigned/);
+  assert.equal((await prisma.inquiry.findUniqueOrThrow({ where: { id: f.booking.id } })).dispatchVersion, reviewed.version);
+  assert.equal(f.sent.length, 0);
+});
+
+test("chauffeur setup creates or links exactly one vehicle atomically and enforces access", async t => {
+  const f = await fixture(t);
+  const request = await adminApi(t, f);
+  const vehicle = await f.unpairedVehicle();
+  const payload = { name: "New paired chauffeur", phone: `+1312${crypto.randomInt(1000000, 4999999)}`, vehicleId: vehicle.id };
+  assert.equal((await request("/api/admin/chauffeurs", payload, false)).status, 401);
+  await prisma.adminUser.update({ where: { id: f.actor.id }, data: { permissions: ["inquiries"] } });
+  assert.equal((await request("/api/admin/chauffeurs", payload)).status, 403);
+  await prisma.adminUser.update({ where: { id: f.actor.id }, data: { permissions: ["rides"] } });
+  assert.equal((await request("/api/admin/chauffeurs", { name: payload.name, phone: payload.phone })).status, 400);
+
+  const linkedResponse = await request("/api/admin/chauffeurs", payload);
+  assert.equal(linkedResponse.status, 201);
+  const { chauffeur: linked } = await linkedResponse.json();
+  f.extraDriverIds.push(linked.id);
+  assert.equal(linked.fleetVehicleId, vehicle.id);
+  assert.equal(linked.fleetVehicle.defaultDriverName, payload.name);
+  assert.equal(linked.fleetVehicle.defaultDriverPhone, payload.phone);
+  const roster = await f.service.snapshot(f.booking.id);
+  assert.equal(roster.drivers.find(item => item.id === linked.id)?.vehicleName, vehicle.name);
+  assert.equal(roster.vehicles.find(item => item.id === vehicle.id)?.pairedToDriverId, linked.id);
+  assert.equal(roster.vehicles.find(item => item.id === vehicle.id)?.pairable, false);
+  assert.equal((await request("/api/admin/chauffeurs", { ...payload, phone: `+1312${crypto.randomInt(1000000, 4999999)}` })).status, 409);
+
+  const newVehicle = {
+    name: `Atomic new vehicle ${crypto.randomUUID()}`, category: "SUV", description: "Test vehicle creation",
+    imageUrl: "https://example.invalid/new-car.jpg", passengers: "1–6", luggage: "4 large",
+  };
+  assert.equal((await request("/api/admin/chauffeurs", { ...payload, newVehicle })).status, 400);
+  assert.equal((await request("/api/admin/chauffeurs", { name: payload.name, phone: payload.phone, newVehicle: { ...newVehicle, passengers: "invalid 6 seats" } })).status, 400);
+  const newResponse = await request("/api/admin/chauffeurs", {
+    name: "Chauffeur with new vehicle", phone: `+1312${crypto.randomInt(1000000, 4999999)}`, newVehicle,
+  });
+  assert.equal(newResponse.status, 201);
+  const { chauffeur: created } = await newResponse.json();
+  f.extraDriverIds.push(created.id);
+  f.extraVehicleIds.push(created.fleetVehicleId);
+  assert.equal(created.fleetVehicle.name, newVehicle.name);
+  assert.equal(created.fleetVehicleId, created.fleetVehicle.id);
+
+  const rolledBackName = `Rolled back vehicle ${crypto.randomUUID()}`;
+  assert.equal((await request("/api/admin/chauffeurs", {
+    name: "Duplicate phone chauffeur", phone: f.driver.phone,
+    newVehicle: { ...newVehicle, name: rolledBackName },
+  })).status, 409);
+  assert.equal(await prisma.fleetVehicle.count({ where: { name: rolledBackName } }), 0);
+  assert.equal(f.sent.length, 0);
+});
+
+test("legacy resources are paired explicitly without altering saved rides or allowing conflicting links", async t => {
+  const f = await fixture(t);
+  const request = await adminApi(t, f);
+  const driver = await f.unpairedDriver();
+  const vehicle = await f.unpairedVehicle();
+  await prisma.fleetVehicle.update({ where: { id: vehicle.id }, data: { defaultDriverName: driver.name, defaultDriverPhone: driver.phone } });
+  const before = await f.service.snapshot(f.booking.id);
+  assert.equal(before.drivers.find(item => item.id === driver.id)?.fleetVehicleId, null);
+  assert.equal(before.vehicles.find(item => item.id === vehicle.id)?.pairedToDriverId, null);
+  assert.equal((await request(`/api/admin/chauffeurs/${driver.id}/vehicle`, { vehicleId: f.vehicle.id })).status, 409);
+
+  const legacyBooking = await f.createBooking();
+  const legacyRide = await prisma.ride.create({ data: {
+    inquiryId: legacyBooking.id, vehicleId: f.vehicle.id, status: "ASSIGNED",
+    driverName: driver.name, driverPhone: `${driver.phone.slice(0, 2)} (${driver.phone.slice(2, 5)}) ${driver.phone.slice(5, 8)}-${driver.phone.slice(8)}`,
+  } });
+  assert.equal((await f.service.snapshot(legacyBooking.id)).drivers.find(item => item.id === driver.id)?.pairable, false);
+  assert.equal((await request(`/api/admin/chauffeurs/${driver.id}/vehicle`, { vehicleId: vehicle.id })).status, 409);
+  await prisma.ride.update({ where: { id: legacyRide.id }, data: { status: "COMPLETED" } });
+  await prisma.inquiry.update({ where: { id: legacyBooking.id }, data: { status: "COMPLETED", dispatchStep: 4, dispatchStatus: "DISPATCHED" } });
+  const response = await request(`/api/admin/chauffeurs/${driver.id}/vehicle`, { vehicleId: vehicle.id });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).chauffeur.fleetVehicleId, vehicle.id);
+  const savedRide = await prisma.ride.findUniqueOrThrow({ where: { id: legacyRide.id } });
+  assert.equal(savedRide.vehicleId, f.vehicle.id);
+  assert.equal(savedRide.driverPhone, legacyRide.driverPhone);
+  const historical = await f.service.snapshot(legacyBooking.id);
+  assert.equal(historical.completed, true);
+  assert.equal(historical.assignment.vehicleId, f.vehicle.id);
+  assert.equal((await request(`/api/admin/chauffeurs/${driver.id}/vehicle`, { vehicleId: vehicle.id })).status, 409);
+  await assert.rejects(prisma.fleetVehicle.delete({ where: { id: vehicle.id } }), (error: any) => error.code === "P2003");
+  assert.equal((await prisma.chauffeur.findUniqueOrThrow({ where: { id: driver.id } })).fleetVehicleId, vehicle.id);
+  assert.equal(f.sent.length, 0);
+});
+
+test("pairing rejects inactive and occupied resources and supports a new vehicle for an existing chauffeur", async t => {
+  const f = await fixture(t);
+  const request = await adminApi(t, f);
+  const driver = await f.unpairedDriver();
+  const vehicle = await f.unpairedVehicle();
+  await prisma.fleetVehicle.update({ where: { id: vehicle.id }, data: { active: false } });
+  assert.equal((await request(`/api/admin/chauffeurs/${driver.id}/vehicle`, { vehicleId: vehicle.id })).status, 409);
+  await prisma.fleetVehicle.update({ where: { id: vehicle.id }, data: { active: true } });
+  const busyBooking = await f.createBooking();
+  await prisma.ride.create({ data: { inquiryId: busyBooking.id, vehicleId: vehicle.id, status: "ASSIGNED", driverPhone: "+13125550123" } });
+  assert.equal((await request(`/api/admin/chauffeurs/${driver.id}/vehicle`, { vehicleId: vehicle.id })).status, 409);
+  await prisma.chauffeur.update({ where: { id: driver.id }, data: { active: false } });
+  assert.equal((await request(`/api/admin/chauffeurs/${driver.id}/vehicle`, { vehicleId: vehicle.id })).status, 404);
+  await prisma.chauffeur.update({ where: { id: driver.id }, data: { active: true } });
+  const response = await request(`/api/admin/chauffeurs/${driver.id}/vehicle`, { newVehicle: {
+    name: `Existing chauffeur new car ${crypto.randomUUID()}`, category: "Sedan", description: "New test fleet unit",
+    imageUrl: "https://example.invalid/vehicle.jpg", passengers: "3", luggage: "2",
+  } });
+  assert.equal(response.status, 200);
+  const { chauffeur } = await response.json();
+  f.extraVehicleIds.push(chauffeur.fleetVehicleId);
+  assert.equal(chauffeur.id, driver.id);
+  assert.equal(chauffeur.fleetVehicle.defaultDriverPhone, driver.phone);
+});
+
+test("concurrent pair creation cannot claim one vehicle for two chauffeurs", async t => {
+  const f = await fixture(t);
+  const request = await adminApi(t, f);
+  const vehicle = await f.unpairedVehicle();
+  const responses = await Promise.all([1, 2].map(() => request("/api/admin/chauffeurs", {
+    name: "Concurrent pair test", phone: `+1312${crypto.randomInt(1000000, 4999999)}`, vehicleId: vehicle.id,
+  })));
+  assert.deepEqual(responses.map(response => response.status).sort(), [201, 409]);
+  for (const response of responses) {
+    if (response.status === 201) f.extraDriverIds.push((await response.json()).chauffeur.id);
+  }
+  assert.equal(await prisma.chauffeur.count({ where: { fleetVehicleId: vehicle.id } }), 1);
+});
+
+test("concurrent bookings cannot both assign the same chauffeur and fixed vehicle", async t => {
+  const f = await fixture(t);
+  const second = await f.createBooking();
+  const firstReview = await f.service.review(f.booking.id, 0, f.actor);
+  const secondReview = await f.service.review(second.id, 0, f.actor);
+  const results = await Promise.allSettled([
+    f.service.assign(f.booking.id, firstReview.version, f.driver.id, f.actor),
+    f.service.assign(second.id, secondReview.version, f.driver.id, f.actor),
+  ]);
+  assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+  assert.equal(await prisma.ride.count({ where: { driverId: f.driver.id, status: "ASSIGNED" } }), 1);
+  assert.equal(f.sent.length, 0);
+});
+
+test("a saved legacy assignment remains dispatchable without inferring a fixed pairing", async t => {
+  const f = await fixture(t);
+  const assigned = await f.assign();
+  // Represents a pre-migration saved ride, whose chauffeur has no explicit fixed pairing.
+  await prisma.chauffeur.update({ where: { id: f.driver.id }, data: { fleetVehicleId: null } });
+  const legacy = await f.service.snapshot(f.booking.id);
+  assert.equal(legacy.assignment.vehicleId, f.vehicle.id);
+  assert.equal(legacy.drivers.find(item => item.id === f.driver.id)?.fleetVehicleId, null);
+  assert.equal(legacy.drivers.find(item => item.id === f.driver.id)?.pairable, false);
+  assert.equal(legacy.step, 3);
+  const completed = await f.service.dispatch(f.booking.id, assigned.version, f.actor);
+  assert.equal(completed.completed, true);
+  assert.equal(f.sent.length, 2);
+  assert.ok(f.sent.every(message => message.body.includes(f.vehicle.name)));
+  assert.equal((await prisma.chauffeur.findUniqueOrThrow({ where: { id: f.driver.id } })).fleetVehicleId, null);
 });

@@ -1,0 +1,44 @@
+export type FlightInfo = {
+  source: "AviationStack";
+  flightNumber: string;
+  flightDate: string | null;
+  airlineName: string | null;
+  flightStatus: string | null;
+  departureAirport: string | null;
+  departureAirportCode: string | null;
+  departureTimezone: string | null;
+  arrivalAirport: string | null;
+  arrivalAirportCode: string | null;
+  arrivalTimezone: string | null;
+  scheduledDepartureTime: string | null;
+  estimatedDepartureTime: string | null;
+  actualDepartureTime: string | null;
+  scheduledArrivalTime: string | null;
+  estimatedArrivalTime: string | null;
+  actualArrivalTime: string | null;
+  departureTime: string | null;
+  arrivalTime: string | null;
+  departureTerminal: string | null;
+  arrivalTerminal: string | null;
+  departureGate: string | null;
+  arrivalGate: string | null;
+  baggageBelt: string | null;
+  departureDelayMinutes: number | null;
+  arrivalDelayMinutes: number | null;
+  fetchedAt: string;
+};
+
+export type BookingFlightMetadata = {
+  flightNumber?: string | null;
+  flightScheduledAt?: string | null;
+  airportCode?: string | null;
+  airlineName?: string | null;
+  flightStatus?: string | null;
+  arrivalTime?: string | null;
+  departureTime?: string | null;
+  arrivalTerminal?: string | null;
+  departureTerminal?: string | null;
+  baggageBelt?: string | null;
+  flightUpdatedAt?: string | null;
+  flightDetails?: FlightInfo | null;
+};

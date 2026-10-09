@@ -21,6 +21,8 @@ import "./admin-recovery.css";
 import { hasAccess, type Permission, type Role } from "../shared/access";
 import UserManagement from "./UserManagement";
 import CustomerAccount from "./CustomerAccount";
+import DriverTrip from "./DriverTrip";
+import type { BookingFlightMetadata } from "../shared/flight";
 import LegalPage from "./legal/LegalPage";
 import { privacyDocument, termsDocument } from "./legal/legal-content";
 import "./legal/footer-links.css";
@@ -28,13 +30,13 @@ import "./legal/footer-links.css";
 type Service = { id: string; slug: string; title: string; eyebrow: string; description: string; imageUrl: string; active: boolean };
 type Vehicle = { id: string; name: string; category: string; description: string; imageUrl: string; passengers: string; luggage: string; defaultDriverName: string | null; defaultDriverPhone: string | null; active: boolean };
 type DispatchVehicle = Pick<Vehicle, "id" | "name" | "category" | "description" | "passengers" | "luggage" | "defaultDriverName" | "defaultDriverPhone">;
-type Inquiry = { id: string; fullName: string; email: string; phone: string; serviceType: string; pickupAt: string; pickup: string; destination: string; passengers: number; notes?: string; airportCode?: string | null; airportTerminal?: string | null; flightNumber?: string | null; flightScheduledAt?: string | null; pickupPreference?: string | null; isPrivateFBO?: boolean; specificTailNumber?: string | null; principalName?: string | null; fboName?: string | null; tarmacInstructions?: string | null; estimatedFareCents?: number | null; bookingRequestId?: string | null; stripePaymentIntentId?: string | null; paymentStatus?: string | null; status: string; createdAt: string; updatedAt: string; history: { body: string; author: string; createdAt: string }[] };
+type Inquiry = { id: string; fullName: string; email: string; phone: string; serviceType: string; pickupAt: string; pickup: string; destination: string; passengers: number; notes?: string; airportCode?: string | null; airportTerminal?: string | null; pickupPreference?: string | null; isPrivateFBO?: boolean; specificTailNumber?: string | null; principalName?: string | null; fboName?: string | null; tarmacInstructions?: string | null; estimatedFareCents?: number | null; grossFareCents?: number | null; promoDiscountCents?: number | null; gratuityCents?: number | null; authorizedTotalCents?: number | null; bookingRequestId?: string | null; stripePaymentIntentId?: string | null; paymentStatus?: string | null; status: string; createdAt: string; updatedAt: string; history: { body: string; author: string; createdAt: string }[] } & BookingFlightMetadata;
 type DispatchActivity = {
   id: string; status: string; toPhone: string; body: string; providerMessageId: string | null;
   providerStatus: string | null; deliveryStatus: string | null; errorMessage: string | null;
   createdAt: string; adminName?: string; reconciledAt?: string | null; reconciledByName?: string | null;
 };
-type Ride = { id: string; inquiryId: string; status: string; driverName: string | null; driverPhone: string | null; driverLatitude: number | null; driverLongitude: number | null; driverHeading: number | null; locationUpdatedAt: string | null; vehicleId: string | null; quoteCents: number; depositCents: number; collectedCents: number; expenseCents: number; dispatchNotes: string | null; createdAt: string; updatedAt: string; inquiry: Pick<Inquiry, "fullName" | "email" | "serviceType" | "pickupAt" | "pickup" | "destination" | "passengers" | "notes" | "isPrivateFBO" | "specificTailNumber" | "principalName" | "fboName" | "tarmacInstructions" | "estimatedFareCents" | "bookingRequestId" | "stripePaymentIntentId" | "paymentStatus">; vehicle: Pick<Vehicle, "id" | "name" | "category" | "active"> | null; dispatchMessages: DispatchActivity[] };
+type Ride = { id: string; inquiryId: string; status: string; driverName: string | null; driverPhone: string | null; driverLatitude: number | null; driverLongitude: number | null; driverHeading: number | null; locationUpdatedAt: string | null; vehicleId: string | null; quoteCents: number; depositCents: number; collectedCents: number; expenseCents: number; dispatchNotes: string | null; createdAt: string; updatedAt: string; inquiry: Pick<Inquiry, "fullName" | "email" | "serviceType" | "pickupAt" | "pickup" | "destination" | "passengers" | "notes" | "isPrivateFBO" | "specificTailNumber" | "principalName" | "fboName" | "tarmacInstructions" | "estimatedFareCents" | "grossFareCents" | "promoDiscountCents" | "gratuityCents" | "authorizedTotalCents" | "bookingRequestId" | "stripePaymentIntentId" | "paymentStatus"> & BookingFlightMetadata; vehicle: Pick<Vehicle, "id" | "name" | "category" | "active"> | null; dispatchMessages: DispatchActivity[] };
 type AdminNotification = { id: string; type: string; title: string; body: string; inquiryId: string | null; readAt: string | null; createdAt: string };
 type CompanyProfile = { businessPhone: string; contactEmail: string; serviceArea: string };
 type StaffAccess = { role: Role; permissions: Permission[] };
@@ -60,7 +62,7 @@ const api = async (url: string, options?: RequestInit) => {
 };
 const formatDate = (value: string) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 const formatDateTime = (value: string) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value));
-const formatMoney = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
+const formatMoney = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100);
 const titleCaseStatus = (value: string) => value.toLowerCase().replaceAll("_", " ").replace(/\b\w/g, character => character.toUpperCase());
 const phoneHref = (value: string) => `tel:${value.replace(/[^\d+]/g, "")}`;
 const requiresPaymentAccessToClose = (booking: Pick<Inquiry, "stripePaymentIntentId" | "paymentStatus">) =>
@@ -631,6 +633,7 @@ function AvailableRidesModal({ vehicle, close, refresh }: { vehicle: DispatchVeh
 }
 function RideDetail({ ride, vehicles, access, close, refresh }: { ride: Ride; vehicles: DispatchVehicle[]; access: StaffAccess; close: () => void; refresh: () => void }) {
   const canManagePayments = hasAccess(access, "payments");
+  const canCapturePayment = canManagePayments || hasAccess(access, "rides");
   const [form, setForm] = useState({ status: ride.status, vehicleId: ride.vehicleId || "", driverName: ride.driverName || "", driverPhone: ride.driverPhone || "", driverLatitude: ride.driverLatitude == null ? "" : String(ride.driverLatitude), driverLongitude: ride.driverLongitude == null ? "" : String(ride.driverLongitude), driverHeading: ride.driverHeading == null ? "" : String(ride.driverHeading), quote: String(ride.quoteCents / 100), deposit: String(ride.depositCents / 100), collected: String(ride.collectedCents / 100), expense: String(ride.expenseCents / 100), dispatchNotes: ride.dispatchNotes || "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -708,12 +711,15 @@ function RideDetail({ ride, vehicles, access, close, refresh }: { ride: Ride; ve
     } finally { setSaving(false); }
   };
   const paymentAction = async (action: "capture" | "cancel") => {
-    if (!canManagePayments || !ride.inquiry.bookingRequestId) return;
+    if ((action === "capture" && !canCapturePayment) || (action === "cancel" && !canManagePayments) || (action === "cancel" && !ride.inquiry.bookingRequestId)) return;
     const prompt = action === "capture" ? "Capture this authorization now? This charges the customer before ride completion." : "Cancel this booking and release its authorization hold?";
     if (!window.confirm(prompt)) return;
     setPaymentState("working"); setError("");
     try {
-      const result = await api(`/api/admin/payments/${ride.inquiry.bookingRequestId}/${action}`, { method: "POST" });
+      const endpoint = action === "capture"
+        ? `/api/admin/rides/${ride.id}/capture`
+        : `/api/admin/payments/${ride.inquiry.bookingRequestId}/cancel`;
+      const result = await api(endpoint, { method: "POST" });
       setPaymentStatus(result.status);
       setPaymentState("done");
       refresh();
@@ -776,16 +782,19 @@ function RideDetail({ ride, vehicles, access, close, refresh }: { ride: Ride; ve
       driverPhone: current.driverPhone || selectedVehicle.defaultDriverPhone || "",
     }));
   }, [form.vehicleId]);
-  const paymentPanel = !canManagePayments ? <div className="drawer-block payment-admin-block"><p className="drawer-label">Stripe payment</p><p className="dispatch-warning">Payment details and terminal actions require Payments access.</p></div> : <div className="drawer-block payment-admin-block">
+  const paymentPanel = !canCapturePayment ? <div className="drawer-block payment-admin-block"><p className="drawer-label">Stripe payment</p><p className="dispatch-warning">Payment details and capture require Payments or Rides access.</p></div> : <div className="drawer-block payment-admin-block">
     <div className="payment-admin-heading"><div><p className="drawer-label">Stripe payment</p><h3>{titleCaseStatus(paymentStatus)}</h3></div><WalletCards /></div>
     <div className="payment-admin-summary">
-      <span>Authorized fare <b>{formatMoney(ride.inquiry.estimatedFareCents || ride.quoteCents)}</b></span>
+      <span>Original authorized fare <b>{formatMoney(ride.inquiry.estimatedFareCents ?? ride.quoteCents)}</b></span>
+      <span>Gratuity <b>{formatMoney(ride.inquiry.gratuityCents || 0)}</b></span>
+      <span>Original card total <b>{formatMoney(ride.inquiry.authorizedTotalCents ?? ((ride.inquiry.estimatedFareCents ?? ride.quoteCents) + (ride.inquiry.gratuityCents || 0)))}</b></span>
       <span>Customer <b>{ride.inquiry.email}</b></span>
       {ride.inquiry.stripePaymentIntentId && <span>Intent <b>{ride.inquiry.stripePaymentIntentId}</b></span>}
     </div>
     {paymentStatus === "requires_capture" && <div className="payment-admin-actions">
-      <button type="button" className="outline-button dark" disabled={paymentState === "working"} onClick={() => paymentAction("capture")}><CircleDollarSign />Capture now</button>
-      <button type="button" className="text-button danger-action" disabled={paymentState === "working"} onClick={() => paymentAction("cancel")}><X />Cancel booking & release hold</button>
+      {ride.inquiry.authorizedTotalCents != null && <p className="dispatch-warning">Card total authorized (including gratuity): {formatMoney(ride.inquiry.authorizedTotalCents)}. Early capture charges the customer before ride completion.</p>}
+      <button type="button" className="outline-button dark" disabled={paymentState === "working" || !canCapturePayment} onClick={() => paymentAction("capture")}><CircleDollarSign />Capture now</button>
+      {canManagePayments && <button type="button" className="text-button danger-action" disabled={paymentState === "working"} onClick={() => paymentAction("cancel")}><X />Cancel booking & release hold</button>}
     </div>}
     {paymentStatus === "succeeded" && <p className="dispatch-success"><Check /> Payment captured. Stripe prevents duplicate capture.</p>}
     {paymentStatus === "canceled" && <p className="dispatch-warning">Authorization released; this booking is cancelled.</p>}
@@ -1059,6 +1068,12 @@ function SettingsPage() {
 export default function App() {
   const location = useLocation();
   const publicPath = location.pathname.replace(/\/+$/, "") || "/";
+  const driverTripRoute = location.pathname.match(/^\/driver\/trip\/([^/]+)\/?$/);
+  if (driverTripRoute) {
+    let token = driverTripRoute[1];
+    try { token = decodeURIComponent(token); } catch { /* Keep malformed links on the safe unavailable flow. */ }
+    return <DriverTrip token={token} />;
+  }
   if (publicPath === "/privacy") return <LegalPage document={privacyDocument} />;
   if (publicPath === "/terms") return <LegalPage document={termsDocument} />;
   if (location.pathname === "/account/login" || location.pathname === "/account") return <CustomerAccount />;

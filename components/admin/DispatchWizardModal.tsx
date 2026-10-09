@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertCircle, ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight,
   Clock3, MapPin, MessageSquareText, RefreshCw, ShieldCheck, UserRound, X,
 } from "lucide-react";
 import type { DispatchWizardSnapshot, DispatchWizardStep, WizardSmsPreview } from "../../shared/dispatch-wizard";
+import ChauffeurVehicleSetup from "./ChauffeurVehicleSetup";
 import "./DispatchWizardModal.css";
 
 type Props = {
@@ -24,6 +26,11 @@ const stepTitles: Record<DispatchWizardStep, string> = {
 };
 
 const isSmsAttempt = (sms: WizardSmsPreview) => ["RESERVED", "PENDING", "SENT"].includes(sms.status);
+
+// Admin page transitions transform their containers. Render outside them so fixed
+// positioning and scrolling remain relative to the actual viewport.
+const dispatchPortal = (content: ReactNode) =>
+  createPortal(<div className="admin-app dw-portal">{content}</div>, document.body);
 
 function formatPickup(value: string) {
   const date = new Date(value);
@@ -86,18 +93,16 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
   const [snapshot, setSnapshot] = useState<DispatchWizardSnapshot | null>(null);
   const [viewStep, setViewStep] = useState<DispatchWizardStep>(1);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [mutationSaving, setSaving] = useState(false);
+  const [setupBusy, setSetupBusy] = useState(false);
+  const saving = mutationSaving || setupBusy;
   const [error, setError] = useState("");
   const [driverId, setDriverId] = useState("");
-  const [vehicleId, setVehicleId] = useState("");
   const [fieldError, setFieldError] = useState("");
-  const [addDriverOpen, setAddDriverOpen] = useState(false);
-  const [newDriver, setNewDriver] = useState({ name: "", phone: "" });
-  const [newDriverError, setNewDriverError] = useState("");
   const [reconcileValues, setReconcileValues] = useState<Record<string, string>>({});
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
-  closeRef.current = onClose;
+  closeRef.current = setupBusy ? () => {} : onClose;
 
   const hasNotifications = useMemo(() => Boolean(snapshot &&
     (isSmsAttempt(snapshot.messages.driver) || isSmsAttempt(snapshot.messages.customer))), [snapshot]);
@@ -117,7 +122,6 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
       setSnapshot(next);
       setViewStep(next.step);
       setDriverId(next.assignment.driverId || "");
-      setVehicleId(next.assignment.vehicleId || "");
       setLoading(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to load this dispatch.");
@@ -126,6 +130,29 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
   }, [bookingId]);
 
   useEffect(() => { void loadSnapshot(); }, [loadSnapshot]);
+
+  const refreshRoster = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/admin/bookings/${encodeURIComponent(bookingId)}/dispatch`, {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      const data = await response.json().catch(() => ({})) as ApiFailure | DispatchWizardSnapshot;
+      if (!response.ok || !("drivers" in data)) return null;
+      setSnapshot(data);
+      return data;
+    } catch {
+      return null;
+    }
+  }, [bookingId]);
+
+  const onSetupCreated = useCallback(async (createdDriverId: string) => {
+    const next = await refreshRoster();
+    if (!next) throw new Error("The setup was accepted, but the refreshed roster could not be loaded.");
+    setDriverId(createdDriverId);
+    setFieldError("");
+    onUpdated?.();
+  }, [onUpdated, refreshRoster]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -189,7 +216,6 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
       setSnapshot(next);
       setViewStep(next.step);
       setDriverId(next.assignment.driverId || "");
-      setVehicleId(next.assignment.vehicleId || "");
       if (successMessage) setError("");
       onUpdated?.();
       setSaving(false);
@@ -210,18 +236,17 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
 
   const saveAssignment = () => {
     if (!snapshot || ![2, 3].includes(snapshot.step) || hasNotifications || saving) return;
-    if (!driverId || !vehicleId) {
-      setFieldError("Choose an available chauffeur and vehicle to continue.");
+    if (!driverId) {
+      setFieldError("Choose an available chauffeur with a paired vehicle to continue.");
       return;
     }
     const driver = snapshot.drivers.find(item => item.id === driverId);
-    const vehicle = snapshot.vehicles.find(item => item.id === vehicleId);
-    if (!driver?.available || !vehicle?.available) {
-      setFieldError("One of those selections is no longer available. Refresh the dispatch and choose again.");
+    if (!driver?.available || !driver.fleetVehicleId) {
+      setFieldError("This chauffeur or their paired vehicle is no longer available. Refresh the dispatch and choose again.");
       return;
     }
     void postSnapshot(`/api/admin/bookings/${encodeURIComponent(bookingId)}/assign`, {
-      action: "save", version: snapshot.version, driverId, vehicleId,
+      action: "save", version: snapshot.version, driverId,
     });
   };
 
@@ -231,39 +256,6 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
     void postSnapshot(`/api/admin/bookings/${encodeURIComponent(bookingId)}/assign`, {
       action: "dispatch", version: snapshot.version,
     });
-  };
-
-  const createDriver = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (saving) return;
-    const name = newDriver.name.trim();
-    const phone = newDriver.phone.trim();
-    if (!name || !phone) {
-      setNewDriverError("Enter the chauffeur’s name and phone number.");
-      return;
-    }
-    setSaving(true);
-    setNewDriverError("");
-    setError("");
-    try {
-      const response = await fetch("/api/admin/chauffeurs", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ name, phone }),
-      });
-      const data = await response.json().catch(() => ({})) as ApiFailure;
-      if (!response.ok) throw new Error(data.error || "Unable to add this chauffeur.");
-      setAddDriverOpen(false);
-      setNewDriver({ name: "", phone: "" });
-      await loadSnapshot(false);
-      onUpdated?.();
-      setSaving(false);
-    } catch (reason) {
-      setNewDriverError(reason instanceof Error ? reason.message : "Unable to add this chauffeur.");
-      setSaving(false);
-      await loadSnapshot(false);
-    }
   };
 
   const reconcile = async (sms: WizardSmsPreview) => {
@@ -292,40 +284,42 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
   };
 
   const clickBackdrop = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) onClose();
+    if (event.target === event.currentTarget && !setupBusy) onClose();
   };
 
-  const stepNavigation = (step: DispatchWizardStep) => setViewStep(step);
+  const stepNavigation = (step: DispatchWizardStep) => { if (!saving) setViewStep(step); };
 
-  if (loading) return <div className="dw-backdrop" onMouseDown={clickBackdrop}>
+  if (loading) return dispatchPortal(<div className="dw-backdrop" onMouseDown={clickBackdrop}>
     <section className="dw-dialog dw-loading-dialog" role="dialog" aria-modal="true" aria-labelledby="dw-loading-title" ref={dialogRef} tabIndex={-1}>
       <header className="dw-topline"><div><span className="dw-overline">Allan Limousine · Operations</span><h2 id="dw-loading-title">Dispatching a reservation</h2></div><button className="dw-close" onClick={onClose} aria-label="Close dispatch dialog" data-dialog-initial-focus><X /></button></header>
       <div className="dw-skeleton" aria-label="Loading dispatch details"><i /><i /><i /><i /></div>
       <p className="dw-loading-copy">Retrieving the latest booking and assignment status…</p>
     </section>
-  </div>;
+  </div>);
 
-  if (!snapshot) return <div className="dw-backdrop" onMouseDown={clickBackdrop}>
+  if (!snapshot) return dispatchPortal(<div className="dw-backdrop" onMouseDown={clickBackdrop}>
     <section className="dw-dialog dw-load-error" role="dialog" aria-modal="true" aria-labelledby="dw-error-title" ref={dialogRef} tabIndex={-1}>
       <header className="dw-topline"><div><span className="dw-overline">Allan Limousine · Operations</span><h2 id="dw-error-title">Dispatch unavailable</h2></div><button className="dw-close" onClick={onClose} aria-label="Close dispatch dialog" data-dialog-initial-focus><X /></button></header>
       <div className="dw-alert" role="alert"><AlertCircle aria-hidden="true" /><span>{error || "We couldn’t retrieve this reservation."}</span></div>
       <div className="dw-footer"><button className="dw-button dw-button-secondary" onClick={() => void loadSnapshot()}><RefreshCw aria-hidden="true" /> Try again</button><button className="dw-text-button" onClick={onClose}>Close</button></div>
     </section>
-  </div>;
+  </div>);
 
-  const driver = snapshot.drivers.find(item => item.id === (snapshot.assignment.driverId || driverId));
-  const vehicle = snapshot.vehicles.find(item => item.id === (snapshot.assignment.vehicleId || vehicleId));
   const pendingNotification = snapshot.messages.driver.status === "PENDING" || snapshot.messages.customer.status === "PENDING";
   const blockedDispatch = Boolean(snapshot.blocked) || pendingNotification || completed;
   const sendLabel = snapshot.messages.driver.status === "FAILED" || snapshot.messages.customer.status === "FAILED"
     ? "Retry unsent notifications" : "Confirm & dispatch";
   const isReadOnlyAssignment = hasNotifications || completed;
+  const selectedDriver = snapshot.drivers.find(item => item.id === driverId);
+  const savedVehicle = snapshot.vehicles.find(item => item.id === snapshot.assignment.vehicleId);
+  const legacySavedSelection = Boolean(driverId && snapshot.assignment.driverId === driverId &&
+    snapshot.assignment.vehicleId && snapshot.assignment.vehicleId !== selectedDriver?.fleetVehicleId);
 
-  return <div className="dw-backdrop" onMouseDown={clickBackdrop}>
+  return dispatchPortal(<div className="dw-backdrop" onMouseDown={clickBackdrop}>
     <section className="dw-dialog" role="dialog" aria-modal="true" aria-labelledby="dw-title" aria-describedby="dw-description" ref={dialogRef} tabIndex={-1}>
       <header className="dw-topline">
         <div><span className="dw-overline">Allan Limousine <span className="dw-overline-sep">/</span> Operations</span><h2 id="dw-title">Dispatch <em>reservation</em></h2><p id="dw-description">Review the booking, confirm the assignment, then authorize notifications.</p></div>
-        <button type="button" className="dw-close" onClick={onClose} aria-label="Close dispatch dialog" data-dialog-initial-focus><X /></button>
+        <button type="button" className="dw-close" onClick={onClose} disabled={setupBusy} aria-label="Close dispatch dialog" data-dialog-initial-focus><X /></button>
       </header>
 
       <nav className="dw-steps" aria-label="Dispatch steps">
@@ -359,44 +353,43 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
         </section>}
 
         {viewStep === 2 && <section className="dw-step-panel" aria-labelledby="dw-assignment-heading">
-          <div className="dw-section-heading"><div><span className="dw-overline">02 / Select resources</span><h3 id="dw-assignment-heading">Chauffeur & vehicle</h3></div><span className="dw-roster-count">{snapshot.drivers.filter(item => item.available).length} chauffeurs · {snapshot.vehicles.filter(item => item.available).length} vehicles available</span></div>
+          <div className="dw-section-heading"><div><span className="dw-overline">02 / Select resources</span><h3 id="dw-assignment-heading">Chauffeur & vehicle</h3></div><span className="dw-roster-count">{snapshot.drivers.filter(item => item.available && item.fleetVehicleId).length} chauffeurs available</span></div>
           {isReadOnlyAssignment && <p className="dw-lock-note"><ShieldCheck aria-hidden="true" /> Notifications have been reserved or attempted. Assignment is locked to protect the recorded dispatch.</p>}
-          <div className="dw-select-grid">
+          {!isReadOnlyAssignment && <div className="dw-select-grid dw-driver-select-grid">
             <label className="dw-field">Available chauffeur
-              <select value={driverId} onChange={event => { setDriverId(event.target.value); setFieldError(""); }} disabled={isReadOnlyAssignment || saving}>
-                <option value="">Choose a chauffeur</option>
-                {snapshot.drivers.map(item => <option value={item.id} key={item.id} disabled={!item.available}>{item.name} · {item.phone}{item.available ? "" : " · Unavailable"}</option>)}
+              <select value={driverId} onChange={event => { setDriverId(event.target.value); setFieldError(""); }} disabled={saving}>
+                <option value="">Choose a paired chauffeur</option>
+                {snapshot.drivers.map(item => <option value={item.id} key={item.id} disabled={!item.available || !item.fleetVehicleId}>{item.name} · {item.phone}{!item.fleetVehicleId ? " · Needs vehicle" : !item.available ? " · Unavailable" : ""}</option>)}
               </select>
             </label>
-            <label className="dw-field">Available vehicle
-              <select value={vehicleId} onChange={event => { setVehicleId(event.target.value); setFieldError(""); }} disabled={isReadOnlyAssignment || saving}>
-                <option value="">Choose a vehicle</option>
-                {snapshot.vehicles.map(item => <option value={item.id} key={item.id} disabled={!item.available}>{item.name} · {item.category}{item.available ? "" : " · Unavailable"}</option>)}
-              </select>
-            </label>
-          </div>
-          {!snapshot.drivers.length && !isReadOnlyAssignment && <div className="dw-empty-roster">
-            {!addDriverOpen ? <><div><strong>No chauffeurs in the roster.</strong><span>Add a real roster entry to make an assignment.</span></div><button type="button" className="dw-button dw-button-secondary" onClick={() => { setAddDriverOpen(true); setNewDriverError(""); }}>Add chauffeur</button></> :
-              <form className="dw-add-driver" onSubmit={createDriver}>
-                <div className="dw-add-driver-heading"><strong>Add chauffeur to roster</strong><button type="button" className="dw-icon-button" aria-label="Cancel adding chauffeur" onClick={() => setAddDriverOpen(false)}><X /></button></div>
-                <label className="dw-field">Full name<input autoFocus value={newDriver.name} onChange={event => setNewDriver(current => ({ ...current, name: event.target.value }))} maxLength={120} required /></label>
-                <label className="dw-field">Phone number<input type="tel" value={newDriver.phone} onChange={event => setNewDriver(current => ({ ...current, phone: event.target.value }))} autoComplete="tel" required /></label>
-                {newDriverError && <p className="dw-field-error" role="alert">{newDriverError}</p>}
-                <div className="dw-add-actions"><button type="button" className="dw-text-button" onClick={() => setAddDriverOpen(false)}>Cancel</button><button type="submit" className="dw-button dw-button-primary" disabled={saving}>{saving ? "Adding…" : "Add to roster"}</button></div>
-              </form>}
+            <p className="dw-selection-hint">The chauffeur’s paired fleet vehicle is assigned automatically.</p>
           </div>}
-          {!snapshot.vehicles.length && <p className="dw-no-vehicles">No vehicles are currently listed in the dispatch roster.</p>}
+          {!snapshot.drivers.length && <p className="dw-no-vehicles">No chauffeurs are listed yet. Add a chauffeur together with an available vehicle below.</p>}
+          {snapshot.drivers.length > 0 && !snapshot.drivers.some(item => item.available && item.fleetVehicleId) && <p className="dw-no-vehicles">No paired chauffeurs are available for this assignment. Unlinked chauffeurs need a vehicle before they can be selected.</p>}
           {fieldError && <p className="dw-field-error" role="alert">{fieldError}</p>}
-          {(driver || vehicle) && <div className="dw-assignment-summary">
-            {driver && <span><UserRound aria-hidden="true" /><span><small>Chauffeur</small><b>{driver.name}</b><em>{driver.phone}</em></span></span>}
-            {vehicle && <span><MapPin aria-hidden="true" /><span><small>Vehicle</small><b>{vehicle.name}</b><em>{vehicle.category}</em></span></span>}
+          {!isReadOnlyAssignment && legacySavedSelection && <p className="dw-lock-note"><ShieldCheck aria-hidden="true" /> This ride has a saved legacy assignment. It stays unchanged unless you select a currently paired chauffeur.</p>}
+          {(isReadOnlyAssignment || legacySavedSelection) && (snapshot.assignment.driverName || snapshot.assignment.vehicleName) && <div className="dw-assignment-summary">
+            {snapshot.assignment.driverName && <span><UserRound aria-hidden="true" /><span><small>Saved chauffeur</small><b>{snapshot.assignment.driverName}</b><em>{snapshot.assignment.driverPhone || "Phone not recorded"}</em></span></span>}
+            {snapshot.assignment.vehicleName && <span><MapPin aria-hidden="true" /><span><small>Saved vehicle</small><b>{snapshot.assignment.vehicleName}</b><em>{savedVehicle?.category || "Vehicle recorded on this ride"}</em></span></span>}
           </div>}
+          {!isReadOnlyAssignment && !legacySavedSelection && selectedDriver && <div className="dw-assignment-summary">
+            <span><UserRound aria-hidden="true" /><span><small>Selected chauffeur</small><b>{selectedDriver.name}</b><em>{selectedDriver.phone}</em></span></span>
+            <span><MapPin aria-hidden="true" /><span><small>Paired vehicle</small><b>{selectedDriver.vehicleName || "Vehicle details unavailable"}</b><em>{selectedDriver.vehicleCategory || "Category not provided"}</em></span></span>
+          </div>}
+          <ChauffeurVehicleSetup
+            drivers={snapshot.drivers}
+            vehicles={snapshot.vehicles}
+            readOnly={isReadOnlyAssignment || mutationSaving}
+            onBusyChange={setSetupBusy}
+            refreshSnapshot={refreshRoster}
+            onCreated={onSetupCreated}
+          />
         </section>}
 
         {viewStep === 3 && <section className="dw-step-panel" aria-labelledby="dw-notifications-heading">
           <div className="dw-section-heading"><div><span className="dw-overline">03 / Final confirmation</span><h3 id="dw-notifications-heading">Notification preview</h3></div><span className="dw-persisted-label"><ShieldCheck aria-hidden="true" /> Persisted preview</span></div>
           <p className="dw-preview-intro">Review the messages saved for this assignment. Confirming dispatch submits these notifications exactly as shown.</p>
-          <div className="dw-assigned-strip"><span>{snapshot.assignment.driverName || driver?.name || "Chauffeur not assigned"}</span><i aria-hidden="true">·</i><span>{snapshot.assignment.vehicleName || vehicle?.name || "Vehicle not assigned"}</span></div>
+          <div className="dw-assigned-strip"><span>{snapshot.assignment.driverName || "Chauffeur not assigned"}</span><i aria-hidden="true">·</i><span>{snapshot.assignment.vehicleName || "Vehicle not assigned"}</span></div>
           <div className="dw-sms-list">
             <SmsCard label="Chauffeur notification" sms={snapshot.messages.driver} onReconcile={() => void reconcile(snapshot.messages.driver)} busy={saving} reconciliationValue={reconcileValues[snapshot.messages.driver.attemptId || ""] || ""} onReconciliationValue={value => setReconcileValues(current => ({ ...current, [snapshot.messages.driver.attemptId || ""]: value }))} />
             <SmsCard label="Client notification" sms={snapshot.messages.customer} onReconcile={() => void reconcile(snapshot.messages.customer)} busy={saving} reconciliationValue={reconcileValues[snapshot.messages.customer.attemptId || ""] || ""} onReconciliationValue={value => setReconcileValues(current => ({ ...current, [snapshot.messages.customer.attemptId || ""]: value }))} />
@@ -420,11 +413,11 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
 
       <footer className="dw-footer">
         <div className="dw-footer-left">
-          {viewStep > 1 && <button type="button" className="dw-text-button" onClick={() => setViewStep((viewStep - 1) as DispatchWizardStep)}><ArrowLeft aria-hidden="true" /> Back</button>}
+          {viewStep > 1 && <button type="button" className="dw-text-button" disabled={saving} onClick={() => stepNavigation((viewStep - 1) as DispatchWizardStep)}><ArrowLeft aria-hidden="true" /> Back</button>}
           {snapshot.step > viewStep && <span className="dw-history-note">Viewing an earlier step · persisted progress is unchanged</span>}
         </div>
         <div className="dw-footer-actions">
-          {viewStep < 3 && viewStep !== 4 && <button type="button" className="dw-button dw-button-primary" onClick={viewStep === 1 ? runReview : saveAssignment} disabled={saving || (viewStep === 1 ? snapshot.step !== 1 : snapshot.step < 2 || isReadOnlyAssignment)}>
+          {viewStep < 3 && viewStep !== 4 && <button type="button" className="dw-button dw-button-primary" onClick={viewStep === 1 ? runReview : saveAssignment} disabled={saving || (viewStep === 1 ? snapshot.step !== 1 : snapshot.step < 2 || isReadOnlyAssignment || legacySavedSelection)}>
             {saving ? "Saving…" : viewStep === 1 ? "Confirm review" : "Save assignment"} {saving ? null : <ArrowRight aria-hidden="true" />}
           </button>}
           {viewStep === 3 && !completed && <button type="button" className="dw-button dw-button-primary" onClick={dispatch} disabled={saving || snapshot.step !== 3 || blockedDispatch}>
@@ -432,9 +425,9 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
           </button>}
           {(viewStep === 4 || completed) && <button type="button" className="dw-button dw-button-primary" onClick={onClose}>Done <Check aria-hidden="true" /></button>}
           {onManageRide && snapshot.assignment.rideId && <button type="button" className="dw-button dw-button-secondary" disabled={saving} onClick={() => onManageRide(snapshot.assignment.rideId!)}>Trip controls</button>}
-          {viewStep !== 4 && !completed && <button type="button" className="dw-text-button dw-close-text" onClick={onClose}>Close</button>}
+          {viewStep !== 4 && !completed && <button type="button" className="dw-text-button dw-close-text" disabled={setupBusy} onClick={onClose}>Close</button>}
         </div>
       </footer>
     </section>
-  </div>;
+  </div>);
 }
