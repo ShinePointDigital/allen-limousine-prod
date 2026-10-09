@@ -2,6 +2,5 @@
 set -euo pipefail
 
 npm ci --no-audit --no-fund
-npx prisma generate
-npx prisma migrate deploy
+npm run db:deploy:development
 npm run build
