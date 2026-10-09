@@ -11,8 +11,19 @@
   overflow: clip;
   background: var(--legal-paper);
   color: var(--legal-ink);
-  font-family: Manrope, sans-serif;
+  font-family: var(--font-standard-ui, Arial, Helvetica, sans-serif);
 }
+
+/* Legal documents stay upright and readable despite the global italic theme. */
+.legal-page,
+.legal-page *,
+.legal-page *::before,
+.legal-page *::after {
+  font-family: var(--font-standard-ui, Arial, Helvetica, sans-serif) !important;
+  font-style: normal !important;
+  font-weight: 400 !important;
+}
+.legal-page :is(h1, h2, strong, b) { font-weight: 600 !important; }
 
 .legal-page *,
 .legal-page *::before,
@@ -98,11 +109,11 @@
 .legal-masthead h1 {
   margin: 28px 0 19px;
   color: #f3efe6;
-  font-family: "Cormorant Garamond", serif;
-  font-size: clamp(62px, 8vw, 108px);
-  font-weight: 500;
-  letter-spacing: -.065em;
-  line-height: .87;
+  font-family: inherit;
+  font-size: clamp(40px, 6vw, 72px);
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.15;
 }
 .legal-introduction {
   max-width: 675px;
@@ -188,9 +199,9 @@
   border: 1px solid #a17f4d;
   border-radius: 50%;
   color: #80633a;
-  font-family: "Cormorant Garamond", serif;
+  font-family: inherit;
   font-size: 16px;
-  font-style: italic;
+  font-style: normal;
 }
 .legal-notice p { margin: 0; color: #59574f; font-size: 11px; line-height: 1.7; }
 .legal-section {
@@ -206,11 +217,11 @@
 .legal-section-copy h2 {
   margin: 0 0 18px;
   color: #1a1c19;
-  font-family: "Cormorant Garamond", serif;
-  font-size: clamp(28px, 3.1vw, 39px);
-  font-weight: 500;
-  letter-spacing: -.035em;
-  line-height: 1;
+  font-family: inherit;
+  font-size: clamp(24px, 2.5vw, 32px);
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.25;
 }
 .legal-prose { color: var(--legal-copy); font-size: 15px; line-height: 1.9; }
 .legal-prose p { margin: 0 0 15px; }
@@ -235,8 +246,8 @@
 .legal-footer { background: var(--legal-ink); color: #f1ede4; padding: 64px clamp(24px, 8vw, 130px) 24px; }
 .legal-footer-top { display: grid; grid-template-columns: 1.2fr .75fr auto; gap: 40px; align-items: end; max-width: 1200px; margin: 0 auto; padding-bottom: 55px; }
 .legal-footer-top .legal-eyebrow { color: #aaa79f; }
-.legal-footer-top h2 { margin: 20px 0 0; font-family: "Cormorant Garamond", serif; font-size: clamp(43px, 5vw, 66px); font-weight: 500; letter-spacing: -.05em; line-height: .88; }
-.legal-footer-top h2 em { color: #d0b47d; font-weight: 400; }
+.legal-footer-top h2 { margin: 20px 0 0; font-family: inherit; font-size: clamp(30px, 3.5vw, 44px); font-weight: 600; letter-spacing: normal; line-height: 1.2; }
+.legal-footer-top h2 em { color: #d0b47d; font-weight: 400; font-style: normal; }
 .legal-footer-contact { display: flex; flex-direction: column; gap: 8px; padding-bottom: 5px; }
 .legal-footer-contact span { color: #a5a39b; font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 .legal-footer-contact a { color: #dfc895; font-size: 17px; letter-spacing: .04em; }
@@ -274,7 +285,7 @@
   .legal-nav > a:not(.legal-reserve) { font-size: 8px; letter-spacing: .04em; }
   .legal-nav .legal-reserve { min-height: 34px; padding-inline: 9px; font-size: 7px; letter-spacing: .06em; }
   .legal-masthead { min-height: 330px; padding: 52px 24px 60px; }
-  .legal-masthead h1 { margin-top: 23px; font-size: clamp(57px, 16vw, 76px); }
+  .legal-masthead h1 { margin-top: 23px; font-size: clamp(36px, 10vw, 48px); }
   .legal-introduction { font-size: 13px; }
   .legal-masthead-index { right: 24px; bottom: 20px; }
   .legal-main { padding: 44px 21px 68px; }
@@ -282,12 +293,12 @@
   .legal-aside li a { padding-block: 7px; }
   .legal-notice { margin-bottom: 35px; padding: 14px; }
   .legal-section { grid-template-columns: 27px minmax(0, 1fr); gap: 10px; padding: 28px 0 31px; }
-  .legal-section-copy h2 { font-size: 30px; }
+  .legal-section-copy h2 { font-size: 24px; }
   .legal-prose { font-size: 14px; line-height: 1.85; }
   .legal-section.is-highlighted { margin-inline: -13px; padding: 22px 13px; }
   .legal-footer { padding: 49px 22px 22px; }
   .legal-footer-top { grid-template-columns: 1fr; gap: 31px; padding-bottom: 38px; }
-  .legal-footer-top h2 { font-size: 54px; }
+  .legal-footer-top h2 { font-size: 32px; }
   .legal-footer-contact { padding: 0; }
   .legal-footer-cta { grid-column: auto; }
   .legal-footer-bottom { flex-wrap: wrap; gap: 18px; }
