@@ -19,7 +19,7 @@
     "test:account-access": "tsx --test server/account-access.test.ts server/account-database.test.ts",
     "test:admin-recovery": "tsx --test server/admin-recovery.test.ts",
     "test:twilio": "tsx --test server/twilio.test.ts",
-    "test:legal-pages": "tsx --test src/legal/legal-content.test.tsx",
+    "test:legal-pages": "tsx --test src/legal/legal-content.test.tsx src/legal/static-legal-pages.test.tsx",
     "test:sms-consent": "tsx --test shared/sms-consent.test.ts src/ReservationSmsConsent.test.tsx server/sms-consent-store.test.ts",
     "test:database-config": "tsx --test server/database-config.test.ts",
     "typecheck": "tsc --noEmit"

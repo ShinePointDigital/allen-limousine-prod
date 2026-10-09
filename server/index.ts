@@ -1216,10 +1216,11 @@ async function start() {
   if (process.env.NODE_ENV === "production") {
     const dist = path.resolve(__dirname, "../dist");
     app.use(express.static(dist, {
+      extensions: ["html"],
       maxAge: "1h",
       setHeaders: (res, filePath) => {
         const fileName = path.basename(filePath);
-        if (fileName === "index.html" || fileName === "sw.js") {
+        if (fileName.endsWith(".html") || fileName === "sw.js") {
           res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
         } else if (fileName === "manifest.json") {
           res.setHeader("Cache-Control", "no-cache");
