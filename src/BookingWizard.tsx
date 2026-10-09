@@ -10,6 +10,7 @@ import { isPwaPhone } from "./pwa-device.js";
 import { Link } from "react-router-dom";
 import { ReservationSmsConsent } from "./ReservationSmsConsent";
 import "./reservation-sms-consent.css";
+import "./booking-review.css";
 
 type Point = { latitude: number; longitude: number };
 type Fare = { fareCents: number; miles: number; minutes: number; eventVenue?: { name: string } | null; eventSurchargeCents?: number };
@@ -569,7 +570,7 @@ export default function BookingWizard() {
 
   return <section id="reserve" className="booking-wizard-section section-pad">
     <div className="wizard-shell">
-       <header className="wizard-header"><div>{isPrivateFBO && <p className="eyebrow brass">Private aviation coordination</p>}<h2>{["Where are you going?", "Choose your vehicle", "Schedule your ride", "Review & payment"][step - 1]}</h2></div></header>
+       <header className={`wizard-header${step === 4 ? " wizard-header-review" : ""}`}><div>{isPrivateFBO && <p className="eyebrow brass">Private aviation coordination</p>}<h2>{["Where are you going?", "Choose your vehicle", "Schedule your ride", "Review & payment"][step - 1]}</h2></div></header>
        <div className="wizard-account-reminder">{customerIdentity.status === "signed-in" && customerIdentity.user ? <>Signed in as <b>{customerIdentity.user.name}</b><Link to="/account">My bookings <ArrowRight /></Link></> : customerIdentity.status === "error" ? <>Account check failed: {customerIdentity.message}<button type="button" onClick={() => setCustomerIdentityRetry(value => value + 1)}>Retry</button></> : customerIdentity.status === "checking" ? "Checking customer account…" : <>Already have a booking account? <Link to="/account/login">Sign in to view reservations <ArrowRight /></Link></>}</div>
       <nav className="wizard-progress" aria-label="Booking progress">{[1, 2, 3, 4].map(number => <i key={number} className={number <= step ? "active" : ""} />)}</nav>
       <main className="wizard-body">
@@ -594,7 +595,7 @@ export default function BookingWizard() {
           {error && <p className="form-error">{error}</p>}
           <div className="wizard-actions"><button className="wizard-back" onClick={() => setStep(2)}><ArrowLeft /> Back</button><button className="solid-button" disabled={!canBook} onClick={next}>Continue to payment <ArrowRight /></button></div>
         </div>}
-        {step === 4 && <div className="wizard-step">
+        {step === 4 && <div className="wizard-step wizard-review-step">
           <div className="wizard-final-summary"><ShieldCheck /><div><b>{timing === "RIDE_NOW" ? "Pickup as soon as possible" : new Date(pickupAt).toLocaleString()}</b><span>{RATE_TIER_PRICING[tier].label} · {serviceType} · {route.pickup} → {route.destination}</span>{isPrivateFBO && <span>{fboDetails.fboName} · Tail {fboDetails.specificTailNumber} · Principal {fboDetails.principalName}</span>}</div><strong>{selectedFare && money(finalFareCents)}</strong></div>
           <StripeCardSetup compact requiredPayment fullName={contact.fullName} email={contact.email} savedPayment={savedPayment} onSaved={savePayment} />
           <ReservationSmsConsent checked={smsConsent} onChange={setSmsConsent} />

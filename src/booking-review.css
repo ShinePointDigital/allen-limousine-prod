@@ -1,0 +1,20 @@
+.wizard-header-review h2,
+.wizard-review-step,
+.wizard-review-step * {
+  font-family: Manrope, sans-serif !important;
+  font-style: normal !important;
+}
+
+.wizard-header-review h2 {
+  font-size: clamp(32px, 4vw, 48px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.wizard-review-step .wizard-final-summary strong {
+  font-family: Manrope, sans-serif;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}

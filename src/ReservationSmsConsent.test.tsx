@@ -10,6 +10,8 @@ const render = (checked: boolean) => renderToStaticMarkup(createElement(MemoryRo
 
 test("the SMS checkbox is optional and is not selected for an unchecked state", () => {
   const html = render(false);
+  assert.ok(html.includes('role="group" aria-labelledby="sms-consent-heading"'));
+  assert.ok(html.includes('id="sms-consent-heading" class="reservation-sms-consent-heading">SMS notifications'));
   assert.ok(html.includes('type="checkbox"'));
   assert.ok(!html.includes('checked=""'));
   assert.ok(!html.includes("required"));

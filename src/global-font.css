@@ -91,3 +91,12 @@ body *::after {
   font-style: normal !important;
   font-weight: 400 !important;
 }
+
+/* Keep the private dispatch workspace in a plain UI font without changing public pages. */
+.admin-app,
+.admin-app *,
+.admin-app *::before,
+.admin-app *::after {
+  font-family: var(--font-standard-ui) !important;
+  font-style: normal !important;
+}
