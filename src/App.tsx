@@ -99,7 +99,7 @@ function DestinationBookingCards() {
   };
   return <section className="destination-booking-section" aria-labelledby="destination-booking-title">
     <header>
-      <div><p className="eyebrow brass">— Direct connections</p><h2 id="destination-booking-title">Chicago, picked up<br /><em>on your schedule.</em></h2></div>
+      <div><p className="eyebrow brass">Direct connections</p><h2 id="destination-booking-title">Chicago, picked up<br /><em>on your schedule.</em></h2></div>
       <p>Choose a frequent destination to begin your private transfer. Your route can be adjusted in the booking form.</p>
     </header>
     <div className="destination-booking-grid">
@@ -143,7 +143,7 @@ function Home() {
     {!pwaMode && <DestinationBookingCards />}
     {pwaMode && <BookingWizard />}
     <section id="about" className="about-section section-pad">
-      <div className="about-kicker"><p className="eyebrow brass text-[25px]">— About Allan Limousine</p><span>Luxury, without compromise</span></div>
+      <div className="about-kicker"><p className="eyebrow brass text-[25px]">About Allan Limousine</p><span>Luxury, without compromise</span></div>
       <div className="about-content">
         <h2>More than a ride.<br /><em>A standard of care.</em></h2>
         <div className="about-copy">
@@ -153,7 +153,7 @@ function Home() {
       </div>
     </section>
     <section id="services" className="services-section section-pad">
-      <div className="section-heading services-heading"><div><p className="eyebrow brass">— The way we move</p><h2>Every mile,<br /><em>considered.</em></h2></div><div className="section-aside"><p>A private service calibrated to the rhythm of the city—and the people who have places to be.</p><a className="text-button services-booking-link" href="#reserve">Book your service <ArrowUpRight /></a></div></div>
+      <div className="section-heading services-heading"><div><p className="eyebrow brass">The way we move</p><h2>Every mile,<br /><em>considered.</em></h2></div><div className="section-aside"><p>A private service calibrated to the rhythm of the city—and the people who have places to be.</p><a className="text-button services-booking-link" href="#reserve">Book your service <ArrowUpRight /></a></div></div>
        <div className="service-list">{content.services.slice(0, 3).map((service, index) => {
          const serviceTitle = index === 0 ? "Executive Travel" : index === 1 ? "Airport Transfers" : "Evenings & Events";
          const serviceImage = index === 0 ? "/images/service-executive-downtown.jpg" : index === 1 ? "/images/service-airport-terminal.jpg" : "/images/service-evening-chicago.jpg";

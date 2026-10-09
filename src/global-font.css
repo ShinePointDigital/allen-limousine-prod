@@ -27,7 +27,8 @@
 
 :root {
   --font-global: "Cormorant Garamond", Georgia, "Times New Roman", serif;
-  --font-booking-input: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-standard-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-booking-input: var(--font-standard-ui);
   --font-body: var(--font-global);
   --font-display: var(--font-global);
   --serif: var(--font-global);
@@ -64,6 +65,29 @@ body *::after {
 .reservation-form option,
 .pwa-onboarding option {
   font-family: var(--font-booking-input) !important;
+  font-style: normal !important;
+  font-weight: 400 !important;
+}
+
+/* Keep the specified supporting copy and booking metadata in a plain UI font. */
+.vertical-label,
+.destination-booking-section > header > p,
+.about-kicker > span,
+.services-heading .section-aside > p,
+.services-heading .services-booking-link,
+.wizard-header > span {
+  font-family: var(--font-standard-ui) !important;
+  font-style: normal !important;
+  font-weight: 400 !important;
+}
+
+/* Header and footer copy use the same plain UI typography as booking fields.
+   The Allan Limousine wordmark is an image and remains unchanged. */
+.public-nav,
+.public-nav *,
+.site-footer,
+.site-footer * {
+  font-family: var(--font-standard-ui) !important;
   font-style: normal !important;
   font-weight: 400 !important;
 }
