@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, Clock3, MapPin, Navigation, RefreshCw, ShieldCheck, UserRound, Users, CarFront } from "lucide-react";
+import { AlertTriangle, Check, Clock3, MapPin, Navigation, Plane, RefreshCw, ShieldCheck, UserRound, Users, CarFront } from "lucide-react";
 import { driverNavigationUrls, nextDriverTripStatus, type DriverTripNextStatus } from "./driver-trip-logic";
 import "./driver-trip.css";
 
@@ -14,17 +14,20 @@ type DriverTripRecord = {
   chauffeurName: string;
   vehicleName: string;
   status: string;
-  paymentStatus: string | null;
-  hasCardAuthorization: boolean;
-  fareCents: number | null;
-  gratuityCents: number;
-  authorizedTotalCents: number | null;
+  airportCode: string | null;
+  airportTerminal: string | null;
+  flightNumber: string | null;
+  flightScheduledAt: string | null;
+  airlineName: string | null;
+  pickupPreference: string | null;
+  isPrivateFBO: boolean;
+  specificTailNumber: string | null;
+  principalName: string | null;
+  fboName: string | null;
+  tarmacInstructions: string | null;
 };
 
 type PageState = "loading" | "ready" | "expired" | "error";
-const money = (cents: number | null) => cents == null ? "Not available" : new Intl.NumberFormat("en-US", {
-  style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2,
-}).format(cents / 100);
 
 const statusText: Record<string, string> = {
   ASSIGNED: "Assigned",
@@ -192,7 +195,7 @@ export default function DriverTrip({ token }: { token: string }) {
       }
       if (response.status === 402) {
         await loadTrip(true);
-        setMessage("Payment capture could not be confirmed from this response. The latest trip and payment status are shown. Retry completion if still in progress, or ask dispatch to capture.");
+        setMessage("Trip completion could not be confirmed. The latest trip status is shown. Retry completion if still in progress, or contact dispatch.");
         return;
       }
       // A server or network response can be uncertain; only a canonical GET may confirm completion.
@@ -211,6 +214,22 @@ export default function DriverTrip({ token }: { token: string }) {
   };
 
   const targetAddress = trip ? (selectedStop === "pickup" ? trip.pickup : trip.destination) : "";
+  const airportDetails = trip ? [
+    { label: "Airport", value: trip.airportCode },
+    { label: "Booked terminal", value: trip.airportTerminal },
+    { label: "Flight number", value: trip.flightNumber },
+    { label: "Airline", value: trip.airlineName },
+    { label: "Booked flight time", value: trip.flightScheduledAt ? new Date(trip.flightScheduledAt).toLocaleString("en-US", {
+      weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+      timeZone: "America/Chicago", timeZoneName: "short",
+    }) : null },
+    { label: "Pickup instructions", value: trip.pickupPreference },
+    { label: "Airport service", value: trip.isPrivateFBO ? "Private aviation" : null },
+    { label: "FBO", value: trip.fboName },
+    { label: "Aircraft tail number", value: trip.specificTailNumber },
+    { label: "Principal passenger", value: trip.principalName },
+    { label: "Tarmac / ramp instructions", value: trip.tarmacInstructions },
+  ].filter(detail => detail.value?.trim()) : [];
   const navigationUrls = driverNavigationUrls(targetAddress);
   const navigationLinks = [
     { label: "Google Maps", href: navigationUrls.google, icon: <Navigation aria-hidden="true" /> },
@@ -234,7 +253,7 @@ export default function DriverTrip({ token }: { token: string }) {
           <span className="driver-trip-status-mark">{trip.status === "COMPLETED" ? <Check /> : <CarFront />}</span>
           <div className="driver-trip-status-copy">
             <b>{statusText[trip.status] || trip.status.replaceAll("_", " ")}</b>
-            <span>{trip.status === "COMPLETED" ? "Trip closed. The payment status below reflects the trip record." : "Follow each step in order. Updates are shared with dispatch."}</span>
+            <span>{trip.status === "COMPLETED" ? "Trip closed. Completion has been confirmed with dispatch." : "Follow each step in order. Updates are shared with dispatch."}</span>
           </div>
           <span className="driver-trip-status-chip">{trip.status === "COMPLETED" ? "Closed" : "Current"}</span>
         </section>
@@ -285,21 +304,22 @@ export default function DriverTrip({ token }: { token: string }) {
           </div>
         </section>
 
-        <section className="driver-trip-panel" aria-labelledby="driver-trip-payment-heading">
-          <div className="driver-trip-panel-heading"><ShieldCheck /><h2 id="driver-trip-payment-heading">Payment status</h2></div>
+        {airportDetails.length > 0 && <section className="driver-trip-panel" aria-labelledby="driver-trip-airport-heading">
+          <div className="driver-trip-panel-heading"><Plane /><h2 id="driver-trip-airport-heading">Flight &amp; airport details</h2></div>
           <div className="driver-trip-details">
-            <div className="driver-trip-detail"><small>Card total</small><b>{money(trip.authorizedTotalCents)}</b></div>
-            <div className="driver-trip-detail"><small>Capture</small><b>{trip.paymentStatus === "succeeded" ? "Captured" : trip.paymentStatus === "requires_capture" ? "Authorized — awaiting capture" : trip.paymentStatus?.replaceAll("_", " ") || "No card authorization recorded"}</b></div>
+            {airportDetails.map(detail => <div className="driver-trip-detail" key={detail.label}>
+              <small>{detail.label}</small><b style={{ whiteSpace: "pre-wrap" }}>{detail.value}</b>
+            </div>)}
           </div>
-          <p className="driver-trip-note" style={{ padding: "0 17px 16px", marginTop: "-4px" }}>{trip.hasCardAuthorization ? "Includes the authorized gratuity. No card details or separate payment controls are available on this page." : "No card authorization is recorded for this trip. Contact dispatch for payment handling."}</p>
-        </section>
+          <p className="driver-trip-note" style={{ padding: "0 17px 16px" }}>Saved booking details, not live flight updates. Follow the booked pickup time above; contact dispatch if flight or terminal details change.</p>
+        </section>}
 
         {message && <p className="driver-trip-error" role="alert">{message}</p>}
         {nextStatus && <button className="driver-trip-action" type="button" disabled={saving} onClick={() => void transition(nextStatus)}>
           {saving ? "Confirming with dispatch…" : actionLabel[nextStatus]}
         </button>}
         {trip.status === "COMPLETED" && <p className="driver-trip-note" role="status">This trip is complete and no further status changes are available.</p>}
-        {trip.status === "IN_PROGRESS" && <p className="driver-trip-note">{trip.hasCardAuthorization ? <>Confirming completion captures the authorized card total of <strong>{money(trip.authorizedTotalCents)}</strong>, including gratuity. Already captured payments are not charged again.</> : "Completion updates this trip only. No card authorization is recorded; contact dispatch for payment handling."}</p>}
+        {trip.status === "IN_PROGRESS" && <p className="driver-trip-note">Complete the trip only after the passenger has been dropped off.</p>}
         {!nextStatus && trip.status !== "COMPLETED" && <p className="driver-trip-note">This trip is not currently available for a driver status update. Contact dispatch if you believe this is incorrect.</p>}
         <p className="driver-trip-note"><UserRound aria-hidden="true" style={{ width: 14, verticalAlign: "middle", marginRight: 4 }} />Updates reflect the trip record confirmed by dispatch.</p>
       </main>}
@@ -307,13 +327,7 @@ export default function DriverTrip({ token }: { token: string }) {
         <section className="driver-trip-confirm" role="dialog" aria-modal="true" aria-labelledby="driver-trip-confirm-title">
           <p className="driver-trip-eyebrow">Final step</p>
           <h2 id="driver-trip-confirm-title">{actionTitle.COMPLETED}</h2>
-          <p>{trip.hasCardAuthorization ? "Confirm the passenger has been dropped off. This will mark the trip complete and capture the authorized card amount once." : "Confirm the passenger has been dropped off. This marks the trip complete only; no card authorization is recorded. Contact dispatch for payment handling."}</p>
-          <dl className="driver-trip-confirm-amounts">
-            <div><dt>Fare</dt><dd>{money(trip.fareCents)}</dd></div>
-            <div><dt>Gratuity</dt><dd>{money(trip.gratuityCents)}</dd></div>
-            <div className="driver-trip-confirm-total"><dt>Authorized total</dt><dd>{money(trip.authorizedTotalCents)}</dd></div>
-          </dl>
-          <p className="driver-trip-note">{trip.hasCardAuthorization ? "The total shown is the existing card authorization. Completing the trip submits capture and completion together." : "The amounts above are booking records, not proof of a card authorization or payment."}</p>
+          <p>Confirm the passenger has been dropped off. This will mark the trip complete and notify dispatch.</p>
           <div className="driver-trip-confirm-actions">
             <button type="button" onClick={() => setConfirmComplete(false)} disabled={saving}>Not yet</button>
             <button type="button" onClick={() => void transition("COMPLETED")} disabled={saving}>{saving ? "Confirming…" : "Confirm drop-off"}</button>

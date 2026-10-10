@@ -14,6 +14,14 @@ import {DispatchWizardService} from "./dispatch-wizard-service.js";
 
 assert.ok(process.env.NODE_TEST_CONTEXT,"Only guarded development fixtures may be changed.");
 after(()=>prisma.$disconnect());
+function assertDriverTripPrivacy(trip: object) {
+  assert.deepEqual(Object.keys(trip).sort(), [
+    "reference","customerName","pickupAt","pickup","destination","serviceType",
+    "passengers","chauffeurName","vehicleName","status",
+    "airportCode","airportTerminal","flightNumber","flightScheduledAt","airlineName",
+    "pickupPreference","isPrivateFBO","specificTailNumber","principalName","fboName","tarmacInstructions",
+  ].sort(), "Driver responses must contain operational trip details only, never booking financials");
+}
 test("published driver HTML suppresses capability referrers, caching and indexing",()=>{
   const config=JSON.parse(readFileSync(new URL("../vercel.json",import.meta.url),"utf8"));
   const headers=config.headers.find((rule:{source:string})=>rule.source==="/driver/trip/(.*)").headers;
@@ -65,12 +73,52 @@ test("driver capabilities are scoped, expiring, stored hashed and stable for SMS
   assert.notEqual((await prisma.ride.findUniqueOrThrow({where:{id:f.ride.id}})).driverAccessTokenHash,f.token);
   assert.equal(f.service.link(await f.service.issue(f.ride.id),"https://driver-test.example.invalid"),f.url);
   const trip=await f.service.get(f.token);
-  assert.equal(trip.authorizedTotalCents,9775);
+  assertDriverTripPrivacy(trip);
   assert.equal("stripePaymentIntentId" in trip,false);assert.equal("email" in trip,false);
   await assert.rejects(f.service.get(f.booking.bookingRequestId!),DriverTripError);
   await assert.rejects(f.service.get("a".repeat(64)),DriverTripError);
   await prisma.ride.update({where:{id:f.ride.id},data:{driverAccessExpiresAt:new Date(Date.now()-1000)}});
   await assert.rejects(f.service.get(f.token),DriverTripError);
+});
+test("driver links return saved flight, terminal and pickup details without financial or staff notes",async t=>{
+  const f=await fixture(t);
+  const empty=await f.service.get(f.token);
+  assert.equal(empty.airportTerminal,null);
+  assert.equal(empty.flightNumber,null);
+  const scheduled=new Date("2026-10-15T16:00:00.000Z");
+  await prisma.inquiry.update({where:{id:f.booking.id},data:{
+    airportCode:"DFW",airportTerminal:"C",flightNumber:"AA123",airlineName:"American Airlines",
+    flightScheduledAt:scheduled,pickupPreference:"Baggage Claim Meet & Greet with Name Sign",
+    notes:"Internal payment note: fare 8500; do not expose booking notes.",
+  }});
+  for(const trip of [await f.service.get(f.token),await f.service.transition(f.token,"EN_ROUTE")]){
+    assertDriverTripPrivacy(trip);
+    assert.equal(trip.airportCode,"DFW");
+    assert.equal(trip.airportTerminal,"C");
+    assert.equal(trip.flightNumber,"AA123");
+    assert.equal(trip.airlineName,"American Airlines");
+    assert.equal(trip.flightScheduledAt,scheduled.toISOString());
+    assert.equal(trip.pickupPreference,"Baggage Claim Meet & Greet with Name Sign");
+    assert.equal(trip.pickupAt,f.booking.pickupAt.toISOString(),"Flight information must not overwrite booked pickup time");
+  }
+});
+test("driver links return private aviation instructions without inventing commercial flight details",async t=>{
+  const f=await fixture(t);
+  await prisma.inquiry.update({where:{id:f.booking.id},data:{
+    airportCode:"DAL",isPrivateFBO:true,specificTailNumber:"N123TEST",
+    principalName:"Private aviation fixture",fboName:"Test FBO",tarmacInstructions:"Wait for the ramp escort.\nDo not enter the ramp alone.",
+  }});
+  const trip=await f.service.get(f.token);
+  assertDriverTripPrivacy(trip);
+  assert.equal(trip.isPrivateFBO,true);
+  assert.equal(trip.airportCode,"DAL");
+  assert.equal(trip.specificTailNumber,"N123TEST");
+  assert.equal(trip.principalName,"Private aviation fixture");
+  assert.equal(trip.fboName,"Test FBO");
+  assert.equal(trip.tarmacInstructions,"Wait for the ramp escort.\nDo not enter the ramp alone.");
+  assert.equal(trip.flightNumber,null);
+  assert.equal(trip.airportTerminal,null);
+  assert.equal(trip.flightScheduledAt,null);
 });
 test("status transitions are sequential, audited, idempotent and complete captures approved gratuity",async t=>{
   const f=await fixture(t);
@@ -83,19 +131,20 @@ test("status transitions are sequential, audited, idempotent and complete captur
   const roster=new DispatchWizardService(async()=>{throw new Error("This release check must not send SMS.");},prisma,async()=>false);
   assert.equal((await roster.snapshot(nextBooking.id)).drivers.find(driver=>driver.id===f.driver.id)?.available,false);
   await assert.rejects(f.service.transition(f.token,"COMPLETED"),/cannot be skipped/);
+  assertDriverTripPrivacy(await f.service.transition(f.token,"EN_ROUTE"));
   await f.service.transition(f.token,"EN_ROUTE");
-  await f.service.transition(f.token,"EN_ROUTE");
-  await f.service.transition(f.token,"IN_PROGRESS");
+  assertDriverTripPrivacy(await f.service.transition(f.token,"IN_PROGRESS"));
   await assert.rejects(f.service.transition(f.token,"EN_ROUTE"),/cannot be skipped/);
   const trip=await f.service.transition(f.token,"COMPLETED");
-  assert.equal(trip.status,"COMPLETED");assert.equal(trip.paymentStatus,"succeeded");
+  assert.equal(trip.status,"COMPLETED");assertDriverTripPrivacy(trip);
+  assert.equal((await prisma.inquiry.findUniqueOrThrow({where:{id:f.booking.id}})).paymentStatus,"succeeded");
   const nextSnapshot=await roster.snapshot(nextBooking.id);
   assert.equal(nextSnapshot.drivers.find(driver=>driver.id===f.driver.id)?.available,true);
   assert.equal(nextSnapshot.vehicles.find(vehicle=>vehicle.id===f.vehicle.id)?.available,true);
   assert.equal((await prisma.chauffeur.findUniqueOrThrow({where:{id:f.driver.id}})).fleetVehicleId,f.vehicle.id);
   assert.equal((await prisma.ride.findUniqueOrThrow({where:{id:f.ride.id}})).driverId,f.driver.id);
   assert.equal(f.intent.amount_received,9775);assert.equal(f.charges(),1);
-  await f.service.transition(f.token,"COMPLETED");
+  assertDriverTripPrivacy(await f.service.transition(f.token,"COMPLETED"));
   await f.capture(f.booking.bookingRequestId!);
   assert.equal(f.charges(),1);
   assert.equal(await prisma.inquiryNote.count({where:{inquiryId:f.booking.id}}),3);
@@ -119,14 +168,14 @@ test("simultaneous driver completion and dispatcher capture share a single idemp
   await Promise.all([f.service.transition(f.token,"COMPLETED"),f.capture(f.booking.bookingRequestId!)]);
   assert.equal(f.charges(),1);assert.equal((await f.service.get(f.token)).status,"COMPLETED");
 });
-test("legacy trips without a card authorization expose honest payment state and never invent a charge",async t=>{
+test("legacy trips without a card authorization hide financials and never invent a charge",async t=>{
   const f=await fixture(t);
   await prisma.inquiry.update({where:{id:f.booking.id},data:{paymentStatus:null,stripePaymentIntentId:null,estimatedFareCents:null,authorizedTotalCents:null,gratuityCents:0}});
   let trip=await f.service.get(f.token);
-  assert.equal(trip.hasCardAuthorization,false);assert.equal(trip.paymentStatus,null);assert.equal(trip.authorizedTotalCents,null);
+  assertDriverTripPrivacy(trip);
   await f.service.transition(f.token,"EN_ROUTE");await f.service.transition(f.token,"IN_PROGRESS");
   trip=await f.service.transition(f.token,"COMPLETED");
-  assert.equal(trip.status,"COMPLETED");assert.equal(trip.paymentStatus,null);assert.equal(f.charges(),0);
+  assert.equal(trip.status,"COMPLETED");assertDriverTripPrivacy(trip);assert.equal(f.charges(),0);
 });
 test("reassignment and deactivation revoke old links, including reassigning back to the previous driver",async t=>{
   const f=await fixture(t);
@@ -163,10 +212,24 @@ test("driver and dispatcher HTTP routes enforce token, status and staff permissi
   t.after(()=>new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve())));
   const address=server.address();assert.ok(address&&typeof address!=="string");
   const base=`http://127.0.0.1:${address.port}`;
-  assert.equal((await fetch(`${base}/api/driver/trips/${f.token}`)).status,200);
+  const driverResponse=await fetch(`${base}/api/driver/trips/${f.token}`);
+  assert.equal(driverResponse.status,200);
+  assertDriverTripPrivacy((await driverResponse.json()).trip);
   assert.equal((await fetch(`${base}/api/driver/trips/${"b".repeat(64)}`)).status,404);
   assert.equal((await fetch(`${base}/api/driver/trips/${f.token}/status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"COMPLETED"})})).status,409);
   assert.equal((await fetch(`${base}/api/driver/trips/${f.token}/status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"CANCELLED"})})).status,400);
+  for(const status of ["EN_ROUTE","IN_PROGRESS","COMPLETED"]){
+    if(status==="COMPLETED"){
+      f.rejectCapture(true);
+      const failed=await fetch(`${base}/api/driver/trips/${f.token}/status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status})});
+      assert.equal(failed.status,402);
+      assert.doesNotMatch(JSON.stringify(await failed.json()),/payment|fare|gratuity|capture|9775|8500|1275/i);
+      f.rejectCapture(false);
+    }
+    const response=await fetch(`${base}/api/driver/trips/${f.token}/status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status})});
+    assert.equal(response.status,200);
+    assertDriverTripPrivacy((await response.json()).trip);
+  }
   const captureUrl=`${base}/api/admin/rides/${f.ride.id}/capture`;
   assert.equal((await fetch(captureUrl,{method:"POST"})).status,401);
   for(const [permissions,expected] of [[["rides"],200],[["payments"],200],[["content"],403]] as const){

@@ -15,7 +15,17 @@ let failCapture=true;let charges=0;let expired=false;
 const trip={reference:"BROWSER",customerName:"Browser Fixture",chauffeurName:"Alex",vehicleName:"Fixture SUV",
   pickupAt:"2026-10-10T15:00:00.000Z",pickup:"Test pickup, Chicago",destination:"Test destination, Chicago",
   serviceType:"Point-to-Point",passengers:2,status:"ASSIGNED",paymentStatus:"requires_capture",
-  fareCents:8500,gratuityCents:1275,authorizedTotalCents:9775,hasCardAuthorization:true};
+  fareCents:8500,gratuityCents:1275,authorizedTotalCents:9775,hasCardAuthorization:true,
+  airportCode:"DFW",airportTerminal:"C",flightNumber:"AA123",airlineName:"American Airlines",
+  flightScheduledAt:"2026-10-15T16:00:00.000Z",pickupPreference:"Baggage Claim Meet & Greet with Name Sign",
+  isPrivateFBO:false,specificTailNumber:null,principalName:null,fboName:null,tarmacInstructions:null};
+
+// Include legacy financial fields in the intercepted fixture to prove that the
+// driver UI ignores them even during a rolling deployment with an older API.
+async function assertNoFinancialDetails(){
+  assert.equal(await evaluate('document.querySelector("#driver-trip-payment-heading, .driver-trip-confirm-amounts") !== null'),false);
+  assert.doesNotMatch(await evaluate('document.body.innerText'),/\$|payment status|card total|fare|gratuity|authorized total|captured/i);
+}
 function command(method:string,params:any={}):Promise<any>{
   const id=++seq;return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{pending.delete(id);reject(new Error(`Timed out: ${method}`));},15000);
@@ -65,6 +75,12 @@ try{
   await command("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:true});
   await command("Page.navigate",{url:`${origin}/driver/trip/${"e".repeat(64)}`});
   await wait('document.querySelector(".driver-trip-action")');
+  await assertNoFinancialDetails();
+  const airportText=await evaluate('document.querySelector("#driver-trip-airport-heading").closest("section").textContent');
+  for(const detail of ["DFW","Booked terminal","C","AA123","American Airlines","Booked flight time","CDT","Baggage Claim Meet & Greet with Name Sign"]){
+    assert.ok(airportText.includes(detail),`Driver airport section should show ${detail}`);
+  }
+  assert.ok(airportText.includes("not live flight updates"));
   assert.equal(await evaluate('document.querySelector(".pwa-install-gate") !== null'),false);
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'),true);
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".driver-trip-main")).fontStyle'),"normal");
@@ -76,25 +92,51 @@ try{
   await screenshot("driver-trip-mobile");
   await click("Confirm — en route");
   await wait('document.querySelector(".driver-trip-action").textContent.includes("passenger picked up")');
+  await assertNoFinancialDetails();
   await click("Confirm passenger picked up");
   await wait('document.querySelector(".driver-trip-action").textContent.includes("Complete trip")');
+  await assertNoFinancialDetails();
   await click("Complete trip");
-  await wait('document.querySelector(".driver-trip-confirm-total")');
+  await wait('document.querySelector(".driver-trip-confirm")');
   assert.equal(charges,0,"Opening the completion dialog must not capture");
-  assert.match(await evaluate('document.querySelector(".driver-trip-confirm-total").textContent'),/\$97\.75/);
+  await assertNoFinancialDetails();
+  await click("Not yet");
+  await wait('!document.querySelector(".driver-trip-confirm")');
+  assert.equal(charges,0,"Cancelling confirmation must not capture");
+  await click("Complete trip");
+  await wait('document.querySelector(".driver-trip-confirm")');
   await screenshot("driver-trip-completion-confirmation");
   await click("Confirm drop-off");
   await wait('document.querySelector(".driver-trip-error")');
   assert.equal(trip.status,"IN_PROGRESS");assert.equal(charges,0);
   assert.match(await evaluate('document.querySelector(".driver-trip-error").textContent'),/could not be confirmed/);
-  await click("Complete trip");await wait('document.querySelector(".driver-trip-confirm-total")');
+  await assertNoFinancialDetails();
+  await click("Complete trip");await wait('document.querySelector(".driver-trip-confirm")');
   await click("Confirm drop-off");
-  await wait('!document.querySelector(".driver-trip-action")&&document.body.textContent.includes("Captured")');
+  await wait('!document.querySelector(".driver-trip-action")&&document.body.textContent.includes("This trip is complete")');
   assert.equal(charges,1);
+  await assertNoFinancialDetails();
   await command("Emulation.setDeviceMetricsOverride",{width:1360,height:1000,deviceScaleFactor:1,mobile:false});
+  await assertNoFinancialDetails();
   await screenshot("driver-trip-desktop-completed");
+  Object.assign(trip,{airportCode:"DAL",airportTerminal:null,flightNumber:null,airlineName:null,flightScheduledAt:null,
+    pickupPreference:null,isPrivateFBO:true,specificTailNumber:"N123TEST",principalName:"Private aviation fixture",
+    fboName:"Test FBO",tarmacInstructions:"Wait for the ramp escort.\nDo not enter the ramp alone."});
+  await click("Refresh");
+  await wait('document.body.innerText.includes("N123TEST")');
+  const privateText=await evaluate('document.querySelector("#driver-trip-airport-heading").closest("section").textContent');
+  for(const detail of ["DAL","Private aviation","N123TEST","Private aviation fixture","Test FBO","Wait for the ramp escort."]){
+    assert.ok(privateText.includes(detail));
+  }
+  assert.doesNotMatch(privateText,/Booked terminal|Flight number|Booked flight time/);
+  await assertNoFinancialDetails();
+  await screenshot("driver-trip-private-airport");
+  Object.assign(trip,{airportCode:null,isPrivateFBO:false,specificTailNumber:null,principalName:null,fboName:null,tarmacInstructions:null});
+  await click("Refresh");
+  await wait('!document.querySelector("#driver-trip-airport-heading")');
+  await assertNoFinancialDetails();
   expired=true;await click("Refresh");await wait('document.body.textContent.includes("This trip link is unavailable")');
-  console.log("Driver browser flow passed: app choices, phone layout, confirmation, capture failure/retry, completed state and expired link. No real API operations.");
+  console.log("Driver browser flow passed: booked flight/airport details, private aviation, missing details, financial privacy, app choices, phone layout, confirmation, capture failure/retry, completed state and expired link. No real API operations.");
 }finally{
   socket?.close();
   const stopped=new Promise<void>(resolve=>browser.once("exit",()=>resolve()));

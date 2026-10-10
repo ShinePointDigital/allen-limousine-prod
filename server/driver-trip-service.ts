@@ -69,10 +69,13 @@ export class DriverTripService {
     return { reference: inquiry.id.slice(-6).toUpperCase(), customerName: inquiry.fullName,
       pickupAt: inquiry.pickupAt.toISOString(), pickup: inquiry.pickup, destination: inquiry.destination,
       serviceType: inquiry.serviceType, passengers: inquiry.passengers, chauffeurName: ride.driverName,
-      vehicleName: ride.vehicle!.name, status: ride.status, paymentStatus: inquiry.paymentStatus,
-      hasCardAuthorization: Boolean(inquiry.stripePaymentIntentId),
-      fareCents: inquiry.estimatedFareCents, gratuityCents: inquiry.gratuityCents ?? 0,
-      authorizedTotalCents: inquiry.authorizedTotalCents ?? (inquiry.estimatedFareCents == null ? null : inquiry.estimatedFareCents+(inquiry.gratuityCents ?? 0)),
+      vehicleName: ride.vehicle!.name, status: ride.status,
+      airportCode: inquiry.airportCode, airportTerminal: inquiry.airportTerminal,
+      flightNumber: inquiry.flightNumber, flightScheduledAt: inquiry.flightScheduledAt?.toISOString() ?? null,
+      airlineName: inquiry.airlineName, pickupPreference: inquiry.pickupPreference,
+      isPrivateFBO: inquiry.isPrivateFBO, specificTailNumber: inquiry.specificTailNumber,
+      principalName: inquiry.principalName, fboName: inquiry.fboName,
+      tarmacInstructions: inquiry.tarmacInstructions,
     };
   }
   async transition(token: string, status: "EN_ROUTE" | "IN_PROGRESS" | "COMPLETED") {
@@ -82,7 +85,7 @@ export class DriverTripService {
     if (status === "COMPLETED" && ride.inquiry.stripePaymentIntentId) {
       if (!ride.inquiry.bookingRequestId) throw new DriverTripError(409, "The authorized booking could not be identified.");
       try { await this.capture(ride.inquiry.bookingRequestId); }
-      catch { throw new DriverTripError(402, "Payment capture could not be confirmed. The trip was not marked complete. Retry this same trip, or ask dispatch to capture the payment."); }
+      catch { throw new DriverTripError(402, "Trip completion could not be confirmed. The trip was not marked complete. Retry this same trip, or contact dispatch."); }
     }
     if (ride.status === status) return this.get(token);
     await this.db.$transaction(async db => {

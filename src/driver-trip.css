@@ -103,11 +103,6 @@
 .driver-trip-confirm h2 { margin: 0 0 8px; font: 700 24px Manrope, sans-serif; letter-spacing: -.035em; }
 .driver-trip-confirm p { margin: 0; color: var(--trip-muted); font-size: 14px; line-height: 1.6; }
 .driver-trip-confirm strong { color: var(--trip-ink); }
-.driver-trip-confirm-amounts { margin: 16px 0 12px; padding: 13px 15px 5px; background: #f0f4ef; }
-.driver-trip-confirm-amounts > div { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 9px; color: var(--trip-muted); font-size: 13px; }
-.driver-trip-confirm-amounts dd { margin: 0; color: var(--trip-ink); font-variant-numeric: tabular-nums; font-weight: 600; }
-.driver-trip-confirm-amounts .driver-trip-confirm-total { padding: 10px 0 9px; border-top: 1px solid var(--trip-line); color: var(--trip-ink); font-weight: 700; }
-.driver-trip-confirm-total dd { font-size: 16px; }
 .driver-trip-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 21px; }
 .driver-trip-confirm-actions button { min-height: 50px; border: 1px solid var(--trip-line); background: transparent; color: var(--trip-ink); font: 700 14px "DM Sans", sans-serif; cursor: pointer; }
 .driver-trip-confirm-actions button:last-child { border-color: var(--trip-green); background: var(--trip-green); color: white; }
