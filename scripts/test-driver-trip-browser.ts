@@ -75,6 +75,10 @@ try{
   await command("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:true});
   await command("Page.navigate",{url:`${origin}/driver/trip/${"e".repeat(64)}`});
   await wait('document.querySelector(".driver-trip-action")');
+  assert.match(await evaluate('document.querySelector("#driver-trip-return-reminder").textContent'),/After navigation, return to this trip page to confirm pickup or completion/);
+  assert.match(await evaluate('document.querySelector("#driver-trip-return-reminder").textContent'),/original tab.*SMS.*safely parked/);
+  assert.equal(await evaluate('document.querySelector(".driver-trip-nav-links").getAttribute("aria-describedby")'),"driver-trip-return-reminder");
+  assert.equal(await evaluate('Array.from(document.querySelectorAll(".driver-trip-nav-links a")).every(link => link.target === "_blank" && link.rel.includes("noopener") && link.rel.includes("noreferrer"))'),true,"Navigation must keep the original driver trip page open");
   await assertNoFinancialDetails();
   const airportText=await evaluate('document.querySelector("#driver-trip-airport-heading").closest("section").textContent');
   for(const detail of ["DFW","Booked terminal","C","AA123","American Airlines","Booked flight time","CDT","Baggage Claim Meet & Greet with Name Sign"]){

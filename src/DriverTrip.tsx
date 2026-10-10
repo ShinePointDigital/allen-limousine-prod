@@ -285,12 +285,13 @@ export default function DriverTrip({ token }: { token: string }) {
               <option value="pickup">Pickup · {trip.pickup}</option>
               <option value="dropoff">Drop-off · {trip.destination}</option>
             </select>
-            <nav className="driver-trip-nav-links" aria-label="Choose a navigation app">
+            <nav className="driver-trip-nav-links" aria-label="Choose a navigation app" aria-describedby="driver-trip-return-reminder">
               {navigationLinks.map(link => <a href={link.href} key={link.label} target="_blank" rel="noopener noreferrer">
                 {link.icon}<span>{link.label}</span>
               </a>)}
             </nav>
             <p className="driver-trip-note">Choose an app to open directions. Navigation never starts automatically.</p>
+            <p className="driver-trip-note" id="driver-trip-return-reminder"><strong>After navigation, return to this trip page to confirm pickup or completion.</strong> Switch back to your browser’s original tab, or reopen your trip link from the SMS. Update your status only when safely parked.</p>
           </div>
         </section>
 
