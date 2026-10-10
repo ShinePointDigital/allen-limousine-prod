@@ -5,8 +5,9 @@ export const LEGAL_BUSINESS = "Allen Express, LLC";
 export const LEGAL_PHONE = "312-899-6718";
 export const LEGAL_PHONE_HREF = "tel:+13128996718";
 export const LEGAL_UPDATED = { dateTime: "2026-10-06", label: "October 6, 2026" };
-export const SMS_OPT_IN_CONFIRMATION = "Allen Express, LLC (dba Allan Limousine): You are now opted in to SMS updates. Msg frequency varies. Msg & data rates may apply. Reply HELP for assistance, or STOP to opt out.";
-export const SMS_HELP_CONFIRMATION = "Allen Express, LLC support: For assistance, visit allanlimousine.com or call 312-899-6718. Reply STOP to opt out. Msg & Data Rates May Apply";
+export { SMS_OPT_IN_CONFIRMATION } from "../../shared/sms-program";
+import { SMS_BRAND, SMS_OPT_IN_CONFIRMATION, SMS_OPT_OUT_CONFIRMATION, smsHelpResponse } from "../../shared/sms-program";
+export const SMS_HELP_CONFIRMATION = smsHelpResponse(LEGAL_PHONE);
 export type LegalSection = { id: string; title: string; content: ReactNode; highlight?: boolean };
 export type LegalDocument = { title: string; introduction: string; sections: LegalSection[]; updated?: { dateTime: string; label: string } };
 const contact = <a href={LEGAL_PHONE_HREF}>{LEGAL_PHONE}</a>;
@@ -70,7 +71,7 @@ export const termsDocument: LegalDocument = {
     </> },
     { id: "changes-cancellations", title: "Changes, cancellations & refunds", content: <p>Call {contact} as soon as possible to request a change or cancellation. Availability and any cancellation, no-show, waiting-time, or refund conditions depend on the terms disclosed for your particular reservation and applicable law. These website terms do not create an undisclosed fee or guarantee a refund. If no specific cancellation conditions were provided, contact us for clarification before confirming the booking. An SMS opt-out does not cancel a ride.</p> },
     { id: "sms-program", title: "SMS program terms", highlight: true, content: <>
-      <p><strong>Program:</strong> Allan Limousine service-related SMS may include reservation confirmations, pickup reminders, chauffeur or trip updates, and responses to customer inquiries. By opting in, you authorize these messages at the mobile number you provide, including messages sent using automated technology where applicable. SMS consent is not a condition of purchasing services.</p>
+      <p><strong>Program:</strong> {SMS_BRAND} service-related SMS may include reservation confirmations, pickup reminders, chauffeur or trip updates, and responses to customer inquiries. By opting in, you authorize these messages at the mobile number you provide, including messages sent using automated technology where applicable. SMS consent is not a condition of purchasing services.</p>
       <ul><li><strong>Message frequency:</strong> Message frequency varies based on your reservations, trip activity, and communications with our team.</li>
       <li><strong>Rates:</strong> Message and data rates may apply. Your mobile carrier's messaging and data charges are your responsibility; check your plan for details.</li>
       <li><strong>Opt out:</strong> Reply <strong>STOP</strong> to any Allan Limousine SMS to unsubscribe. You may receive a final opt-out confirmation, after which further program messages will stop unless you opt in again. Opting out does not cancel a reservation.</li>
@@ -78,6 +79,7 @@ export const termsDocument: LegalDocument = {
       <li><strong>Rejoin:</strong> Reply <strong>START</strong> to opt back in where supported, or contact us for assistance.</li></ul>
       <p><strong>Opt-In Confirmation Message:</strong> {SMS_OPT_IN_CONFIRMATION}</p>
       <p><strong>Help Confirmation Message:</strong> {SMS_HELP_CONFIRMATION}</p>
+      <p><strong>Opt-Out Confirmation Message:</strong> {SMS_OPT_OUT_CONFIRMATION}</p>
       <p>Use only a number you own or are authorized to use, and notify us if it changes. Delivery is subject to carrier and network availability and is not guaranteed. Carriers are not liable for delayed or undelivered messages. Do not rely on SMS for emergencies or time-critical changes; contact our team directly.</p>
       <p>Mobile information and SMS opt-in data will not be shared with third parties or affiliates for marketing purposes. See the <Link to="/privacy#sms-privacy">SMS privacy section</Link> of our Privacy Policy.</p>
     </> },

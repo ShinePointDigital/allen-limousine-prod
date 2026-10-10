@@ -272,6 +272,14 @@
   .dw-loading-copy { padding-right: 20px; padding-left: 20px; }
   .dw-load-error>.dw-alert { margin-right: 20px; margin-left: 20px; }
 }
+.dw-ride-context { display: grid; gap: 8px; margin: 10px 0; }
+.dw-corporate-context { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: #53685e; font-size: 10px; }
+.dw-corporate-context b { padding: 4px 7px; color: #fff; background: #31594c; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+.dw-corporate-context span { padding: 4px 7px; background: #e8ede7; }
+.dw-flight-disruption { display: flex; align-items: flex-start; gap: 8px; padding: 10px 11px; border-left: 2px solid #a9834f; color: #725433; background: #f4ecdf; font-size: 10px; line-height: 1.45; }
+.dw-flight-disruption > svg { flex: 0 0 14px; width: 14px; height: 14px; margin-top: 1px; }
+.dw-flight-disruption > span { display: grid; gap: 2px; }
+.dw-flight-disruption b { font-size: 9px; letter-spacing: .05em; text-transform: uppercase; }
 @media (prefers-reduced-motion: reduce) {
   .dw-dialog, .dw-step-panel, .dw-skeleton i, .dw-spinning { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }

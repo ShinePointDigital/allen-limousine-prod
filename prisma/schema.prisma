@@ -24,6 +24,7 @@ model AdminUser {
   smsMessages      SmsMessage[]
   reconciledMessages DispatchMessage[] @relation("DispatchReconciler")
   customerBookings Inquiry[]         @relation("CustomerBookings")
+  corporateAccount CorporateAccount?
 }
 
 model AdminSession {
@@ -53,6 +54,11 @@ model Inquiry {
   dispatchVersion    Int                 @default(0)
   dispatchReviewedAt DateTime?
   customerUserId String?
+  corporateAccountId String?
+  corporateAccount CorporateAccount? @relation(fields: [corporateAccountId], references: [id], onDelete: Restrict)
+  companyName String?
+  poNumber String?
+  costCenterCode String?
   customerUser  AdminUser?           @relation("CustomerBookings", fields: [customerUserId], references: [id], onDelete: SetNull)
   fullName      String
   email         String
@@ -101,6 +107,7 @@ model Inquiry {
   stripePaymentMethodId   String?
   stripePaymentIntentId   String?
   paymentStatus           String?
+  corporateChargeStartedAt DateTime?
   status        String              @default("NEW")
   source        String              @default("website")
   createdAt     DateTime            @default(now())
@@ -113,6 +120,47 @@ model Inquiry {
   @@index([email])
   @@index([pickupAt])
   @@index([customerUserId])
+  @@index([corporateAccountId, createdAt])
+}
+
+enum CorporateAccountStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+}
+
+model CorporateAccount {
+  id String @id @default(cuid())
+  companyLegalName String
+  contactName String
+  contactEmail String @unique
+  contactPhone String
+  monthlyRideVolume Int
+  billingPreference String
+  billingName String
+  billingEmail String
+  billingAddress String
+  billingConsentAt DateTime
+  billingConsentVersion String
+  status CorporateAccountStatus @default(PENDING)
+  applicationTokenHash String @unique
+  applicationTokenExpiresAt DateTime
+  stripeCustomerId String? @unique
+  stripePaymentMethodId String?
+  stripeSetupSessionId String?
+  userId String? @unique
+  user AdminUser? @relation(fields: [userId], references: [id], onDelete: Restrict)
+  mustChangePassword Boolean @default(false)
+  credentialsExpiresAt DateTime?
+  credentialsEmailStatus String @default("NOT_SENT")
+  approvedAt DateTime?
+  approvedById String?
+  rejectionReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  bookings Inquiry[]
+
+  @@index([status, createdAt])
 }
 
 model StripeSetupSession {

@@ -24,6 +24,9 @@ import type { Inquiry } from "./store.js";
 import { DriverTripService, DriverTripError } from "./driver-trip-service.js";
 import { createDriverTripRouter, createDispatcherCaptureRouter } from "./driver-trip-routes.js";
 import { captureBookingPayment } from "./payment-capture.js";
+import { createCorporateRouter } from "./corporate-routes.js";
+import { chargeCorporateBooking, CorporateBillingError } from "./corporate-billing.js";
+import { SMS_OPT_IN_CONFIRMATION } from "../shared/sms-program.js";
 
 const bookingPaymentSummary = (inquiry: Inquiry) => ({
   id: inquiry.id, estimatedFareCents: inquiry.estimatedFareCents, grossFareCents: inquiry.grossFareCents,
@@ -154,7 +157,7 @@ const sendBookingTrackingSms = async (req: express.Request, inquiry: { id: strin
   if (inquiry.smsConsent !== true) return;
   const link = bookingTrackingUrl(req, trackingToken);
   const fare = inquiry.estimatedFareCents == null ? "" : ` Estimated fare: $${Math.round(inquiry.estimatedFareCents / 100)}.`;
-  await sendOperationalSms(inquiry.phone, `Allan Limousine: Booking ${inquiry.id.slice(-6).toUpperCase()} received.${fare} Follow your reservation and driver updates: ${link} Reply STOP to opt out or HELP for help.`);
+  await sendOperationalSms(inquiry.phone, `${SMS_OPT_IN_CONFIRMATION}\nBooking ${inquiry.id.slice(-6).toUpperCase()} received.${fare} Follow your reservation and driver updates: ${link}`);
 };
 const stripeProfileSchema = z.object({
   fullName: z.string().trim().min(2).max(100),
@@ -227,6 +230,14 @@ const rideUpdateSchema = z.object({
   if ((data.driverLatitude === undefined) !== (data.driverLongitude === undefined)) context.addIssue({ code: "custom", path: ["driverLatitude"], message: "Provide both driver latitude and longitude." });
 });
 async function captureAuthorizedPayment(bookingRequestId: string) {
+  const booking = await getInquiryByBookingRequestId(bookingRequestId);
+  if (booking?.corporateAccountId) {
+    try { return await chargeCorporateBooking(bookingRequestId); }
+    catch (error) {
+      if (error instanceof CorporateBillingError) throw error;
+      throw new Error("The corporate charge could not be confirmed. Retry this same ride or contact dispatch.");
+    }
+  }
   return captureBookingPayment(bookingRequestId, {
     findBooking: getInquiryByBookingRequestId, stripe: getStripeClient, sync: updateInquiryPaymentStatusByIntent,
   });
@@ -292,10 +303,10 @@ async function completeRideWithCapture(rideId: string, preCompletionUpdate: Para
   }
   const inquiry = (await getInquiries()).find(item => item.id === ride!.inquiryId);
   if (ride.status === "COMPLETED") {
-    if (inquiry?.bookingRequestId && inquiry.paymentStatus === "requires_capture") await captureAuthorizedPayment(inquiry.bookingRequestId);
+    if (inquiry?.bookingRequestId && (inquiry.corporateAccountId || inquiry.paymentStatus === "requires_capture")) await captureAuthorizedPayment(inquiry.bookingRequestId);
     return ride;
   }
-  if (inquiry?.bookingRequestId && (inquiry.stripePaymentIntentId || inquiry.paymentStatus === "authorization_pending")) {
+  if (inquiry?.bookingRequestId && (inquiry.corporateAccountId || inquiry.stripePaymentIntentId || inquiry.paymentStatus === "authorization_pending")) {
     await captureAuthorizedPayment(inquiry.bookingRequestId);
   }
   return updateRide(rideId, { status: "COMPLETED" });
@@ -872,6 +883,7 @@ app.post("/api/admin/login", accountLoginLimiter, async (req, res) => {
 app.get("/api/admin/session", admin, (_req, res) => res.json({ user: res.locals.user }));
 app.use(createAdminRecoveryRouter({ admin, superAdmin, origin: publicOrigin }));
 app.use(createAccountRouter());
+app.use(createCorporateRouter({ origin: publicOrigin }));
 app.use(createSmsInboxRouter({ admin, publicOrigin }));
 const driverTrips = new DriverTripService(captureAuthorizedPayment);
 app.use("/driver/trip", (_req, res, next) => {

@@ -2,6 +2,7 @@ import "dotenv/config";
 import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
+import { SMS_BRAND } from "../shared/sms-program.js";
 import { applicationDatabaseUrl } from "./database-config.js";
 import { bookingAmounts, gratuitySelectionSchema, type GratuitySelection } from "../shared/gratuity.js";
 import { bookingHasSmsConsent, smsConsentAuditBody, SMS_CONSENT_AUTHOR } from "../shared/sms-consent.js";
@@ -13,6 +14,10 @@ export type RideStatus = "UNASSIGNED" | "ASSIGNED" | "EN_ROUTE" | "IN_PROGRESS" 
 export type Inquiry = BookingFlightMetadata & {
   id: string; fullName: string; email: string; phone: string; serviceType: string;
   customerUserId?: string | null;
+  corporateAccountId?: string | null;
+  companyName?: string | null;
+  poNumber?: string | null;
+  costCenterCode?: string | null;
   smsConsent?: boolean;
   pickupAt: string; pickup: string; destination: string; passengers: number;
   notes?: string; airportCode?: string | null; airportTerminal?: string | null;
@@ -38,6 +43,7 @@ export type Ride = {
   quoteCents: number; depositCents: number; collectedCents: number; expenseCents: number;
   dispatchNotes: string | null; createdAt: string; updatedAt: string;
   inquiry: Pick<Inquiry, "fullName" | "serviceType" | "pickupAt" | "pickup" | "destination" | "passengers" | "notes" | "isPrivateFBO" | "specificTailNumber" | "principalName" | "fboName" | "tarmacInstructions">
+    & Pick<Inquiry, "corporateAccountId" | "companyName" | "poNumber" | "costCenterCode">
     & BookingFlightMetadata
     & Partial<Pick<Inquiry, "email" | "estimatedFareCents" | "grossFareCents" | "promoDiscountCents" | "gratuityCents" | "authorizedTotalCents" | "bookingRequestId" | "stripePaymentIntentId" | "paymentStatus">>;
   vehicle: Pick<FleetVehicle, "id" | "name" | "category" | "active"> | null;
@@ -484,6 +490,13 @@ export async function authenticate(email: string, password: string, audience: "s
   if (!admin.active) return reject("account_inactive");
   if (audience === "staff" ? !isStaff(admin.role) : admin.role !== "USER") return reject("account_role_not_allowed");
   if (!(await bcrypt.compare(password, admin.passwordHash))) return reject("password_mismatch");
+  if (databaseConfigured && audience === "customer") {
+    const corporate = await prisma.corporateAccount.findUnique({ where: { userId: admin.id } });
+    if (corporate && (corporate.status !== "ACTIVE" ||
+        (corporate.mustChangePassword && (!corporate.credentialsExpiresAt || corporate.credentialsExpiresAt <= new Date())))) {
+      return reject("corporate_access_unavailable");
+    }
+  }
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 12);
   if (databaseConfigured) await prisma.adminSession.create({ data: { tokenHash: tokenHash(token), userId: admin.id, expiresAt } });
@@ -606,6 +619,10 @@ const mapRide = (item: any): Ride => ({
   updatedAt: item.updatedAt instanceof Date ? item.updatedAt.toISOString() : item.updatedAt,
   inquiry: {
     ...flightMetadata(item.inquiry),
+    corporateAccountId: item.inquiry.corporateAccountId ?? null,
+    companyName: item.inquiry.companyName ?? null,
+    poNumber: item.inquiry.poNumber ?? null,
+    costCenterCode: item.inquiry.costCenterCode ?? null,
     fullName: item.inquiry.fullName,
     email: item.inquiry.email,
     serviceType: item.inquiry.serviceType,
@@ -710,12 +727,19 @@ function validateRideStatusTransition(currentStatus: string, nextStatus?: string
     throw new Error(`This ride must advance from ${currentStatus.toLowerCase().replaceAll("_", " ")} to its next operational status.`);
   }
 }
+function validateCorporateRideUpdate(inquiry: { corporateAccountId?: string | null; paymentStatus?: string | null; authorizedTotalCents?: number | null } | null, current: { quoteCents: number; depositCents: number; collectedCents: number }, data: RideUpdate) {
+  if (!inquiry?.corporateAccountId) return;
+  if (data.quoteCents !== undefined && data.quoteCents !== inquiry.authorizedTotalCents) throw new Error("The corporate fare is fixed by the customer's reviewed quote.");
+  if ((data.collectedCents !== undefined && data.collectedCents !== current.collectedCents) || (data.depositCents !== undefined && data.depositCents !== current.depositCents)) throw new Error("Corporate collected amounts are recorded only after Stripe confirms the charge.");
+  if (data.status === "CANCELLED" && !["corporate_ready", "canceled"].includes(inquiry.paymentStatus || "")) throw new Error("Resolve the corporate charge in Stripe before cancelling this ride.");
+}
 
 export async function validateRideUpdate(id: string, data: RideUpdate) {
   if (databaseConfigured) {
     const current = await prisma.ride.findUnique({ where: { id }, include: { inquiry: true } });
     if (!current) return false;
     validateRideStatusTransition(current.status, data.status);
+    validateCorporateRideUpdate(current.inquiry, current, data);
     const next = { ...current, ...data };
     if (next.depositCents > next.quoteCents || next.collectedCents > next.quoteCents) throw new Error("Deposit and collected amounts cannot exceed the quoted fare.");
     if (next.depositCents > next.collectedCents) throw new Error("Total collected must include the recorded deposit.");
@@ -746,6 +770,7 @@ export async function updateRide(id: string, data: RideUpdate) {
       if (!current) return null;
       validateRideStatusTransition(current.status, data.status);
       const inquiry = await tx.inquiry.findUnique({ where: { id: current.inquiryId } });
+      validateCorporateRideUpdate(inquiry, current, data);
       if (inquiry?.paymentStatus === "canceled" && (data.status === undefined || !["CANCELLED", "COMPLETED"].includes(data.status))) throw new Error("This cancelled booking needs a new card authorization before it can be changed or reopened.");
       const next = { ...current, ...data };
       if (next.depositCents > next.quoteCents || next.collectedCents > next.quoteCents) throw new Error("Deposit and collected amounts cannot exceed the quoted fare.");
@@ -783,13 +808,14 @@ export async function updateRide(id: string, data: RideUpdate) {
 
 export function dispatchBrief(ride: Ride) {
   const lines = [
-    `Allan Limousine — Dispatch`,
+    `${SMS_BRAND} — Dispatch`,
     `Customer: ${ride.inquiry.fullName}`,
     `Pickup: ${formatDispatchDate(ride.inquiry.pickupAt)}`,
     `From: ${ride.inquiry.pickup}`,
     `To: ${ride.inquiry.destination}`,
     `Service: ${ride.inquiry.serviceType}`,
     `Passengers: ${ride.inquiry.passengers}`,
+    ride.inquiry.corporateAccountId ? `Corporate: ${ride.inquiry.companyName}\nPO: ${ride.inquiry.poNumber} · Cost center: ${ride.inquiry.costCenterCode}` : "",
     ride.inquiry.isPrivateFBO ? `FBO / Jet Center: ${ride.inquiry.fboName}` : "",
     ride.inquiry.isPrivateFBO ? `Tail number: ${ride.inquiry.specificTailNumber}` : "",
     ride.inquiry.isPrivateFBO ? `Passenger / principal: ${ride.inquiry.principalName}` : "",
@@ -1102,6 +1128,7 @@ export async function changeCustomerPassword(id: string, currentPassword: string
   if (databaseConfigured) return prisma.$transaction(async tx => {
     const changed = await tx.adminUser.updateMany({ where: { id, role: "USER", active: true, passwordHash: originalHash }, data: { passwordHash } });
     if (!changed.count) return false;
+    await tx.corporateAccount.updateMany({ where: { userId: id, status: "ACTIVE" }, data: { mustChangePassword: false, credentialsExpiresAt: null } });
     await tx.adminSession.deleteMany({ where: { userId: id } });
     return true;
   });

@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { SMS_BRAND } from "../shared/sms-program.js";
 import { prisma, dispatchBrief } from "./store.js";
 import { smsRecipientOptedOut } from "./sms-inbox-store.js";
 import { normalizeTwilioPhone, TwilioRequestError } from "./twilio.js";
@@ -76,10 +77,17 @@ export class DispatchWizardService {
       ["RESERVED","PENDING","SENT"].includes(attempt.status) && !attempt.body.includes("Trip controls & navigation:"));
     const link = ride && !legacyAttempt ? this.driverLink?.(ride) : "";
     const date = booking.pickupAt.toLocaleString("en-US", { timeZone: "America/Chicago", timeZoneName: "short" });
-    return {
+    const bodies = {
       driver: ride ? `${dispatchBrief({ ...ride, inquiry: { ...booking, pickupAt: booking.pickupAt.toISOString() } } as any)}\nChauffeur: ${ride.driverName || "not assigned"}\nVehicle: ${ride.vehicle?.name || "not assigned"}${link ? `\nTrip controls & navigation: ${link}` : ""}\nReply STOP to opt out or HELP for help.` : "",
-      customer: `Allan Limousine: Your chauffeur ${ride?.driverName || "not assigned"}${ride?.driverPhone ? ` (${ride.driverPhone})` : ""} and vehicle ${ride?.vehicle?.name || "not assigned"} are assigned for ${date}. Pickup: ${booking.pickup}. Drop-off: ${booking.destination}. Reply STOP to opt out or HELP for help.`,
+      customer: `${SMS_BRAND}: Your chauffeur ${ride?.driverName || "not assigned"}${ride?.driverPhone ? ` (${ride.driverPhone})` : ""} and vehicle ${ride?.vehicle?.name || "not assigned"} are assigned for ${date}. Pickup: ${booking.pickup}. Drop-off: ${booking.destination}. Reply STOP to opt out or HELP for help.`,
     };
+    for (const recipient of ["DRIVER", "CUSTOMER"] as const) {
+      const prior = ride?.dispatchMessages.find(a => a.dispatchRecipient === recipient && ["RESERVED", "PENDING", "SENT"].includes(a.status));
+      const key = recipient === "DRIVER" ? "driver" : "customer";
+      // Rebranding alone must not change a provider reservation or resend SMS.
+      if (prior && prior.body.replace(/^Allan Limousine(?=[: —])/, SMS_BRAND) === bodies[key]) bodies[key] = prior.body;
+    }
+    return bodies;
   }
 
   private changedAfterReservation(booking: Booking) {

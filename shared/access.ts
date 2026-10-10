@@ -34,6 +34,7 @@ export function canEditAccount(actor: AccountAccess, target: AccountAccess) {
 }
 // Staff account management and personal session controls are role-based.
 export function requiredAccess(method: string, path: string): Permission[] | null {
+  if (path.startsWith("/api/admin/corporate/accounts")) return [];
   if (method === "GET" && /^\/api\/flights\/[^/]+$/.test(path)) return ["rides"];
   if (/^\/api\/admin\/(session|sessions(?:\/others)?|users(?:\/[^/]+(?:\/(?:password-reset|password))?)?)$/.test(path)) return [];
   if (path === "/api/admin/company-profile") return method === "GET" ? [] : ["settings"];

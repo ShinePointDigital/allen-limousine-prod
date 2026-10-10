@@ -53,6 +53,11 @@
 }
 .driver-trip-status-mark { display: grid; width: 42px; height: 42px; flex: 0 0 42px; place-items: center; border-radius: 50%; background: var(--trip-green); color: #fff; }
 .driver-trip-status-mark svg { width: 20px; height: 20px; }
+.driver-trip-flight-warning { display: flex; gap: 12px; margin: 0 0 16px; padding: 14px; border: 1px solid #d9b58e; background: #f7ecdc; color: #694d31; }
+.driver-trip-flight-warning > svg { width: 19px; height: 19px; flex: 0 0 19px; margin-top: 2px; }
+.driver-trip-flight-warning b { font-size: 13px; }
+.driver-trip-flight-warning p { margin: 4px 0; font-size: 12px; line-height: 1.5; }
+.driver-trip-flight-warning small { color: #806d58; font-size: 10px; line-height: 1.45; }
 .driver-trip-status-copy { min-width: 0; flex: 1; }
 .driver-trip-status-copy b { display: block; font: 700 17px Manrope, sans-serif; }
 .driver-trip-status-copy span { display: block; margin-top: 3px; color: var(--trip-muted); font-size: 13px; }

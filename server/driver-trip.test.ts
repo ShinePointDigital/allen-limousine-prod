@@ -22,6 +22,7 @@ function assertDriverTripPrivacy(trip: object) {
     "passengers","chauffeurName","vehicleName","status",
     "airportCode","airportTerminal","flightNumber","flightScheduledAt","airlineName",
     "pickupPreference","isPrivateFBO","specificTailNumber","principalName","fboName","tarmacInstructions","flightUpdate",
+    "flightDisruption","companyName","corporateAccountId","poNumber","costCenterCode",
   ].sort(), "Driver responses must contain operational trip details only, never booking financials");
 }
 test("driver reads only matched saved flight updates; stale, changed and revoked links cannot expose provider details",async t=>{

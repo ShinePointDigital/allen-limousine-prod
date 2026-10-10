@@ -26,7 +26,8 @@
 }
 
 :root {
-  --font-global: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --font-global: Georgia, "Times New Roman", serif;
+  --font-editorial-italic: "Cormorant Garamond", Georgia, serif;
   --font-standard-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-booking-input: var(--font-standard-ui);
   --font-body: var(--font-global);
@@ -34,15 +35,10 @@
   --serif: var(--font-global);
 }
 
-/* Keep legacy per-component declarations on the same global type style. */
-body,
-body *,
-body *::before,
-body *::after {
-  font-family: var(--font-global) !important;
-  font-style: italic !important;
-  font-weight: 600 !important;
-}
+/* A crisp, upright editorial system; italics are reserved for intentional accents. */
+body { font-family: var(--font-standard-ui); font-style: normal; font-weight: 400; }
+h1, h2, h3, h4 { font-family: var(--font-global); font-style: normal; font-weight: 600; }
+h1 em, h2 em, h3 em, h4 em { font-family: var(--font-editorial-italic); font-style: italic; }
 
 /* Customer-entered booking controls use a standard upright system font. */
 .booking-wizard-section :is(input, select, textarea),
@@ -100,3 +96,15 @@ body *::after {
   font-family: var(--font-standard-ui) !important;
   font-style: normal !important;
 }
+
+.corp-page,
+.corp-page *,
+.corp-page *::before,
+.corp-page *::after {
+  font-family: var(--font-standard-ui) !important;
+  font-style: normal !important;
+  font-weight: 400 !important;
+}
+.corp-page :is(h1, h2, h3, h4),
+.corp-page :is(h1, h2, h3, h4) em { font-family: var(--font-global) !important; font-weight: 600 !important; }
+.corp-page :is(h1, h2, h3, h4) em { font-family: var(--font-editorial-italic) !important; font-style: italic !important; }

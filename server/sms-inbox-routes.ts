@@ -1,7 +1,8 @@
 import express, { type Request, type RequestHandler } from "express";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
-import { getDispatchAttemptByProviderMessageId } from "./store.js";
+import { getCompanyProfile, getDispatchAttemptByProviderMessageId } from "./store.js";
+import { inboundSmsResponse } from "../shared/sms-program.js";
 import { createSmsReplyAttempt, finishSmsReplyAttempt, getSmsMessageByProviderId, getSmsReplyAttempt, getSmsThread, listSmsConversations, markSmsThreadRead, recordInboundSms } from "./sms-inbox-store.js";
 import { classifyTwilioMessageStatus, findDriverDispatchSms, getDriverDispatchSms, normalizeTwilioPhone, sendSms, twilioPhonesEqual, TwilioRequestError, validTwilioSignature } from "./twilio.js";
 
@@ -40,13 +41,17 @@ export function createSmsInboxRouter(options: Options) {
     if (parsed.data.AccountSid && process.env.TWILIO_ACCOUNT_SID && parsed.data.AccountSid !== process.env.TWILIO_ACCOUNT_SID) return res.status(403).json({ error: "Unexpected Twilio account." });
     if (!twilioPhonesEqual(parsed.data.To, sender)) return res.status(403).json({ error: "This recipient is not the configured SMS sender." });
     try {
-      await recordInboundSms({
+      const recorded = await recordInboundSms({
         providerMessageId: parsed.data.MessageSid,
         fromPhone: normalizeTwilioPhone(parsed.data.From, "recipient"),
         toPhone: normalizeTwilioPhone(parsed.data.To, "sender"),
         body: parsed.data.Body, optOutType: parsed.data.OptOutType,
       });
-      // Acknowledge receipt without sending an automatic text.
+      const reply = recorded.duplicate ? null : inboundSmsResponse(parsed.data.Body, (await getCompanyProfile()).businessPhone, parsed.data.OptOutType);
+      if (reply) {
+        const escaped = reply.replace(/[<>&"']/g, v => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[v]!);
+        return res.type("text/xml").status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escaped}</Message></Response>`);
+      }
       return res.type("text/xml").status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     } catch (error) {
       if (error instanceof TwilioRequestError) return res.status(400).json({ error: error.message });

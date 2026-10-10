@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AlertTriangle, Check, Clock3, MapPin, Navigation, Plane, RefreshCw, ShieldCheck, UserRound, Users, CarFront } from "lucide-react";
 import { driverNavigationUrls, nextDriverTripStatus, type DriverTripNextStatus } from "./driver-trip-logic";
 import type { DriverFlightUpdate } from "../shared/flight";
+import type { FlightDisruption } from "../shared/flight-disruption";
 import "./driver-trip.css";
 
 type DriverTripRecord = {
@@ -15,6 +16,10 @@ type DriverTripRecord = {
   chauffeurName: string;
   vehicleName: string;
   status: string;
+  companyName?: string | null;
+  poNumber?: string | null;
+  costCenterCode?: string | null;
+  corporateAccountId?: string | null;
   airportCode: string | null;
   airportTerminal: string | null;
   flightNumber: string | null;
@@ -27,6 +32,7 @@ type DriverTripRecord = {
   fboName: string | null;
   tarmacInstructions: string | null;
   flightUpdate?: DriverFlightUpdate | null;
+  flightDisruption?: FlightDisruption | null;
 };
 
 type PageState = "loading" | "ready" | "expired" | "error";
@@ -280,6 +286,9 @@ export default function DriverTrip({ token }: { token: string }) {
   ].filter(detail => detail.value?.trim()) : [];
   const hasCommercialFlight = !!trip?.flightNumber?.trim() && !trip.isPrivateFBO;
   const flightUpdate = hasCommercialFlight ? trip?.flightUpdate : null;
+  const driverDisruption = trip?.flightDisruption;
+  const activeDriverDisruption = driverDisruption && Number.isFinite(Date.parse(driverDisruption.validUntil))
+    && clockNow < Date.parse(driverDisruption.validUntil) ? driverDisruption : null;
   const flightUpdateState: DriverFlightUpdate["state"] = !flightUpdate || flightUpdate.state === "unavailable"
     ? "unavailable"
     : flightUpdate.state === "stale" || !flightUpdate.validUntil
@@ -331,6 +340,9 @@ export default function DriverTrip({ token }: { token: string }) {
           </div>
           <span className="driver-trip-status-chip">{trip.status === "COMPLETED" ? "Closed" : "Current"}</span>
         </section>
+        {activeDriverDisruption && <section className="driver-trip-flight-warning" role="alert" aria-label="Verified flight disruption">
+          <AlertTriangle aria-hidden="true" /><div><b>Flight {activeDriverDisruption.status}</b><p>{activeDriverDisruption.message}</p><small>Verified snapshot · expires {formatProviderTime(activeDriverDisruption.validUntil) || "soon"} · booked pickup remains unchanged</small></div>
+        </section>}
 
         <ol className="driver-trip-progress" aria-label="Trip progress">
           {["En route", "Picked up", "Completed"].map((step, index) => {
@@ -376,6 +388,7 @@ export default function DriverTrip({ token }: { token: string }) {
             <div className="driver-trip-detail"><small>Service</small><b>{trip.serviceType}</b></div>
             <div className="driver-trip-detail"><small>Vehicle</small><b>{trip.vehicleName}</b></div>
             <div className="driver-trip-detail"><small>Passengers</small><b><Users aria-hidden="true" style={{ width: 14, verticalAlign: "middle", marginRight: 5 }} />{trip.passengers}</b></div>
+              {(trip.corporateAccountId || trip.companyName || trip.poNumber || trip.costCenterCode) && <div className="driver-trip-detail driver-corporate-detail"><small>Corporate ride</small><b>{trip.companyName || "Company account"}</b>{trip.poNumber && <small>PO · {trip.poNumber}</small>}{trip.costCenterCode && <small>Cost center · {trip.costCenterCode}</small>}</div>}
           </div>
         </section>
 

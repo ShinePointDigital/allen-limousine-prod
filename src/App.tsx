@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  ArrowDownRight, ArrowRight, Bell, CalendarDays, CarFront, Check, ChevronDown, ChevronLeft, MapPin,
+  AlertTriangle, ArrowDownRight, ArrowRight, Bell, Building2, CalendarDays, CarFront, Check, ChevronDown, ChevronLeft, MapPin,
   CircleDollarSign, Clock3, FileDown, LayoutDashboard, LogOut, Menu, MessageSquareText, Minus,
   Pencil, Plane, Plus, Search, Settings, ShieldCheck, Sparkles, UserRound, Trash2, WalletCards, X, Navigation, RefreshCw,
 } from "lucide-react";
@@ -28,17 +28,22 @@ import SmsInbox from "./sms-inbox/SmsInbox";
 import LegalPage from "./legal/LegalPage";
 import { privacyDocument, termsDocument } from "./legal/legal-content";
 import "./legal/footer-links.css";
+import CorporatePage from "./CorporatePage";
+import CorporatePortal from "./CorporatePortal";
+import CorporateAdmin from "./CorporateAdmin";
+import { flightDisruption } from "../shared/flight-disruption";
+import "./corporate.css";
 
 type Service = { id: string; slug: string; title: string; eyebrow: string; description: string; imageUrl: string; active: boolean };
 type Vehicle = { id: string; name: string; category: string; description: string; imageUrl: string; passengers: string; luggage: string; defaultDriverName: string | null; defaultDriverPhone: string | null; active: boolean };
 type DispatchVehicle = Pick<Vehicle, "id" | "name" | "category" | "description" | "passengers" | "luggage" | "defaultDriverName" | "defaultDriverPhone">;
-type Inquiry = { id: string; fullName: string; email: string; phone: string; serviceType: string; pickupAt: string; pickup: string; destination: string; passengers: number; notes?: string; airportCode?: string | null; airportTerminal?: string | null; pickupPreference?: string | null; isPrivateFBO?: boolean; specificTailNumber?: string | null; principalName?: string | null; fboName?: string | null; tarmacInstructions?: string | null; estimatedFareCents?: number | null; grossFareCents?: number | null; promoDiscountCents?: number | null; gratuityCents?: number | null; authorizedTotalCents?: number | null; bookingRequestId?: string | null; stripePaymentIntentId?: string | null; paymentStatus?: string | null; status: string; createdAt: string; updatedAt: string; history: { body: string; author: string; createdAt: string }[] } & BookingFlightMetadata;
+type Inquiry = { id: string; fullName: string; email: string; phone: string; serviceType: string; pickupAt: string; pickup: string; destination: string; passengers: number; notes?: string; companyName?: string | null; poNumber?: string | null; costCenterCode?: string | null; corporateAccountId?: string | null; airportCode?: string | null; airportTerminal?: string | null; pickupPreference?: string | null; isPrivateFBO?: boolean; specificTailNumber?: string | null; principalName?: string | null; fboName?: string | null; tarmacInstructions?: string | null; estimatedFareCents?: number | null; grossFareCents?: number | null; promoDiscountCents?: number | null; gratuityCents?: number | null; authorizedTotalCents?: number | null; bookingRequestId?: string | null; stripePaymentIntentId?: string | null; paymentStatus?: string | null; status: string; createdAt: string; updatedAt: string; history: { body: string; author: string; createdAt: string }[] } & BookingFlightMetadata;
 type DispatchActivity = {
   id: string; status: string; toPhone: string; body: string; providerMessageId: string | null;
   providerStatus: string | null; deliveryStatus: string | null; errorMessage: string | null;
   createdAt: string; adminName?: string; reconciledAt?: string | null; reconciledByName?: string | null;
 };
-type Ride = { id: string; inquiryId: string; status: string; driverName: string | null; driverPhone: string | null; driverLatitude: number | null; driverLongitude: number | null; driverHeading: number | null; locationUpdatedAt: string | null; vehicleId: string | null; quoteCents: number; depositCents: number; collectedCents: number; expenseCents: number; dispatchNotes: string | null; createdAt: string; updatedAt: string; inquiry: Pick<Inquiry, "fullName" | "email" | "serviceType" | "pickupAt" | "pickup" | "destination" | "passengers" | "notes" | "isPrivateFBO" | "specificTailNumber" | "principalName" | "fboName" | "tarmacInstructions" | "estimatedFareCents" | "grossFareCents" | "promoDiscountCents" | "gratuityCents" | "authorizedTotalCents" | "bookingRequestId" | "stripePaymentIntentId" | "paymentStatus"> & BookingFlightMetadata; vehicle: Pick<Vehicle, "id" | "name" | "category" | "active"> | null; dispatchMessages: DispatchActivity[] };
+type Ride = { id: string; inquiryId: string; status: string; driverName: string | null; driverPhone: string | null; driverLatitude: number | null; driverLongitude: number | null; driverHeading: number | null; locationUpdatedAt: string | null; vehicleId: string | null; quoteCents: number; depositCents: number; collectedCents: number; expenseCents: number; dispatchNotes: string | null; createdAt: string; updatedAt: string; inquiry: Pick<Inquiry, "fullName" | "email" | "serviceType" | "pickupAt" | "pickup" | "destination" | "passengers" | "notes" | "companyName" | "poNumber" | "costCenterCode" | "corporateAccountId" | "isPrivateFBO" | "specificTailNumber" | "principalName" | "fboName" | "tarmacInstructions" | "estimatedFareCents" | "grossFareCents" | "promoDiscountCents" | "gratuityCents" | "authorizedTotalCents" | "bookingRequestId" | "stripePaymentIntentId" | "paymentStatus"> & BookingFlightMetadata; vehicle: Pick<Vehicle, "id" | "name" | "category" | "active"> | null; dispatchMessages: DispatchActivity[] };
 type AdminNotification = { id: string; type: string; title: string; body: string; inquiryId: string | null; readAt: string | null; createdAt: string };
 type CompanyProfile = { businessPhone: string; contactEmail: string; serviceArea: string };
 type StaffAccess = { role: Role; permissions: Permission[] };
@@ -82,8 +87,9 @@ function PublicNav({ companyProfile }: { companyProfile: CompanyProfile }) {
     <nav className={open ? "nav-open" : ""}>
       <button onClick={() => scrollTo("about")}>About</button>
       <button onClick={() => scrollTo("services")}>Services</button>
+      <Link to="/corporate">Corporate</Link>
     </nav>
-    <div className="nav-actions"><a className="phone-link" href={phoneHref(companyProfile.businessPhone)}>{companyProfile.businessPhone}</a><Link className="account-link" to="/account/login">My account</Link><button className="outline-button small" onClick={() => scrollTo("reserve")}>Arrange a ride <ArrowUpRight /></button></div>
+    <div className="nav-actions"><a className="phone-link" href={phoneHref(companyProfile.businessPhone)}>{companyProfile.businessPhone}</a><Link className="account-link" to="/account/login">My account</Link><Link className="account-link" to="/login">Corporate login</Link><button className="outline-button small" onClick={() => scrollTo("reserve")}>Arrange a ride <ArrowUpRight /></button></div>
     <button className="menu-button" aria-label="Open menu" onClick={() => setOpen(!open)}>{open ? <X /> : <Menu />}</button>
   </header>;
 }
@@ -170,7 +176,7 @@ function Home() {
     </section>
     {!pwaMode && <BookingWizard />}
     <PWABottomNav companyProfile={content.companyProfile} />
-    <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · {content.companyProfile.serviceArea}</p><span>© {new Date().getFullYear()} Allan Limousine</span></div><div className="footer-contact"><a href={phoneHref(content.companyProfile.businessPhone)}>{content.companyProfile.businessPhone}</a><a href={`mailto:${content.companyProfile.contactEmail}`}>{content.companyProfile.contactEmail}</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>{content.companyProfile.serviceArea}</span><nav className="site-legal-links" aria-label="Legal information"><Link to="/privacy">Privacy Policy</Link><Link to="/terms">Terms and Conditions</Link></nav><span className="site-credit">Built with <strong>Shine Point Digital</strong></span><Link to="/admin/login">Client access ↗</Link></div></footer>
+    <footer className="site-footer section-pad"><div className="footer-main"><Mark /><div className="footer-location"><p className="eyebrow brass">Private chauffeur service · {content.companyProfile.serviceArea}</p><span>© {new Date().getFullYear()} Allan Limousine</span></div><div className="footer-contact"><a href={phoneHref(content.companyProfile.businessPhone)}>{content.companyProfile.businessPhone}</a><a href={`mailto:${content.companyProfile.contactEmail}`}>{content.companyProfile.contactEmail}</a></div><div className="footer-arrow"><ArrowUpRight /></div></div><div className="footer-bottom"><span>{content.companyProfile.serviceArea}</span><nav className="site-legal-links" aria-label="Legal information"><Link to="/privacy">Privacy Policy</Link><Link to="/terms">Terms and Conditions</Link><Link to="/corporate">Corporate travel</Link><Link to="/login">Corporate login</Link></nav><span className="site-credit">Built with <strong>Shine Point Digital</strong></span><Link to="/admin/login">Client access ↗</Link></div></footer>
   </main>;
 }
 
@@ -446,12 +452,13 @@ function AdminShell() {
   if (!ready || !user) return <div className="admin-loading"><span className="spinner" />Loading workspace</div>;
   const permissions: Record<string, Permission> = { overview: "dashboard", rides: "rides", sms: "sms", inquiries: "inquiries", services: "services", fleet: "fleet", content: "content", settings: "settings" };
   const allNav = [{ key: "overview", label: "Overview", icon: LayoutDashboard }, { key: "rides", label: "Rides & dispatch", icon: CarFront }, { key: "sms", label: "SMS inbox", icon: MessageSquareText }, { key: "inquiries", label: "Inquiries", icon: MessageSquareText }, { key: "services", label: "Services", icon: Sparkles }, { key: "fleet", label: "Fleet", icon: ShieldCheck }, { key: "content", label: "Site content", icon: Pencil }, { key: "settings", label: "Settings", icon: Settings }];
-  const nav = allNav.filter(item => hasAccess(user, permissions[item.key])).concat([{ key: "admin-users", label: "Users & access", icon: UserRound }]);
+  const staffAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+  const nav = allNav.filter(item => hasAccess(user, permissions[item.key])).concat([{ key: "admin-users", label: "Users & access", icon: UserRound }, ...(staffAdmin ? [{ key: "corporate", label: "Corporate accounts", icon: Building2 }] : [])]);
   const pathPart = location.pathname.split("/")[2];
   const active = pathPart || nav[0]?.key || "admin-users";
-  const allowed = active === "admin-users" || Boolean(permissions[active] && hasAccess(user, permissions[active]));
+  const allowed = active === "admin-users" || (active === "corporate" ? staffAdmin : Boolean(permissions[active] && hasAccess(user, permissions[active])));
   const activeLabel = nav.find(item => item.key === active)?.label || "Workspace";
-  return <div className="admin-app"><aside className={mobile ? "admin-sidebar sidebar-open" : "admin-sidebar"}><div className="admin-brand"><Mark /><button onClick={() => setMobile(false)}><X /></button></div><p className="admin-nav-label">Workspace</p><nav>{nav.map(item => { const Icon = item.icon; return <Link key={item.key} className={active === item.key ? "active" : ""} to={`/admin/${item.key}`} onClick={() => setMobile(false)}><Icon />{item.label}</Link>; })}</nav><div className="admin-sidebar-bottom"><div className="profile-chip"><span>{user.name.split(" ").map(value => value[0]).join("").slice(0, 2)}</span><div><b>{user.name}</b><small>{titleCaseStatus(user.role)}</small></div></div><button className="logout-button" onClick={signOut}><LogOut /> Sign out</button></div></aside><div className="admin-main"><header className="admin-topbar"><button className="admin-menu" onClick={() => setMobile(true)}><Menu /></button><div className="breadcrumbs"><Link to="/">ALLAN</Link><span>/</span><b>{activeLabel}</b></div><div className="topbar-right"><span className="live-dot" /> System live <button className="avatar">{user.name.split(" ").map(value => value[0]).join("").slice(0, 2)}</button></div></header>{!allowed ? <div className="admin-page"><div className="empty-state access-denied"><ShieldCheck /><p>Access denied. Your account does not have permission to open this section.</p><Link className="outline-button dark small" to={`/admin/${nav[0]?.key || "admin-users"}`}>Go to an available section</Link></div></div> : active === "overview" ? <Overview access={user} /> : active === "rides" ? <RidesManager access={user} /> : active === "sms" ? <SmsInbox api={api} /> : active === "inquiries" ? <InquiryManager access={user} /> : active === "services" ? <ContentManager type="services" /> : active === "fleet" ? <ContentManager type="fleet" /> : active === "content" ? <SiteContentManager /> : active === "settings" ? <SettingsPage /> : active === "admin-users" ? <UserManagement actor={user} /> : <div className="admin-page"><div className="empty-state access-denied"><ShieldCheck /><p>This workspace section does not exist.</p><Link className="outline-button dark small" to={`/admin/${nav[0]?.key || "admin-users"}`}>Go to an available section</Link></div></div>}</div></div>;
+  return <div className="admin-app"><aside className={mobile ? "admin-sidebar sidebar-open" : "admin-sidebar"}><div className="admin-brand"><Mark /><button onClick={() => setMobile(false)}><X /></button></div><p className="admin-nav-label">Workspace</p><nav>{nav.map(item => { const Icon = item.icon; return <Link key={item.key} className={active === item.key ? "active" : ""} to={`/admin/${item.key}`} onClick={() => setMobile(false)}><Icon />{item.label}</Link>; })}</nav><div className="admin-sidebar-bottom"><div className="profile-chip"><span>{user.name.split(" ").map(value => value[0]).join("").slice(0, 2)}</span><div><b>{user.name}</b><small>{titleCaseStatus(user.role)}</small></div></div><button className="logout-button" onClick={signOut}><LogOut /> Sign out</button></div></aside><div className="admin-main"><header className="admin-topbar"><button className="admin-menu" onClick={() => setMobile(true)}><Menu /></button><div className="breadcrumbs"><Link to="/">ALLAN</Link><span>/</span><b>{activeLabel}</b></div><div className="topbar-right"><span className="live-dot" /> System live <button className="avatar">{user.name.split(" ").map(value => value[0]).join("").slice(0, 2)}</button></div></header>{!allowed ? <div className="admin-page"><div className="empty-state access-denied"><ShieldCheck /><p>Access denied. Your account does not have permission to open this section.</p><Link className="outline-button dark small" to={`/admin/${nav[0]?.key || "admin-users"}`}>Go to an available section</Link></div></div> : active === "overview" ? <Overview access={user} /> : active === "rides" ? <RidesManager access={user} /> : active === "sms" ? <SmsInbox api={api} /> : active === "inquiries" ? <InquiryManager access={user} /> : active === "services" ? <ContentManager type="services" /> : active === "fleet" ? <ContentManager type="fleet" /> : active === "content" ? <SiteContentManager /> : active === "settings" ? <SettingsPage /> : active === "admin-users" ? <UserManagement actor={user} /> : active === "corporate" ? <CorporateAdmin /> : <div className="admin-page"><div className="empty-state access-denied"><ShieldCheck /><p>This workspace section does not exist.</p><Link className="outline-button dark small" to={`/admin/${nav[0]?.key || "admin-users"}`}>Go to an available section</Link></div></div>}</div></div>;
 }
 
 function AdminHeader({ eyebrow, title, children }: { eyebrow: string; title: string; children?: React.ReactNode }) { return <div className="admin-page-header"><div><p className="eyebrow brass">{eyebrow}</p><h1>{title}</h1></div>{children}</div>; }
@@ -499,8 +506,24 @@ function NotificationsPanel({ notifications, onChange, onSelect }: { notificatio
 function Stat({ label, value, delta, icon, tone = "" }: { label: string; value: string | number; delta: string; icon: React.ReactNode; tone?: string }) { return <div className={`stat-card ${tone}`}><div className="stat-top"><span>{label}</span><span className="stat-icon">{icon}</span></div><strong>{value}</strong><small>{delta}</small></div>; }
 function statusClass(status: string) { return `status status-${status.toLowerCase()}`; }
 function InquiryRow({ inquiry, onClick }: { inquiry: Inquiry; onClick?: () => void }) { return <div className="inquiry-row" onClick={onClick}><div className="inquiry-person"><span className="person-initials">{inquiry.fullName.split(" ").map(v => v[0]).join("").slice(0, 2)}</span><div><b>{inquiry.fullName}</b><small>{inquiry.serviceType}</small></div></div><div className="inquiry-location"><small>{inquiry.pickup}</small><ArrowRight /><small>{inquiry.destination}</small></div><div className="inquiry-date"><CalendarDays />{formatDate(inquiry.pickupAt)}</div><span className={statusClass(inquiry.status)}>{inquiry.status[0] + inquiry.status.slice(1).toLowerCase()}</span><ChevronLeft className="row-chevron" /></div>; }
+function FlightDisruptionWarning({ ride }: { ride: Ride }) {
+  const [clock, setClock] = useState(Date.now());
+  const disruption = flightDisruption(ride.inquiry, clock);
+  useEffect(() => {
+    if (!disruption) return;
+    const until = Date.parse(disruption.validUntil);
+    const timer = window.setTimeout(() => setClock(Date.now()), Math.max(0, until - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [disruption?.key, disruption?.validUntil]);
+  if (!disruption) return null;
+  return <div className="dispatch-flight-warning" role="status"><AlertTriangle /><span><b>Verified flight {disruption.status}</b>{disruption.message}</span></div>;
+}
+function CorporateRideTags({ inquiry }: { inquiry: Pick<Inquiry, "companyName" | "corporateAccountId" | "poNumber" | "costCenterCode"> }) {
+  if (!inquiry.companyName && !inquiry.corporateAccountId && !inquiry.poNumber && !inquiry.costCenterCode) return null;
+  return <span className="corporate-ride-tags"><b>Corporate</b>{inquiry.companyName && <span>{inquiry.companyName}</span>}{inquiry.poNumber && <span>PO · {inquiry.poNumber}</span>}{inquiry.costCenterCode && <span>Cost center · {inquiry.costCenterCode}</span>}</span>;
+}
 function RideRow({ ride, onClick }: { ride: Ride; onClick?: () => void }) {
-  const content = <><div className="ride-date"><b>{new Intl.DateTimeFormat("en-US", { day: "2-digit" }).format(new Date(ride.inquiry.pickupAt))}</b><span>{new Intl.DateTimeFormat("en-US", { month: "short" }).format(new Date(ride.inquiry.pickupAt))}</span></div><div className="ride-client"><b>{ride.inquiry.fullName}</b><small>{formatDateTime(ride.inquiry.pickupAt)} · {ride.inquiry.serviceType}</small>{ride.inquiry.paymentStatus && <em className={`payment-chip payment-${ride.inquiry.paymentStatus}`}>{titleCaseStatus(ride.inquiry.paymentStatus)}</em>}</div><div className="ride-assignment"><b>{ride.vehicle?.name || "Vehicle unassigned"}</b><small>{ride.driverName || "Chauffeur unassigned"}</small></div><strong className="ride-value">{formatMoney(ride.quoteCents)}</strong><span className={statusClass(ride.status)}>{titleCaseStatus(ride.status)}</span>{onClick && <ChevronLeft className="row-chevron" />}</>;
+  const content = <><div className="ride-date"><b>{new Intl.DateTimeFormat("en-US", { day: "2-digit" }).format(new Date(ride.inquiry.pickupAt))}</b><span>{new Intl.DateTimeFormat("en-US", { month: "short" }).format(new Date(ride.inquiry.pickupAt))}</span></div><div className="ride-client"><b>{ride.inquiry.fullName}</b><small>{formatDateTime(ride.inquiry.pickupAt)} · {ride.inquiry.serviceType}</small>{ride.inquiry.paymentStatus && <em className={`payment-chip payment-${ride.inquiry.paymentStatus}`}>{titleCaseStatus(ride.inquiry.paymentStatus)}</em>}{ride.inquiry.companyName && <span className="corporate-ride-tags"><b>Corporate</b><span>{ride.inquiry.companyName}</span>{ride.inquiry.poNumber && <span>PO · {ride.inquiry.poNumber}</span>}{ride.inquiry.costCenterCode && <span>Cost center · {ride.inquiry.costCenterCode}</span>}</span>}<FlightDisruptionWarning ride={ride} /></div><div className="ride-assignment"><b>{ride.vehicle?.name || "Vehicle unassigned"}</b><small>{ride.driverName || "Chauffeur unassigned"}</small></div><strong className="ride-value">{formatMoney(ride.quoteCents)}</strong><span className={statusClass(ride.status)}>{titleCaseStatus(ride.status)}</span>{onClick && <ChevronLeft className="row-chevron" />}</>;
   return onClick ? <button className="ride-row" onClick={onClick}>{content}</button> : <div className="ride-row ride-row-static">{content}</div>;
 }
 function RidesManager({ access }: { access: StaffAccess }) {
@@ -518,8 +541,8 @@ function RidesManager({ access }: { access: StaffAccess }) {
   const [deletingVehicleId, setDeletingVehicleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const load = () => {
-    setLoading(true); setError("");
+  const load = (quiet = false) => {
+    if (!quiet) setLoading(true); setError("");
     const query = new URLSearchParams({ status });
     if (date) query.set("date", date);
     if (unassigned) query.set("unassigned", "true");
@@ -531,7 +554,14 @@ function RidesManager({ access }: { access: StaffAccess }) {
     setDeletingVehicleId(vehicle.id); setError("");
     try { await api(`/api/admin/content/fleet/${vehicle.id}`, { method: "DELETE" }); load(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to delete this vehicle."); } finally { setDeletingVehicleId(null); }
   };
-  useEffect(() => { load(); }, [status, date, unassigned, location.search]);
+  useEffect(() => {
+    load();
+    const refreshVisible = () => { if (document.visibilityState === "visible") load(true); };
+    const interval = window.setInterval(refreshVisible, 30_000);
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => { window.clearInterval(interval); window.removeEventListener("focus", refreshVisible); document.removeEventListener("visibilitychange", refreshVisible); };
+  }, [status, date, unassigned, location.search]);
   const openTripControls = async (id: string) => {
     try {
       const data = await api("/api/admin/rides");
@@ -543,10 +573,10 @@ function RidesManager({ access }: { access: StaffAccess }) {
   return <div className="admin-page">
     <AdminHeader eyebrow="Operations / live schedule" title="Rides & dispatch"><div className="header-actions">{canManageFleet && <Link className="outline-button dark small" to="/admin/fleet"><Plus /> Add vehicle</Link>}{canReviewInquiries && <Link className="outline-button dark small" to="/admin/inquiries"><Plus /> Review inquiries</Link>}</div></AdminHeader>
      <div className="dispatch-toolbar"><div className="filter-tabs">{["ALL", "UNASSIGNED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "COMPLETED", "CANCELLED"].map(item => <button className={status === item ? "selected" : ""} key={item} onClick={() => setStatus(item)}>{item === "ALL" ? "All rides" : titleCaseStatus(item)}</button>)}</div><div className="dispatch-filters"><label>Service date<input type="date" value={date} onChange={event => setDate(event.target.value)} /></label><button className={unassigned ? "assignment-toggle selected" : "assignment-toggle"} onClick={() => setUnassigned(value => !value)}><CarFront /> Needs assignment</button></div></div>
-      <section className="panel dispatch-panel"><div className="ride-list-head"><span>Date</span><span>Client & service</span><span>Assignment</span><span>Quote</span><span>Status</span></div>{loading ? <div className="admin-inline-loading"><span className="spinner" />Loading dispatch</div> : error ? <div className="empty-state"><Clock3 /><p>{error}</p><button onClick={load}>Try again</button></div> : <div className="ride-table">{rides.map(ride => <RideRow key={ride.id} ride={ride} onClick={() => ["UNASSIGNED", "ASSIGNED"].includes(ride.status) ? setWizardBookingId(ride.inquiryId) : setSelected(ride)} />)}{!rides.length && <div className="empty-state"><CarFront /><p>No rides match these filters.</p><small>Available vehicles are listed below and will appear in assignment selectors when a ride is booked.</small></div>}</div>}</section>
+       <section className="panel dispatch-panel"><div className="ride-list-head"><span>Date</span><span>Client & service</span><span>Assignment</span><span>Quote</span><span>Status</span></div>{loading ? <div className="admin-inline-loading"><span className="spinner" />Loading dispatch</div> : error ? <div className="empty-state"><Clock3 /><p>{error}</p><button onClick={() => load()}>Try again</button></div> : <div className="ride-table">{rides.map(ride => <RideRow key={ride.id} ride={ride} onClick={() => ["UNASSIGNED", "ASSIGNED"].includes(ride.status) ? setWizardBookingId(ride.inquiryId) : setSelected(ride)} />)}{!rides.length && <div className="empty-state"><CarFront /><p>No rides match these filters.</p><small>Available vehicles are listed below and will appear in assignment selectors when a ride is booked.</small></div>}</div>}</section>
      <section className="panel dispatch-fleet-panel"><div className="panel-header"><div><p className="eyebrow brass">Dispatch fleet</p><h2>Available vehicles</h2></div>{canManageFleet && <Link to="/admin/fleet" className="text-button">Manage fleet <ArrowRight /></Link>}</div><div className="dispatch-fleet-grid">{vehicles.map(vehicle => <article className="dispatch-fleet-card" key={vehicle.id} role="button" tabIndex={0} onClick={() => setAvailableVehicle(vehicle)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") setAvailableVehicle(vehicle); }}><div className="dispatch-fleet-card-top"><div><b>{vehicle.name}</b><small>{vehicle.category} · Up to {vehicle.passengers} guests · {vehicle.luggage}</small></div><div className="dispatch-fleet-card-tools"><span className="active-label"><i />Available</span>{canManageFleet && <button type="button" className="dispatch-fleet-delete" disabled={deletingVehicleId === vehicle.id} aria-label={`Delete ${vehicle.name}`} title="Delete vehicle" onClick={event => removeVehicle(event, vehicle)}>{deletingVehicleId === vehicle.id ? <span className="spinner" /> : <Trash2 />}</button>}</div></div><div className="dispatch-driver"><span>Default driver</span>{vehicle.defaultDriverName ? <strong>{vehicle.defaultDriverName}<a href={`tel:${vehicle.defaultDriverPhone || ""}`} onClick={event => event.stopPropagation()}>{vehicle.defaultDriverPhone || "Phone not added"}</a></strong> : <strong className="missing-driver">Add driver details in Fleet</strong>}</div><span className="dispatch-fleet-action">View available rides <ArrowUpRight /></span></article>)}{!vehicles.length && <div className="empty-state compact-empty"><CarFront /><p>No active vehicles yet.</p>{canManageFleet && <Link to="/admin/fleet" className="text-button">Add a vehicle <ArrowRight /></Link>}</div>}</div></section>
      {availableVehicle && <DispatchBookingPicker vehicle={availableVehicle} onClose={() => setAvailableVehicle(null)} onSelect={id => { setAvailableVehicle(null); setWizardBookingId(id); }} />}
-    {wizardBookingId && <DispatchWizardModal bookingId={wizardBookingId} onClose={() => setWizardBookingId(null)} onUpdated={load} onManageRide={openTripControls} />}
+    {wizardBookingId && <DispatchWizardModal bookingId={wizardBookingId} onClose={() => setWizardBookingId(null)} onUpdated={load} onManageRide={openTripControls} rideContext={rides.find(item => item.inquiryId === wizardBookingId)?.inquiry} />}
     {selected && <RideDetail ride={selected} vehicles={vehicles} access={access} close={() => setSelected(null)} refresh={load} />}
   </div>;
 }
@@ -595,6 +625,8 @@ function RideAssignmentModal({ ride, vehicles, canManageFleet, close, assigned }
     <section ref={modalRef} className="available-rides-modal driver-assignment-modal" role="dialog" aria-modal="true" aria-label={`Assign a driver to ${ride.inquiry.fullName}`} onClick={event => event.stopPropagation()}>
       <div className="available-rides-top"><div><p className="eyebrow brass">Dispatch / assign chauffeur</p><h2>{ride.inquiry.fullName}</h2><p>{formatDateTime(ride.inquiry.pickupAt)} · {ride.inquiry.pickup} → {ride.inquiry.destination}</p></div><button type="button" onClick={close} aria-label="Close"><X /></button></div>
       <p className="available-rides-caption">Select an available driver and vehicle. Selection immediately advances this ride to Assigned.</p>
+      <CorporateRideTags inquiry={ride.inquiry} />
+      <FlightDisruptionWarning ride={ride} />
       {ride.inquiry.flightNumber && <FlightInformationCard rideId={ride.id} booking={ride.inquiry} />}
       <div className="driver-assignment-list">
         {vehicles.map(vehicle => {
@@ -650,6 +682,9 @@ function RideDetail({ ride, vehicles, access, close, refresh }: { ride: Ride; ve
   const [showReconciliation, setShowReconciliation] = useState(ride.dispatchMessages.some(item => item.status === "PENDING" || item.reconciledAt));
   const [paymentState, setPaymentState] = useState<"idle" | "working" | "done">("idle");
   const [paymentStatus, setPaymentStatus] = useState(ride.inquiry.paymentStatus || "not_available");
+  const isCorporateRide = Boolean(ride.inquiry.corporateAccountId);
+  const corporateChargeAllowed = ["IN_PROGRESS", "COMPLETED"].includes(ride.status);
+  const corporateChargeReady = isCorporateRide && ["corporate_ready", "corporate_charging"].includes(paymentStatus);
   const paymentTerminalRestricted = !canManagePayments && requiresPaymentAccessToClose({ stripePaymentIntentId: ride.inquiry.stripePaymentIntentId, paymentStatus });
   const update = (key: keyof typeof form, value: string) => setForm(current => ({ ...current, [key]: value }));
   useEffect(() => {
@@ -720,7 +755,9 @@ function RideDetail({ ride, vehicles, access, close, refresh }: { ride: Ride; ve
     setPaymentState("working"); setError("");
     try {
       const endpoint = action === "capture"
-        ? `/api/admin/rides/${ride.id}/capture`
+        ? isCorporateRide && ride.inquiry.bookingRequestId
+          ? `/api/admin/payments/${ride.inquiry.bookingRequestId}/capture`
+          : `/api/admin/rides/${ride.id}/capture`
         : `/api/admin/payments/${ride.inquiry.bookingRequestId}/cancel`;
       const result = await api(endpoint, { method: "POST" });
       setPaymentStatus(result.status);
@@ -794,9 +831,10 @@ function RideDetail({ ride, vehicles, access, close, refresh }: { ride: Ride; ve
       <span>Customer <b>{ride.inquiry.email}</b></span>
       {ride.inquiry.stripePaymentIntentId && <span>Intent <b>{ride.inquiry.stripePaymentIntentId}</b></span>}
     </div>
-    {paymentStatus === "requires_capture" && <div className="payment-admin-actions">
+    {isCorporateRide && (corporateChargeReady || paymentStatus === "requires_capture") && !corporateChargeAllowed && <p className="dispatch-warning">Corporate card charge and capture are available only while this ride is in progress or completed. Early charging is blocked.</p>}
+    {(paymentStatus === "requires_capture" || corporateChargeReady) && (!isCorporateRide || corporateChargeAllowed) && <div className="payment-admin-actions">
       {ride.inquiry.authorizedTotalCents != null && <p className="dispatch-warning">Card total authorized (including gratuity): {formatMoney(ride.inquiry.authorizedTotalCents)}. Early capture charges the customer before ride completion.</p>}
-      <button type="button" className="outline-button dark" disabled={paymentState === "working" || !canCapturePayment} onClick={() => paymentAction("capture")}><CircleDollarSign />Capture now</button>
+      <button type="button" className="outline-button dark" disabled={paymentState === "working" || !canCapturePayment || (isCorporateRide && !ride.inquiry.bookingRequestId)} onClick={() => paymentAction("capture")}><CircleDollarSign />{isCorporateRide ? corporateChargeReady ? "Charge company card" : "Capture company charge" : "Capture now"}</button>
       {canManagePayments && <button type="button" className="text-button danger-action" disabled={paymentState === "working"} onClick={() => paymentAction("cancel")}><X />Cancel booking & release hold</button>}
     </div>}
     {paymentStatus === "succeeded" && <p className="dispatch-success"><Check /> Payment captured. Stripe prevents duplicate capture.</p>}
@@ -820,6 +858,8 @@ function RideDetail({ ride, vehicles, access, close, refresh }: { ride: Ride; ve
     <aside className="detail-drawer ride-drawer" onClick={event => event.stopPropagation()}>
       <div className="drawer-top"><div><p className="eyebrow brass">Dispatch / {ride.id.slice(-5).toUpperCase()}</p><h2>{ride.inquiry.fullName}</h2></div><button onClick={close}><X /></button></div>
       <div className="ride-route-summary"><span><CalendarDays />{formatDateTime(ride.inquiry.pickupAt)}</span><b>{ride.inquiry.pickup} <ArrowRight /> {ride.inquiry.destination}</b><small>{ride.inquiry.serviceType} · {ride.inquiry.passengers} passenger{ride.inquiry.passengers === 1 ? "" : "s"}</small></div>
+      <CorporateRideTags inquiry={ride.inquiry} />
+      <FlightDisruptionWarning ride={ride} />
       {ride.inquiry.flightNumber && <FlightInformationCard rideId={ride.id} booking={ride.inquiry} />}
       <form className="dispatch-form" onSubmit={save}>
       <div className="drawer-block ride-progress-block"><p className="drawer-label">Ride progress</p><div className="ride-progress-track">{["ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "COMPLETED"].map((status, index, all) => { const currentIndex = all.indexOf(ride.status); const complete = currentIndex >= index || ride.status === "COMPLETED"; return <span className={complete ? "complete" : ""} key={status}><i>{complete ? <Check /> : index + 1}</i><b>{titleCaseStatus(status)}</b></span>; })}</div>{nextStatus && <div className="next-status-action"><div><b>{nextStatusCopy[nextStatus].title}</b><small>{nextStatusCopy[nextStatus].detail}</small>{nextStatus === "COMPLETED" && paymentTerminalRestricted && <small className="access-explanation">Payments access is required to complete a booking with an active or captured payment.</small>}</div><button type="button" className="solid-button small-button" disabled={saving || (nextStatus === "COMPLETED" && paymentTerminalRestricted)} onClick={advanceRide}>{saving ? "Updating…" : <>Confirm <ArrowUpRight /></>}</button></div>}{ride.status === "COMPLETED" && <p className="dispatch-success"><Check /> This ride is complete.</p>}{ride.status !== "COMPLETED" && ride.status !== "CANCELLED" && (paymentTerminalRestricted ? <p className="dispatch-warning">Payments access is required to cancel this booking because it has an active or captured payment.</p> : <button type="button" className="text-button danger-action ride-cancel-action" disabled={saving} onClick={cancelRide}>Cancel ride & release hold</button>)}</div>
@@ -1080,6 +1120,9 @@ export default function App() {
   }
   if (publicPath === "/privacy") return <LegalPage document={privacyDocument} />;
   if (publicPath === "/terms") return <LegalPage document={termsDocument} />;
+  if (publicPath === "/corporate") return <CorporatePage />;
+  if (publicPath === "/login") return <CorporatePortal />;
+  if (publicPath === "/corporate/portal") return <CorporatePortal />;
   if (location.pathname === "/account/login" || location.pathname === "/account") return <CustomerAccount />;
   if (location.pathname === "/admin/login") return <AdminLogin />;
   if (location.pathname === "/admin/forgot-password") return <AdminPasswordRecovery mode="forgot" />;

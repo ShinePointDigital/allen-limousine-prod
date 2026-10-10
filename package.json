@@ -11,6 +11,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy:development": "tsx scripts/migrate-development.ts --development-database",
     "test:dispatch-wizard": "tsx --test server/dispatch-wizard.test.ts",
+    "test:corporate": "tsx --test server/corporate.test.ts",
     "test:chauffeur-pairing": "tsx --test shared/chauffeur-pairing.test.ts",
     "test:chauffeur-pairing-browser": "tsx scripts/test-chauffeur-pairing-browser.ts --development-database",
     "db:seed": "tsx prisma/seed.ts",
@@ -30,6 +31,8 @@
     "test:gratuity-browser": "tsx scripts/test-gratuity-browser.ts",
     "test:driver-trips": "tsx --test server/driver-trip.test.ts server/driver-flight-update.test.ts src/driver-trip-logic.test.ts",
     "test:driver-trips-browser": "tsx scripts/test-driver-trip-browser.ts",
+    "smoke:driver-release": "tsx scripts/check-driver-release.ts",
+    "test:driver-release-smoke": "tsx --test scripts/driver-release-smoke.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "type": "module",

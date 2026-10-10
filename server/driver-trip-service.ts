@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { type PrismaClient } from "@prisma/client";
 import { prisma } from "./store.js";
 import { driverFlightUpdate } from "./driver-flight-update.js";
+import { flightDisruption } from "../shared/flight-disruption.js";
 
 type Assignment = { id: string; driverId: string | null; driverName: string | null; driverPhone: string | null; vehicleId: string | null };
 type Access = Assignment & { driverAccessNonce: string | null; driverAccessTokenHash: string | null; driverAccessExpiresAt: Date | null; driverAccessAssignment: string | null };
@@ -78,13 +79,16 @@ export class DriverTripService {
       principalName: inquiry.principalName, fboName: inquiry.fboName,
       tarmacInstructions: inquiry.tarmacInstructions,
       flightUpdate: driverFlightUpdate(inquiry),
+      flightDisruption: flightDisruption(inquiry),
+      companyName: inquiry.companyName, corporateAccountId: inquiry.corporateAccountId,
+      poNumber: inquiry.poNumber, costCenterCode: inquiry.costCenterCode,
     };
   }
   async transition(token: string, status: "EN_ROUTE" | "IN_PROGRESS" | "COMPLETED") {
     const ride = await this.authorized(token);
     const next: Record<string,string> = { ASSIGNED:"EN_ROUTE", EN_ROUTE:"IN_PROGRESS", IN_PROGRESS:"COMPLETED" };
     if (ride.status !== status && next[ride.status] !== status) throw new DriverTripError(409, "Refresh the trip and select its next status. Statuses cannot be skipped or reversed.");
-    if (status === "COMPLETED" && ride.inquiry.stripePaymentIntentId) {
+    if (status === "COMPLETED" && (ride.inquiry.stripePaymentIntentId || ride.inquiry.corporateAccountId)) {
       if (!ride.inquiry.bookingRequestId) throw new DriverTripError(409, "The authorized booking could not be identified.");
       try { await this.capture(ride.inquiry.bookingRequestId); }
       catch { throw new DriverTripError(402, "Trip completion could not be confirmed. The trip was not marked complete. Retry this same trip, or contact dispatch."); }

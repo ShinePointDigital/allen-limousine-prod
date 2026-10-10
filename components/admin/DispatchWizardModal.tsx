@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
-  AlertCircle, ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight,
+  AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight,
   Clock3, MapPin, MessageSquareText, RefreshCw, ShieldCheck, UserRound, X,
 } from "lucide-react";
 import type { DispatchWizardSnapshot, DispatchWizardStep, WizardSmsPreview } from "../../shared/dispatch-wizard";
+import { flightDisruption } from "../../shared/flight-disruption";
 import ChauffeurVehicleSetup from "./ChauffeurVehicleSetup";
 import "./DispatchWizardModal.css";
 
@@ -14,6 +15,11 @@ type Props = {
   onClose: () => void;
   onUpdated?: () => void;
   onManageRide?: (rideId: string) => void;
+  rideContext?: {
+    companyName?: string | null; corporateAccountId?: string | null; poNumber?: string | null; costCenterCode?: string | null;
+    flightNumber?: string | null; flightScheduledAt?: string | Date | null; airportCode?: string | null;
+    isPrivateFBO?: boolean; flightDetails?: unknown;
+  };
 };
 
 type ApiFailure = { error?: string; snapshot?: DispatchWizardSnapshot };
@@ -26,6 +32,23 @@ const stepTitles: Record<DispatchWizardStep, string> = {
 };
 
 const isSmsAttempt = (sms: WizardSmsPreview) => ["RESERVED", "PENDING", "SENT"].includes(sms.status);
+const ROSTER_REFRESH_MS = 15_000;
+
+function RideContextBanner({ context }: { context: NonNullable<Props["rideContext"]> }) {
+  const [now, setNow] = useState(Date.now());
+  const disruption = flightDisruption(context, now);
+  const corporate = context.companyName || context.corporateAccountId || context.poNumber || context.costCenterCode;
+  useEffect(() => {
+    if (!disruption) return;
+    const timeout = window.setTimeout(() => setNow(Date.now()), Math.max(0, Date.parse(disruption.validUntil) - Date.now()));
+    return () => window.clearTimeout(timeout);
+  }, [disruption?.key, disruption?.validUntil]);
+  if (!corporate && !disruption) return null;
+  return <div className="dw-ride-context">
+    {corporate && <div className="dw-corporate-context"><b>Corporate</b>{context.companyName && <span>{context.companyName}</span>}{context.poNumber && <span>PO · {context.poNumber}</span>}{context.costCenterCode && <span>Cost center · {context.costCenterCode}</span>}</div>}
+    {disruption && <div className="dw-flight-disruption" role="status"><AlertTriangle aria-hidden="true" /><span><b>Verified flight {disruption.status}</b>{disruption.message}</span></div>}
+  </div>;
+}
 
 // Admin page transitions transform their containers. Render outside them so fixed
 // positioning and scrolling remain relative to the actual viewport.
@@ -89,7 +112,7 @@ function SmsCard({
   </article>;
 }
 
-export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onManageRide }: Props) {
+export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onManageRide, rideContext }: Props) {
   const [snapshot, setSnapshot] = useState<DispatchWizardSnapshot | null>(null);
   const [viewStep, setViewStep] = useState<DispatchWizardStep>(1);
   const [loading, setLoading] = useState(true);
@@ -103,20 +126,50 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = setupBusy ? () => {} : onClose;
+  const savingRef = useRef(saving);
+  savingRef.current = saving;
+  const snapshotRequest = useRef<AbortController | null>(null);
+  const rosterRequest = useRef<Promise<DispatchWizardSnapshot | null> | null>(null);
+
+  const cancelSnapshotRequest = useCallback(() => {
+    snapshotRequest.current?.abort();
+    snapshotRequest.current = null;
+    rosterRequest.current = null;
+  }, []);
+
+  // Invalidate reads synchronously, before React renders the saving state.
+  const beginMutation = () => {
+    savingRef.current = true;
+    cancelSnapshotRequest();
+    setSaving(true);
+  };
+  const onSetupBusyChange = (busy: boolean) => {
+    if (busy) {
+      savingRef.current = true;
+      cancelSnapshotRequest();
+    }
+    setSetupBusy(busy);
+  };
 
   const hasNotifications = useMemo(() => Boolean(snapshot &&
     (isSmsAttempt(snapshot.messages.driver) || isSmsAttempt(snapshot.messages.customer))), [snapshot]);
   const completed = snapshot?.completed || snapshot?.step === 4;
 
   const loadSnapshot = useCallback(async (showLoading = true) => {
+    cancelSnapshotRequest();
+    const controller = new AbortController();
+    snapshotRequest.current = controller;
     if (showLoading) setLoading(true);
     setError("");
     try {
       const response = await fetch(`/api/admin/bookings/${encodeURIComponent(bookingId)}/dispatch`, {
         credentials: "same-origin",
         headers: { Accept: "application/json" },
+        signal: controller.signal,
+        cache: "no-store",
       });
       const data = await response.json().catch(() => ({}));
+      if (snapshotRequest.current !== controller) return;
       if (!response.ok) throw new Error((data as ApiFailure).error || "Unable to load this dispatch.");
       const next = data as DispatchWizardSnapshot;
       setSnapshot(next);
@@ -124,27 +177,66 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
       setDriverId(next.assignment.driverId || "");
       setLoading(false);
     } catch (reason) {
+      if (snapshotRequest.current !== controller) return;
       setError(reason instanceof Error ? reason.message : "Unable to load this dispatch.");
       setLoading(false);
+    } finally {
+      if (snapshotRequest.current === controller) snapshotRequest.current = null;
     }
+  }, [bookingId, cancelSnapshotRequest]);
+
+  useEffect(() => {
+    void loadSnapshot();
+    return cancelSnapshotRequest;
+  }, [loadSnapshot, cancelSnapshotRequest]);
+
+  const refreshRoster = useCallback((): Promise<DispatchWizardSnapshot | null> => {
+    if (rosterRequest.current) return rosterRequest.current;
+    if (snapshotRequest.current) return Promise.resolve(null);
+    const controller = new AbortController();
+    snapshotRequest.current = controller;
+    const request = (async () => {
+      try {
+        const response = await fetch(`/api/admin/bookings/${encodeURIComponent(bookingId)}/dispatch`, {
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const data = await response.json().catch(() => ({})) as ApiFailure | DispatchWizardSnapshot;
+        if (snapshotRequest.current !== controller || !response.ok || !("drivers" in data)) return null;
+        // Do not reset the step, selection, field errors or the setup form.
+        setSnapshot(data);
+        return data;
+      } catch {
+        // Keep the last roster on transient failures; server checks still guard saves.
+        return null;
+      } finally {
+        if (snapshotRequest.current === controller) {
+          snapshotRequest.current = null;
+          rosterRequest.current = null;
+        }
+      }
+    })();
+    rosterRequest.current = request;
+    return request;
   }, [bookingId]);
 
-  useEffect(() => { void loadSnapshot(); }, [loadSnapshot]);
-
-  const refreshRoster = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/admin/bookings/${encodeURIComponent(bookingId)}/dispatch`, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
-      });
-      const data = await response.json().catch(() => ({})) as ApiFailure | DispatchWizardSnapshot;
-      if (!response.ok || !("drivers" in data)) return null;
-      setSnapshot(data);
-      return data;
-    } catch {
-      return null;
-    }
-  }, [bookingId]);
+  useEffect(() => {
+    if (viewStep !== 2 || loading || saving) return;
+    const refresh = () => {
+      if (document.visibilityState === "visible" && !savingRef.current) void refreshRoster();
+    };
+    const timer = window.setInterval(refresh, ROSTER_REFRESH_MS);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      cancelSnapshotRequest();
+    };
+  }, [viewStep, loading, saving, refreshRoster, cancelSnapshotRequest]);
 
   const onSetupCreated = useCallback(async (createdDriverId: string) => {
     const next = await refreshRoster();
@@ -196,8 +288,8 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
   }, []);
 
   const postSnapshot = async (url: string, body: Record<string, unknown>, successMessage?: string) => {
-    if (saving) return;
-    setSaving(true);
+    if (savingRef.current) return;
+    beginMutation();
     setError("");
     setFieldError("");
     try {
@@ -262,7 +354,7 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
     if (!snapshot?.assignment.rideId || !sms.attemptId || saving) return;
     const key = sms.attemptId;
     const providerMessageId = (reconcileValues[key] || "").trim();
-    setSaving(true);
+    beginMutation();
     setError("");
     try {
       const response = await fetch(`/api/admin/rides/${encodeURIComponent(snapshot.assignment.rideId)}/dispatch/${encodeURIComponent(key)}/reconcile`, {
@@ -339,6 +431,7 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
         {viewStep === 1 && <section className="dw-step-panel" aria-labelledby="dw-review-heading">
           <div className="dw-section-heading"><div><span className="dw-overline">01 / Verify details</span><h3 id="dw-review-heading">Reservation review</h3></div><span className={`dw-booking-state ${snapshot.booking.status.toLowerCase().replaceAll("_", "-")}`}>{snapshot.booking.status.replaceAll("_", " ")}</span></div>
           <div className="dw-customer-band"><span className="dw-avatar"><UserRound aria-hidden="true" /></span><div><strong>{snapshot.booking.fullName || "Name not provided"}</strong><a href={`tel:${snapshot.booking.phone.replace(/[^\d+]/g, "")}`}>{snapshot.booking.phone || "No phone on file"}</a></div><span className="dw-class-tag">{snapshot.booking.vehicleClass || "Vehicle class not specified"}</span></div>
+          {rideContext && <RideContextBanner context={rideContext} />}
           <div className="dw-route-card">
             <div className="dw-route-line" aria-hidden="true"><i /><span /><i /></div>
             <div className="dw-route-point"><span className="dw-overline">Pickup</span><b>{snapshot.booking.pickup || "Not provided"}</b></div>
@@ -380,7 +473,7 @@ export default function DispatchWizardModal({ bookingId, onClose, onUpdated, onM
             drivers={snapshot.drivers}
             vehicles={snapshot.vehicles}
             readOnly={isReadOnlyAssignment || mutationSaving}
-            onBusyChange={setSetupBusy}
+             onBusyChange={onSetupBusyChange}
             refreshSnapshot={refreshRoster}
             onCreated={onSetupCreated}
           />
