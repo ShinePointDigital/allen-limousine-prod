@@ -67,6 +67,10 @@ try {
   await command("Fetch.enable", { patterns: [{ urlPattern: "*/api/*" }] });
   await command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await command("Page.navigate", { url: `${origin}/corporate` }); await wait('document.querySelector(".corp-consent input")');
+  assert.equal(await evaluate('getComputedStyle(document.querySelector(".corp-page")).backgroundColor'), "rgb(5, 6, 6)");
+  assert.equal(await evaluate('getComputedStyle(document.querySelector(".corp-page"),"::before").animationName'), "corp-sapphire-bloom");
+  await wait('document.querySelector(".corp-page").getAnimations({subtree:true}).some(a=>a.animationName==="corp-sapphire-bloom"&&a.playState==="running")');
+  assert.equal(await evaluate('getComputedStyle(document.querySelector(".corp-form input")).backgroundColor'), "rgb(13, 17, 21)");
   assert.ok(await evaluate('(()=>{const v=document.querySelector(".corp-hero-video");return v?.muted&&v.loop&&v.autoplay&&v.playsInline&&Boolean(v.poster)})()'));
   await wait('document.querySelector(".corp-hero-video").readyState>=2');
   await wait('document.querySelector(".corp-motion-toggle").getAttribute("aria-label")==="Pause hero video"');
@@ -74,6 +78,7 @@ try {
   await click("Play motion"); await wait('!document.querySelector(".corp-hero-video").paused');
   await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   await wait('!document.querySelector(".corp-hero-video")&&document.querySelector(".corp-hero-poster")');
+  await wait('getComputedStyle(document.querySelector(".corp-page"),"::before").animationName==="none"');
   await command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
   await wait('document.querySelector(".corp-hero-video")');
   assert.equal(await evaluate('document.querySelector(".corp-consent input").checked'), false);
