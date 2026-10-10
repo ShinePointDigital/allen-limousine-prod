@@ -66,6 +66,9 @@ test("flight API enforces staff rides access, booking attachment, persistence an
     assert.equal(saved!.inquiry.arrivalTime, "2026-10-06T16:15:00.000Z");
     assert.equal(saved!.inquiry.flightScheduledAt, "2026-10-06T16:00:00Z");
     assert.ok(saved!.inquiry.flightUpdatedAt);
+    assert.equal(saved!.inquiry.flightDetails!.verifiedBookingContext!.scheduledAt,"2026-10-06T16:00:00.000Z");
+    assert.equal(saved!.inquiry.flightDetails!.verifiedBookingContext!.airportCode,"ORD");
+    assert.equal(saved!.inquiry.flightDetails!.verifiedBookingContext!.arrivalAirportCode,"ORD");
     fail = true;
     const failure = await request(path, root.token);
     assert.equal(failure.status, 502);

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { type PrismaClient } from "@prisma/client";
 import { prisma } from "./store.js";
+import { driverFlightUpdate } from "./driver-flight-update.js";
 
 type Assignment = { id: string; driverId: string | null; driverName: string | null; driverPhone: string | null; vehicleId: string | null };
 type Access = Assignment & { driverAccessNonce: string | null; driverAccessTokenHash: string | null; driverAccessExpiresAt: Date | null; driverAccessAssignment: string | null };
@@ -76,6 +77,7 @@ export class DriverTripService {
       isPrivateFBO: inquiry.isPrivateFBO, specificTailNumber: inquiry.specificTailNumber,
       principalName: inquiry.principalName, fboName: inquiry.fboName,
       tarmacInstructions: inquiry.tarmacInstructions,
+      flightUpdate: driverFlightUpdate(inquiry),
     };
   }
   async transition(token: string, status: "EN_ROUTE" | "IN_PROGRESS" | "COMPLETED") {

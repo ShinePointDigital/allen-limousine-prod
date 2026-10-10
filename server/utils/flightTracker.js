@@ -77,6 +77,19 @@ function providerError(code) {
   return new FlightTrackerError("PROVIDER_ERROR", "AviationStack could not supply flight information. Try again later.");
 }
 
+/** Shared occurrence ranking for staff lookups and persisted driver snapshots. */
+export function bookingFlightDistance(flight, { scheduledAt, airportCode }) {
+  const airport = airportCode?.trim().toUpperCase();
+  if (airport && airport !== flight.arrivalAirportCode && airport !== flight.departureAirportCode) return Infinity;
+  const reference = Date.parse(scheduledAt);
+  const times = airport === flight.arrivalAirportCode ? [flight.scheduledArrivalTime]
+    : airport === flight.departureAirportCode ? [flight.scheduledDepartureTime]
+    : [flight.scheduledArrivalTime, flight.scheduledDepartureTime];
+  const distances = times.filter(Boolean).map(value => Math.abs(Date.parse(value) - reference)).filter(Number.isFinite);
+  const distance = distances.length ? Math.min(...distances) : Infinity;
+  return distance <= 12 * 60 * 60_000 ? distance : Infinity;
+}
+
 export function createFlightTracker({ client = axios, getApiKey = () => process.env.AVIATIONSTACK_API_KEY, now = () => Date.now() } = {}) {
   const cache = new Map();
   const pending = new Map();

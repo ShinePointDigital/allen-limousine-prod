@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Check, Clock3, MapPin, Navigation, Plane, RefreshCw, ShieldCheck, UserRound, Users, CarFront } from "lucide-react";
 import { driverNavigationUrls, nextDriverTripStatus, type DriverTripNextStatus } from "./driver-trip-logic";
+import type { DriverFlightUpdate } from "../shared/flight";
 import "./driver-trip.css";
 
 type DriverTripRecord = {
@@ -25,6 +26,7 @@ type DriverTripRecord = {
   principalName: string | null;
   fboName: string | null;
   tarmacInstructions: string | null;
+  flightUpdate?: DriverFlightUpdate | null;
 };
 
 type PageState = "loading" | "ready" | "expired" | "error";
@@ -35,6 +37,16 @@ const statusText: Record<string, string> = {
   EN_ROUTE: "En route",
   IN_PROGRESS: "Picked up",
   COMPLETED: "Completed",
+};
+
+const providerFlightStatusText: Record<string, string> = {
+  active: "In flight",
+  landed: "Landed",
+  scheduled: "Scheduled",
+  cancelled: "Canceled",
+  canceled: "Canceled",
+  diverted: "Diverted",
+  delayed: "Delayed",
 };
 
 function DriverTripSkeleton() {
@@ -72,6 +84,36 @@ function DriverTripState({ state, retry }: { state: "expired" | "error"; retry: 
   </main>;
 }
 
+function formatProviderTime(value: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/Chicago",
+    timeZoneName: "short",
+  });
+}
+
+function formatProviderFetchedAt(value: string | null) {
+  if (!value) return "Not provided";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unavailable";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "America/Chicago",
+    timeZoneName: "short",
+  });
+}
+
 export default function DriverTrip({ token }: { token: string }) {
   const [trip, setTrip] = useState<DriverTripRecord | null>(null);
   const [pageState, setPageState] = useState<PageState>("loading");
@@ -80,6 +122,7 @@ export default function DriverTrip({ token }: { token: string }) {
   const [confirmComplete, setConfirmComplete] = useState(false);
   const [message, setMessage] = useState("");
   const [selectedStop, setSelectedStop] = useState<"pickup" | "dropoff">("pickup");
+  const [clockNow, setClockNow] = useState(() => Date.now());
   const requestRef = useRef(0);
   const tripRef = useRef<DriverTripRecord | null>(null);
   tripRef.current = trip;
@@ -95,6 +138,11 @@ export default function DriverTrip({ token }: { token: string }) {
       if (previousContent === null) meta.remove();
       else meta.setAttribute("content", previousContent);
     };
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setClockNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
   }, []);
 
   const loadTrip = useCallback(async (quiet = false) => {
@@ -230,6 +278,32 @@ export default function DriverTrip({ token }: { token: string }) {
     { label: "Principal passenger", value: trip.principalName },
     { label: "Tarmac / ramp instructions", value: trip.tarmacInstructions },
   ].filter(detail => detail.value?.trim()) : [];
+  const hasCommercialFlight = !!trip?.flightNumber?.trim() && !trip.isPrivateFBO;
+  const flightUpdate = hasCommercialFlight ? trip?.flightUpdate : null;
+  const flightUpdateState: DriverFlightUpdate["state"] = !flightUpdate || flightUpdate.state === "unavailable"
+    ? "unavailable"
+    : flightUpdate.state === "stale" || !flightUpdate.validUntil
+      || !Number.isFinite(Date.parse(flightUpdate.validUntil))
+      || clockNow >= Date.parse(flightUpdate.validUntil)
+      ? "stale"
+      : "current";
+  const providerSchedule = flightUpdate?.scheduledTime ?? null;
+  const providerEstimated = flightUpdate?.estimatedTime ?? null;
+  const providerActual = flightUpdate?.actualTime ?? null;
+  const providerGateLabel = flightUpdate?.airportRole === "departure" ? "Departure gate" : "Arrival gate";
+  const rawFlightStatus = flightUpdate?.status?.trim();
+  const mappedFlightStatus = rawFlightStatus ? providerFlightStatusText[rawFlightStatus.toLowerCase()] : null;
+  const providerFlightStatus = typeof mappedFlightStatus === "string" ? mappedFlightStatus : rawFlightStatus || "Not provided";
+  const scheduleDifference = (candidate: string | null) => {
+    if (!candidate || !providerSchedule) return false;
+    const candidateMs = Date.parse(candidate);
+    const scheduledMs = Date.parse(providerSchedule);
+    return Number.isFinite(candidateMs) && Number.isFinite(scheduledMs) && candidateMs !== scheduledMs;
+  };
+  const bookedTerminalDiffers = !!flightUpdate?.terminal?.trim()
+    && !!trip?.airportTerminal?.trim()
+    && flightUpdate.terminal.trim().toLocaleLowerCase() !== trip.airportTerminal.trim().toLocaleLowerCase();
+  const providerTimeLabel = flightUpdate?.airportRole === "departure" ? "Departure" : "Arrival";
   const navigationUrls = driverNavigationUrls(targetAddress);
   const navigationLinks = [
     { label: "Google Maps", href: navigationUrls.google, icon: <Navigation aria-hidden="true" /> },
@@ -312,7 +386,68 @@ export default function DriverTrip({ token }: { token: string }) {
               <small>{detail.label}</small><b style={{ whiteSpace: "pre-wrap" }}>{detail.value}</b>
             </div>)}
           </div>
-          <p className="driver-trip-note" style={{ padding: "0 17px 16px" }}>Saved booking details, not live flight updates. Follow the booked pickup time above; contact dispatch if flight or terminal details change.</p>
+          <p className="driver-trip-note" style={{ padding: "0 17px 16px" }}>Saved booking details. Follow the booked pickup time above; contact dispatch if flight or terminal details change.</p>
+          {hasCommercialFlight && <div role="region" aria-label="Verified provider flight updates" aria-live="polite" style={{ borderTop: "1px solid var(--trip-line)" }}>
+            <div className="driver-trip-panel-heading" style={{ paddingTop: 14 }}>
+              <Plane aria-hidden="true" />
+              <h2>Live flight updates</h2>
+            </div>
+            <p className="driver-trip-note" style={{ padding: "0 17px 12px" }}>
+              Flight information is checked periodically. Provider data may be delayed or unavailable; follow the booked pickup and contact dispatch for changes.
+            </p>
+            <div className="driver-trip-details">
+              <div className="driver-trip-detail">
+                <small>Provider status</small>
+                <b>{flightUpdateState === "current" ? "Current" : flightUpdateState === "stale" ? "Stale" : "Unavailable"}</b>
+              </div>
+              <div className="driver-trip-detail">
+                <small>Source</small>
+                <b>{flightUpdate?.source || "Unavailable"}</b>
+              </div>
+              <div className="driver-trip-detail" style={{ gridColumn: "1 / -1" }}>
+                <small>Fetched at</small>
+                <b>{formatProviderFetchedAt(flightUpdate?.fetchedAt ?? null)}</b>
+              </div>
+            </div>
+            {flightUpdateState === "current" && flightUpdate && <div className="driver-trip-details" aria-label="Current provider flight details">
+              <div className="driver-trip-detail">
+                <small>Provider flight status</small>
+                <b>{providerFlightStatus}</b>
+              </div>
+              <div className="driver-trip-detail">
+                <small>Scheduled {providerTimeLabel.toLowerCase()}</small>
+                <b>{formatProviderTime(providerSchedule) || "Not provided"}</b>
+              </div>
+              <div className="driver-trip-detail">
+                <small>Estimated {providerTimeLabel.toLowerCase()}</small>
+                <b>{formatProviderTime(providerEstimated) || "Not provided"}</b>
+                {scheduleDifference(providerEstimated) && <small role="note">Estimated {providerTimeLabel.toLowerCase()} differs from scheduled time.</small>}
+              </div>
+              <div className="driver-trip-detail">
+                <small>Actual {providerTimeLabel.toLowerCase()}</small>
+                <b>{formatProviderTime(providerActual) || "Not provided"}</b>
+                {scheduleDifference(providerActual) && <small role="note">Actual {providerTimeLabel.toLowerCase()} differs from scheduled time.</small>}
+              </div>
+              <div className="driver-trip-detail">
+                <small>Provider terminal</small>
+                <b>{flightUpdate.terminal?.trim() || "Not provided"}</b>
+                {bookedTerminalDiffers && <small role="note">Provider terminal differs from booked terminal ({trip.airportTerminal}).</small>}
+              </div>
+              <div className="driver-trip-detail">
+                <small>{providerGateLabel}</small>
+                <b>{flightUpdate.gate?.trim() || "Not provided"}</b>
+              </div>
+              <div className="driver-trip-detail">
+                <small>Baggage belt</small>
+                <b>{flightUpdate.baggageBelt === null ? "Not provided" : flightUpdate.baggageBelt.trim() || "Not provided"}</b>
+              </div>
+            </div>}
+            {flightUpdateState !== "current" && <p className="driver-trip-note" style={{ padding: "0 17px 16px" }}>
+              {flightUpdateState === "stale"
+                ? "Provider snapshot is stale. Do not use it for operational decisions; follow the booked pickup and contact dispatch."
+                : "No current provider update is available. Follow the booked pickup and contact dispatch for changes."}
+            </p>}
+          </div>}
         </section>}
 
         {message && <p className="driver-trip-error" role="alert">{message}</p>}

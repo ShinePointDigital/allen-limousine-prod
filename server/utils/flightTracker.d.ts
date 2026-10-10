@@ -6,6 +6,7 @@ export class FlightTrackerError extends Error {
 }
 export function normalizeFlightNumber(value: string): string;
 export function mapFlight(record: any, flightNumber: string, fetchedAt: string): FlightInfo;
+export function bookingFlightDistance(flight: FlightInfo, context: { scheduledAt: string; airportCode?: string }): number;
 export function createFlightTracker(options?: {
   client?: { get: (url: string, options: any) => Promise<any> };
   getApiKey?: () => string | undefined;

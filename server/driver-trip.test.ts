@@ -11,6 +11,8 @@ import {captureBookingPayment} from "./payment-capture.js";
 import {prisma,getInquiryByBookingRequestId,updateInquiryPaymentStatusByIntent,authenticate,createAdmin,updateRide} from "./store.js";
 import {staffGuard} from "./account-routes.js";
 import {DispatchWizardService} from "./dispatch-wizard-service.js";
+import {mapFlight} from "./utils/flightTracker.js";
+import {saveBookingFlightMetadata} from "./store.js";
 
 assert.ok(process.env.NODE_TEST_CONTEXT,"Only guarded development fixtures may be changed.");
 after(()=>prisma.$disconnect());
@@ -19,9 +21,65 @@ function assertDriverTripPrivacy(trip: object) {
     "reference","customerName","pickupAt","pickup","destination","serviceType",
     "passengers","chauffeurName","vehicleName","status",
     "airportCode","airportTerminal","flightNumber","flightScheduledAt","airlineName",
-    "pickupPreference","isPrivateFBO","specificTailNumber","principalName","fboName","tarmacInstructions",
+    "pickupPreference","isPrivateFBO","specificTailNumber","principalName","fboName","tarmacInstructions","flightUpdate",
   ].sort(), "Driver responses must contain operational trip details only, never booking financials");
 }
+test("driver reads only matched saved flight updates; stale, changed and revoked links cannot expose provider details",async t=>{
+  const f=await fixture(t);
+  const scheduled="2026-10-15T16:00:00.000Z";
+  await prisma.inquiry.update({where:{id:f.booking.id},data:{
+    airportCode:"DFW",airportTerminal:"C",flightNumber:"AA123",flightScheduledAt:new Date(scheduled),
+    arrivalTerminal:"Legacy hint",baggageBelt:"Legacy hint",
+  }});
+  assert.equal((await f.service.get(f.token)).flightUpdate.state,"unavailable");
+  const flight=mapFlight({
+    flight_date:"2026-10-15",flight_status:"active",
+    departure:{iata:"JFK",timezone:"America/New_York",scheduled:"2026-10-15T12:00:00Z"},
+    arrival:{iata:"DFW",timezone:"America/Chicago",scheduled,estimated:"2026-10-15T16:20:00Z",terminal:"D",gate:"D22",baggage:"7"},
+  },"AA123",new Date().toISOString());
+  const context={flightNumber:"AA123",flightScheduledAt:scheduled,airportCode:"DFW",pickupAt:f.booking.pickupAt.toISOString()};
+  assert.equal(await saveBookingFlightMetadata(f.booking.id,"AA123",flight,context),true);
+  const saved=(await prisma.inquiry.findUniqueOrThrow({where:{id:f.booking.id}})).flightDetails as object;
+  for(const trip of [await f.service.get(f.token),await f.service.transition(f.token,"EN_ROUTE")]){
+    assertDriverTripPrivacy(trip);
+    assert.equal(trip.flightUpdate.state,"current");
+    assert.equal(trip.flightUpdate.estimatedTime,"2026-10-15T16:20:00.000Z");
+    assert.equal(trip.flightUpdate.terminal,"D");
+    assert.equal(trip.flightUpdate.gate,"D22");
+    assert.equal(trip.flightUpdate.baggageBelt,"7");
+    assert.equal(trip.airportTerminal,"C");
+    assert.equal(trip.flightScheduledAt,scheduled);
+    assert.equal(trip.pickupAt,context.pickupAt);
+    assert.deepEqual(Object.keys(trip.flightUpdate).sort(),[
+      "state","fetchedAt","validUntil","source","airportRole","status","scheduledTime","estimatedTime","actualTime","terminal","gate","baggageBelt",
+    ].sort());
+  }
+  for(const patch of [
+    {fetchedAt:new Date(Date.now()-301_000).toISOString()},
+    {flightDate:"2026-10-16"},
+    {departureAirportCode:"LAX"},
+    {arrivalAirportCode:"ORD"},
+    {flightNumber:"UA999"},
+    {verifiedBookingContext:null},
+  ]){
+    await prisma.inquiry.update({where:{id:f.booking.id},data:{flightDetails:{...saved,...patch}}});
+    const update=(await f.service.get(f.token)).flightUpdate;
+    assert.equal(update.state,"fetchedAt" in patch?"stale":"unavailable");
+    assert.equal(update.terminal,null);
+    assert.equal(update.gate,null);
+    assert.equal(update.estimatedTime,null);
+    assert.equal(update.baggageBelt,null);
+  }
+  await prisma.inquiry.update({where:{id:f.booking.id},data:{flightDetails:saved,flightScheduledAt:new Date("2026-10-16T16:00:00Z")}});
+  assert.equal((await f.service.get(f.token)).flightUpdate.state,"unavailable");
+  assert.equal(await saveBookingFlightMetadata(f.booking.id,"AA123",flight,context),false,"Concurrent booking edits must not save an old match");
+  await prisma.inquiry.update({where:{id:f.booking.id},data:{flightScheduledAt:new Date(scheduled)}});
+  await prisma.ride.update({where:{id:f.ride.id},data:{driverName:"Reassigned chauffeur"}});
+  await assert.rejects(f.service.get(f.token),DriverTripError);
+  await prisma.ride.update({where:{id:f.ride.id},data:{driverName:f.driver.name,driverAccessExpiresAt:new Date(Date.now()-1000)}});
+  await assert.rejects(f.service.get(f.token),DriverTripError);
+  assert.equal(f.charges(),0,"Flight reads never charge");
+});
 test("published driver HTML suppresses capability referrers, caching and indexing",()=>{
   const config=JSON.parse(readFileSync(new URL("../vercel.json",import.meta.url),"utf8"));
   const headers=config.headers.find((rule:{source:string})=>rule.source==="/driver/trip/(.*)").headers;
@@ -232,7 +290,7 @@ test("driver and dispatcher HTTP routes enforce token, status and staff permissi
   }
   const captureUrl=`${base}/api/admin/rides/${f.ride.id}/capture`;
   assert.equal((await fetch(captureUrl,{method:"POST"})).status,401);
-  for(const [permissions,expected] of [[["rides"],200],[["payments"],200],[["content"],403]] as const){
+  for(const [permissions,expected] of [[["rides"],200],[["payments"],200],[["sms"],403]] as const){
     const password=crypto.randomUUID();
     const user=await createAdmin({name:"Capture Permission Fixture",email:`${crypto.randomUUID()}@example.invalid`,password,role:"ADMIN",permissions:[...permissions]});
     users.push(user.id);

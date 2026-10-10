@@ -3,6 +3,8 @@ import {spawn} from "node:child_process";
 import {mkdtemp,rm,mkdir,writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import path from "node:path";
+import {driverFlightUpdate} from "../server/driver-flight-update.js";
+import {mapFlight} from "../server/utils/flightTracker.js";
 
 // Browser fixtures intercept every API request. No cards, bookings or SMS are sent.
 assert.ok(process.env.REPLIT_DEV_DOMAIN);
@@ -11,14 +13,31 @@ const profile=await mkdtemp(path.join(tmpdir(),"driver-trip-browser-"));
 const browser=spawn("/repl/tools/bin/chromium",["--headless","--no-sandbox","--disable-gpu","--remote-debugging-port=9448",`--user-data-dir=${profile}`,"about:blank"],{stdio:"ignore"});
 let socket:WebSocket|undefined;let seq=0;
 const pending=new Map<number,{resolve(value:any):void;reject(error:Error):void}>();
-let failCapture=true;let charges=0;let expired=false;
+let failCapture=true;let charges=0;let expired=false;let failRefresh=false;
+const apiPaths:string[]=[];
+const flight=mapFlight({
+  flight_date:"2026-10-15",flight_status:"active",
+  departure:{iata:"JFK",timezone:"America/New_York",scheduled:"2026-10-15T12:00:00Z",terminal:"8",gate:"B12"},
+  arrival:{iata:"DFW",timezone:"America/Chicago",scheduled:"2026-10-15T16:00:00Z",estimated:"2026-10-15T16:20:00Z",terminal:"D",gate:"D22",baggage:"7"},
+},"AA123",new Date().toISOString());
+flight.verifiedBookingContext={
+  flightNumber:"AA123",scheduledAt:"2026-10-15T16:00:00.000Z",airportCode:"DFW",flightDate:flight.flightDate,
+  departureAirportCode:flight.departureAirportCode,arrivalAirportCode:flight.arrivalAirportCode,
+  scheduledDepartureTime:flight.scheduledDepartureTime,scheduledArrivalTime:flight.scheduledArrivalTime,
+};
+function projectedFlight(details:unknown=flight){
+  return driverFlightUpdate({
+    flightNumber:"AA123",flightScheduledAt:new Date("2026-10-15T16:00:00Z"),airportCode:"DFW",isPrivateFBO:false,flightDetails:details,
+  });
+}
 const trip={reference:"BROWSER",customerName:"Browser Fixture",chauffeurName:"Alex",vehicleName:"Fixture SUV",
   pickupAt:"2026-10-10T15:00:00.000Z",pickup:"Test pickup, Chicago",destination:"Test destination, Chicago",
   serviceType:"Point-to-Point",passengers:2,status:"ASSIGNED",paymentStatus:"requires_capture",
   fareCents:8500,gratuityCents:1275,authorizedTotalCents:9775,hasCardAuthorization:true,
   airportCode:"DFW",airportTerminal:"C",flightNumber:"AA123",airlineName:"American Airlines",
   flightScheduledAt:"2026-10-15T16:00:00.000Z",pickupPreference:"Baggage Claim Meet & Greet with Name Sign",
-  isPrivateFBO:false,specificTailNumber:null,principalName:null,fboName:null,tarmacInstructions:null};
+  isPrivateFBO:false,specificTailNumber:null,principalName:null,fboName:null,tarmacInstructions:null,
+  flightUpdate:projectedFlight()};
 
 // Include legacy financial fields in the intercepted fixture to prove that the
 // driver UI ignores them even during a rolling deployment with an older API.
@@ -58,9 +77,11 @@ try{
     if(message.method!=="Fetch.requestPaused")return;
     void(async()=>{
       const paused=message.params;const url=new URL(paused.request.url);
+      apiPaths.push(url.pathname);
       let status=200;let data:any={};
       if(url.pathname.startsWith("/api/driver/trips/")){
         if(expired){status=404;data={error:"Synthetic expired link"};}
+        else if(failRefresh&&paused.request.method==="GET"){status=503;data={error:"Synthetic network outage"};}
         else if(paused.request.method==="POST"){
           const next=JSON.parse(paused.request.postData).status;
           if(next==="COMPLETED"&&failCapture){failCapture=false;status=402;data={error:"Synthetic uncertain capture"};}
@@ -84,7 +105,77 @@ try{
   for(const detail of ["DFW","Booked terminal","C","AA123","American Airlines","Booked flight time","CDT","Baggage Claim Meet & Greet with Name Sign"]){
     assert.ok(airportText.includes(detail),`Driver airport section should show ${detail}`);
   }
-  assert.ok(airportText.includes("not live flight updates"));
+  for(const detail of ["Live flight updates","Current","AviationStack","In flight","Scheduled arrival","Estimated arrival","Actual arrival","Not provided","Provider terminal","Arrival gate","D22","differs from booked terminal (C)","differs from scheduled time.","Baggage belt"]){
+    assert.ok(airportText.includes(detail),`Driver provider section should show ${detail}`);
+  }
+  assert.ok(airportText.includes("Saved booking details."));
+  assert.equal(await evaluate('document.querySelector(\'[aria-label="Current provider flight details"]\') !== null'),true);
+  const bookedPickup=await evaluate('document.querySelector(".driver-trip-route-point time").textContent');
+  await mkdir("generated-artifacts",{recursive:true});
+  await screenshot("driver-trip-flight-updates");
+  // Provider changes become visible on returning from Maps, without another SMS.
+  trip.flightUpdate=projectedFlight({...flight,flightStatus:"landed",actualArrivalTime:"2026-10-15T16:18:00Z",arrivalGate:"D24"});
+  await evaluate('window.dispatchEvent(new Event("focus"))');
+  await wait('document.querySelector(\'[aria-label="Current provider flight details"]\').textContent.includes("D24")');
+  const landedText=await evaluate('document.querySelector(\'[aria-label="Current provider flight details"]\').textContent');
+  assert.ok(landedText.includes("Landed"));
+  assert.ok(landedText.includes("11:18"));
+  assert.equal(await evaluate('document.querySelector(".driver-trip-route-point time").textContent'),bookedPickup);
+  // Periodic polling reads the shared snapshot; it never triggers a provider request.
+  trip.flightUpdate=projectedFlight({...flight,arrivalGate:"D26"});
+  for(let i=0;i<320;i++){
+    if(await evaluate('document.querySelector(\'[aria-label="Current provider flight details"]\')?.textContent.includes("D26")'))break;
+    await new Promise(r=>setTimeout(r,100));
+  }
+  assert.ok((await evaluate('document.querySelector(\'[aria-label="Current provider flight details"]\').textContent')).includes("D26"),"Automatic driver polling must show the updated gate");
+  trip.flightUpdate=projectedFlight({...flight,arrivalGate:null,arrivalTerminal:null,baggageBelt:null,estimatedArrivalTime:null});
+  await click("Refresh");
+  await wait('document.querySelector(\'[aria-label="Current provider flight details"]\').textContent.includes("Not provided") && !document.querySelector(\'[aria-label="Current provider flight details"]\').textContent.includes("D26")');
+  assert.ok((await evaluate('document.querySelector(\'[aria-label="Current provider flight details"]\').textContent')).includes("Arrival gateNot provided"));
+  // Departure trips must show the departure gate, never the arrival gate or baggage.
+  const departure=structuredClone(flight);
+  Object.assign(departure.verifiedBookingContext!,{airportCode:"JFK",scheduledAt:"2026-10-15T12:00:00.000Z"});
+  trip.flightUpdate=driverFlightUpdate({flightNumber:"AA123",flightScheduledAt:new Date("2026-10-15T12:00:00Z"),airportCode:"JFK",isPrivateFBO:false,flightDetails:departure});
+  await click("Refresh");
+  await wait('document.querySelector(\'[aria-label="Current provider flight details"]\').textContent.includes("B12")');
+  const departureText=await evaluate('document.querySelector(\'[aria-label="Current provider flight details"]\').textContent');
+  assert.ok(departureText.includes("Scheduled departure"));
+  assert.ok(departureText.includes("Departure gateB12"));
+  assert.ok(departureText.includes("Baggage beltNot provided"));
+  assert.ok(!departureText.includes("D22"));
+  // Browser fixtures use the actual server projection for mismatched and stale snapshots.
+  for(const [name,details] of [
+    ["wrong date",{...flight,flightDate:"2026-10-16"}],
+    ["wrong route",{...flight,departureAirportCode:"LAX"}],
+    ["unavailable",null],
+    ["stale",{...flight,fetchedAt:new Date(Date.now()-301_000).toISOString()}],
+  ] as const){
+    trip.flightUpdate=projectedFlight(details);
+    await click("Refresh");
+    await wait(`document.querySelector('[aria-label="Verified provider flight updates"]').textContent.includes(${JSON.stringify(name==="stale"?"Stale":"Unavailable")})`);
+    assert.equal(await evaluate('document.querySelector(\'[aria-label="Current provider flight details"]\') !== null'),false);
+    assert.equal(await evaluate('document.querySelector(".driver-trip-route-point time").textContent'),bookedPickup);
+    assert.match(await evaluate('document.querySelector("#driver-trip-airport-heading").closest("section").textContent'),/Booked terminalC/);
+    await assertNoFinancialDetails();
+  }
+  // Expire a displayed current snapshot locally while a failed refresh retains the trip.
+  trip.flightUpdate={...projectedFlight(),fetchedAt:new Date().toISOString(),validUntil:new Date(Date.now()+2000).toISOString()};
+  await click("Refresh");
+  await wait('document.querySelector(\'[aria-label="Current provider flight details"]\')');
+  failRefresh=true;await click("Refresh");
+  await wait('document.querySelector(".driver-trip-error")');
+  await wait('document.querySelector(\'[aria-label="Verified provider flight updates"]\').textContent.includes("Stale")');
+  assert.equal(await evaluate('document.querySelector(\'[aria-label="Current provider flight details"]\') !== null'),false);
+  failRefresh=false;trip.flightUpdate=projectedFlight();await click("Refresh");
+  await wait('document.querySelector(\'[aria-label="Current provider flight details"]\')');
+  // Revocation on reassignment clears cached trip and flight data.
+  expired=true;await click("Refresh");
+  await wait('document.body.textContent.includes("This trip link is unavailable")');
+  assert.equal(await evaluate('document.querySelector("#driver-trip-airport-heading") !== null'),false);
+  assert.doesNotMatch(await evaluate('document.body.innerText'),/AA123|Browser Fixture|Baggage belt|Provider terminal/);
+  expired=false;
+  await command("Page.navigate",{url:`${origin}/driver/trip/${"e".repeat(64)}`});
+  await wait('document.querySelector(".driver-trip-action")');
   assert.equal(await evaluate('document.querySelector(".pwa-install-gate") !== null'),false);
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'),true);
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".driver-trip-main")).fontStyle'),"normal");
@@ -133,6 +224,11 @@ try{
     assert.ok(privateText.includes(detail));
   }
   assert.doesNotMatch(privateText,/Booked terminal|Flight number|Booked flight time/);
+  // A legacy commercial flight number must not expose commercial updates for an FBO trip.
+  trip.flightNumber="AA123";trip.flightUpdate=projectedFlight();await click("Refresh");
+  await wait('document.querySelector("#driver-trip-airport-heading").closest("section").textContent.includes("AA123")');
+  assert.equal(await evaluate('document.querySelector(\'[aria-label="Verified provider flight updates"]\') !== null'),false);
+  trip.flightNumber=null;
   await assertNoFinancialDetails();
   await screenshot("driver-trip-private-airport");
   Object.assign(trip,{airportCode:null,isPrivateFBO:false,specificTailNumber:null,principalName:null,fboName:null,tarmacInstructions:null});
@@ -140,7 +236,8 @@ try{
   await wait('!document.querySelector("#driver-trip-airport-heading")');
   await assertNoFinancialDetails();
   expired=true;await click("Refresh");await wait('document.body.textContent.includes("This trip link is unavailable")');
-  console.log("Driver browser flow passed: booked flight/airport details, private aviation, missing details, financial privacy, app choices, phone layout, confirmation, capture failure/retry, completed state and expired link. No real API operations.");
+  assert.equal(apiPaths.some(p=>p.startsWith("/api/flights")),false,"Driver polling must never call the provider lookup");
+  console.log("Driver browser flow passed: live arrival/departure gates, actual arrival, missing fields, focus/automatic refresh, stale/offline expiry, wrong date/route, unavailable, reassignment/expiry, booked details, private aviation, financial privacy and completion/capture regression. All API operations intercepted.");
 }finally{
   socket?.close();
   const stopped=new Promise<void>(resolve=>browser.once("exit",()=>resolve()));

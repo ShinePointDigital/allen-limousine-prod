@@ -12,7 +12,7 @@ export function createFlightRouter({
   saveMetadata = saveBookingFlightMetadata,
 }: {
   guard?: RequestHandler;
-  lookup?: typeof trackFlight;
+  lookup?: (...args: Parameters<typeof trackFlight>) => ReturnType<typeof trackFlight>;
   getRide?: typeof getRideById;
   saveMetadata?: typeof saveBookingFlightMetadata;
 } = {}) {
@@ -44,7 +44,13 @@ export function createFlightRouter({
         airportCode: ride.inquiry.airportCode || undefined,
       } : {});
       if (ride) {
-        const saved = await saveMetadata(ride.inquiryId, ride.inquiry.flightNumber!, flight);
+        const bookingContext = {
+          flightNumber: ride.inquiry.flightNumber!,
+          flightScheduledAt: ride.inquiry.flightScheduledAt,
+          pickupAt: ride.inquiry.pickupAt,
+          airportCode: ride.inquiry.airportCode,
+        };
+        const saved = await saveMetadata(ride.inquiryId, ride.inquiry.flightNumber!, flight, bookingContext);
         if (!saved) return res.status(409).json({ code: "BOOKING_CHANGED", error: "The booking changed while retrieving its flight. Reopen the ride." });
       }
       res.json({ flight, stale: false, cached: Date.now() - Date.parse(flight.fetchedAt) > 1000 });

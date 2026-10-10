@@ -194,22 +194,44 @@ const flightMetadata = (item: any): BookingFlightMetadata => ({
 });
 const mapInquiry = (item: any): Inquiry => ({ ...item, ...flightMetadata(item), smsConsent: bookingHasSmsConsent(item.inquiryNotes || [], item.phone), pickupAt: item.pickupAt.toISOString(), trackingExpiresAt: item.trackingExpiresAt?.toISOString() || null, createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(), history: (item.inquiryNotes || []).map((note: any) => ({ body: note.body, author: note.author?.name || note.authorName || "Deleted staff", createdAt: note.createdAt.toISOString() })) });
 
-export async function saveBookingFlightMetadata(inquiryId: string, expectedFlightNumber: string, flight: FlightInfo) {
+export async function saveBookingFlightMetadata(inquiryId: string, expectedFlightNumber: string, flight: FlightInfo,
+  context?: { flightNumber: string; flightScheduledAt?: string | null; pickupAt: string; airportCode?: string | null; activeOnly?: boolean }) {
+  const storedFlight: FlightInfo = { ...flight };
+  delete storedFlight.verifiedBookingContext;
+  if (context?.flightScheduledAt && context.airportCode) {
+    storedFlight.verifiedBookingContext = {
+      flightNumber: flight.flightNumber, scheduledAt: new Date(context.flightScheduledAt).toISOString(),
+      airportCode: context.airportCode.trim().toUpperCase(), flightDate: flight.flightDate,
+      departureAirportCode: flight.departureAirportCode, arrivalAirportCode: flight.arrivalAirportCode,
+      scheduledDepartureTime: flight.scheduledDepartureTime, scheduledArrivalTime: flight.scheduledArrivalTime,
+    };
+  }
   const values = {
     airlineName: flight.airlineName, flightStatus: flight.flightStatus,
     arrivalTime: flight.arrivalTime ? new Date(flight.arrivalTime) : null,
     departureTime: flight.departureTime ? new Date(flight.departureTime) : null,
     arrivalTerminal: flight.arrivalTerminal, departureTerminal: flight.departureTerminal,
     baggageBelt: flight.baggageBelt, flightUpdatedAt: new Date(flight.fetchedAt),
-    flightDetails: flight as unknown as Prisma.InputJsonValue,
+    flightDetails: storedFlight as unknown as Prisma.InputJsonValue,
   };
   if (!databaseConfigured) {
-    const item = inquiries.find(item => item.id === inquiryId && item.flightNumber === expectedFlightNumber);
+    const item = inquiries.find(item => item.id === inquiryId && item.flightNumber === expectedFlightNumber &&
+      (!context?.activeOnly || (!item.isPrivateFBO && ["NEW", "CONTACTED", "CONFIRMED"].includes(item.status) &&
+        rides.some(ride => ride.inquiryId === inquiryId && ["UNASSIGNED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS"].includes(ride.status)))) &&
+      (!context || (item.airportCode === context.airportCode &&
+        item.flightScheduledAt === context.flightScheduledAt && item.pickupAt === context.pickupAt)));
     if (!item) return false;
-    Object.assign(item, values, { arrivalTime: flight.arrivalTime, departureTime: flight.departureTime, flightUpdatedAt: flight.fetchedAt, flightDetails: flight });
+    Object.assign(item, values, { arrivalTime: flight.arrivalTime, departureTime: flight.departureTime, flightUpdatedAt: flight.fetchedAt, flightDetails: storedFlight });
     return true;
   }
-  const result = await prisma.inquiry.updateMany({ where: { id: inquiryId, flightNumber: expectedFlightNumber }, data: values });
+  const result = await prisma.inquiry.updateMany({ where: { id: inquiryId, flightNumber: expectedFlightNumber,
+    ...(context?.activeOnly ? { isPrivateFBO: false, status: { in: ["NEW", "CONTACTED", "CONFIRMED"] },
+      ride: { is: { status: { in: ["UNASSIGNED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS"] } } },
+      OR: [{ flightUpdatedAt: null }, { flightUpdatedAt: { lte: new Date(flight.fetchedAt) } }] } : {}),
+    ...(context ? { airportCode: context.airportCode ?? null,
+      flightScheduledAt: context.flightScheduledAt ? new Date(context.flightScheduledAt) : null,
+      pickupAt: new Date(context.pickupAt) } : {}),
+  }, data: values });
   return result.count === 1;
 }
 export async function getInquiries() {

@@ -28,7 +28,7 @@
     "test:database-config": "tsx --test server/database-config.test.ts",
     "test:gratuity": "tsx --test shared/gratuity.test.ts server/booking-authorization.test.ts server/booking-gratuity.test.ts",
     "test:gratuity-browser": "tsx scripts/test-gratuity-browser.ts",
-    "test:driver-trips": "tsx --test server/driver-trip.test.ts src/driver-trip-logic.test.ts",
+    "test:driver-trips": "tsx --test server/driver-trip.test.ts server/driver-flight-update.test.ts src/driver-trip-logic.test.ts",
     "test:driver-trips-browser": "tsx scripts/test-driver-trip-browser.ts",
     "typecheck": "tsc --noEmit"
   },

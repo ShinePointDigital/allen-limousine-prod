@@ -1,4 +1,6 @@
 export type FlightInfo = {
+  /** Set only after a staff lookup matched this exact booking context. */
+  verifiedBookingContext?: VerifiedBookingFlightContext;
   source: "AviationStack";
   flightNumber: string;
   flightDate: string | null;
@@ -26,6 +28,33 @@ export type FlightInfo = {
   departureDelayMinutes: number | null;
   arrivalDelayMinutes: number | null;
   fetchedAt: string;
+};
+
+export type VerifiedBookingFlightContext = {
+  flightNumber: string;
+  scheduledAt: string;
+  airportCode: string;
+  flightDate: string | null;
+  departureAirportCode: string | null;
+  arrivalAirportCode: string | null;
+  scheduledDepartureTime: string | null;
+  scheduledArrivalTime: string | null;
+};
+
+export const DRIVER_FLIGHT_FRESH_MS = 5 * 60_000;
+export type DriverFlightUpdate = {
+  state: "current" | "stale" | "unavailable";
+  fetchedAt: string | null;
+  validUntil: string | null;
+  source: "AviationStack" | null;
+  airportRole: "arrival" | "departure" | null;
+  status: string | null;
+  scheduledTime: string | null;
+  estimatedTime: string | null;
+  actualTime: string | null;
+  terminal: string | null;
+  gate: string | null;
+  baggageBelt: string | null;
 };
 
 export type BookingFlightMetadata = {
