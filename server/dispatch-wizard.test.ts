@@ -7,7 +7,7 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import type { AddressInfo } from "node:net";
 import type { PrismaClient } from "@prisma/client";
-import { prisma, authenticate } from "./store.js";
+import { prisma, authenticate, createFleet, updateRide } from "./store.js";
 import { applicationDatabaseUrl } from "./database-config.js";
 import { DispatchWizardService } from "./dispatch-wizard-service.js";
 import { createDispatchWizardRouter } from "./dispatch-wizard-routes.js";
@@ -389,6 +389,55 @@ test("chauffeur setup creates or links exactly one vehicle atomically and enforc
     newVehicle: { ...newVehicle, name: rolledBackName },
   })).status, 409);
   assert.equal(await prisma.fleetVehicle.count({ where: { name: rolledBackName } }), 0);
+  assert.equal(f.sent.length, 0);
+});
+
+test("fleet creation with chauffeur details saves a permanent pairing atomically", async t => {
+  const f = await fixture(t);
+  const details = {
+    name: `Paired fleet ${crypto.randomUUID()}`, category: "Sedan", description: "Fleet pairing regression",
+    imageUrl: "https://example.invalid/car.jpg", passengers: "3", luggage: "2", active: true,
+    defaultDriverName: "Fleet-created Chauffeur", defaultDriverPhone: `+1312${crypto.randomInt(1000000, 4999999)}`,
+  };
+  await assert.rejects(createFleet({ ...details, defaultDriverPhone: null }), /both/);
+  await assert.rejects(createFleet({ ...details, defaultDriverName: null }), /both/);
+  assert.equal(await prisma.fleetVehicle.count({ where: { name: details.name } }), 0);
+  const vehicle = await createFleet(details);
+  f.extraVehicleIds.push(vehicle.id);
+  const driver = await prisma.chauffeur.findUniqueOrThrow({ where: { phone: details.defaultDriverPhone } });
+  f.extraDriverIds.push(driver.id);
+  assert.equal(driver.fleetVehicleId, vehicle.id);
+  const snapshot = await f.service.snapshot(f.booking.id);
+  assert.equal(snapshot.drivers.find(item => item.id === driver.id)?.available, true);
+  const duplicateName = `Rejected duplicate ${crypto.randomUUID()}`;
+  await assert.rejects(createFleet({ ...details, name: duplicateName }), /already exists/);
+  assert.equal(await prisma.fleetVehicle.count({ where: { name: duplicateName } }), 0);
+  const vehicleOnly = await createFleet({ ...details, name: `Vehicle only ${crypto.randomUUID()}`, defaultDriverName: null, defaultDriverPhone: null });
+  f.extraVehicleIds.push(vehicleOnly.id);
+  assert.equal(await prisma.chauffeur.count({ where: { fleetVehicleId: vehicleOnly.id } }), 0);
+});
+
+test("completion immediately frees the chauffeur and vehicle without removing their fixed pairing or history", async t => {
+  const f = await fixture(t);
+  await f.assign();
+  const nextBooking = await f.createBooking();
+  const before = await f.service.snapshot(nextBooking.id);
+  assert.equal(before.drivers.find(item => item.id === f.driver.id)?.available, false);
+  const ride = await prisma.ride.findUniqueOrThrow({ where: { inquiryId: f.booking.id } });
+  await updateRide(ride.id, { status: "EN_ROUTE" });
+  await updateRide(ride.id, { status: "IN_PROGRESS" });
+  await updateRide(ride.id, { status: "COMPLETED" });
+  const after = await f.service.snapshot(nextBooking.id);
+  assert.equal(after.drivers.find(item => item.id === f.driver.id)?.available, true);
+  assert.equal(after.vehicles.find(item => item.id === f.vehicle.id)?.available, true);
+  assert.equal((await prisma.chauffeur.findUniqueOrThrow({ where: { id: f.driver.id } })).fleetVehicleId, f.vehicle.id);
+  const history = await prisma.ride.findUniqueOrThrow({ where: { id: ride.id } });
+  assert.equal(history.driverId, f.driver.id);
+  assert.equal(history.vehicleId, f.vehicle.id);
+  const reviewed = await f.service.review(nextBooking.id, after.version, f.actor);
+  const assigned = await f.service.assign(nextBooking.id, reviewed.version, f.driver.id, f.actor);
+  assert.equal(assigned.assignment.driverId, f.driver.id);
+  assert.equal(assigned.assignment.vehicleId, f.vehicle.id);
   assert.equal(f.sent.length, 0);
 });
 

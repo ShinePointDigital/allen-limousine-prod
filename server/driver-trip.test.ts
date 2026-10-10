@@ -74,6 +74,14 @@ test("driver capabilities are scoped, expiring, stored hashed and stable for SMS
 });
 test("status transitions are sequential, audited, idempotent and complete captures approved gratuity",async t=>{
   const f=await fixture(t);
+  const nextBooking=await prisma.inquiry.create({data:{
+    fullName:"Next test passenger",email:"next-driver-test@example.invalid",phone:"+13125550129",
+    pickup:"Test pickup",destination:"Test destination",serviceType:"Point-to-Point",
+    pickupAt:new Date(Date.now()+7200000),passengers:1,paymentStatus:"authorized",
+  }});
+  t.after(()=>prisma.inquiry.deleteMany({where:{id:nextBooking.id}}));
+  const roster=new DispatchWizardService(async()=>{throw new Error("This release check must not send SMS.");},prisma,async()=>false);
+  assert.equal((await roster.snapshot(nextBooking.id)).drivers.find(driver=>driver.id===f.driver.id)?.available,false);
   await assert.rejects(f.service.transition(f.token,"COMPLETED"),/cannot be skipped/);
   await f.service.transition(f.token,"EN_ROUTE");
   await f.service.transition(f.token,"EN_ROUTE");
@@ -81,6 +89,11 @@ test("status transitions are sequential, audited, idempotent and complete captur
   await assert.rejects(f.service.transition(f.token,"EN_ROUTE"),/cannot be skipped/);
   const trip=await f.service.transition(f.token,"COMPLETED");
   assert.equal(trip.status,"COMPLETED");assert.equal(trip.paymentStatus,"succeeded");
+  const nextSnapshot=await roster.snapshot(nextBooking.id);
+  assert.equal(nextSnapshot.drivers.find(driver=>driver.id===f.driver.id)?.available,true);
+  assert.equal(nextSnapshot.vehicles.find(vehicle=>vehicle.id===f.vehicle.id)?.available,true);
+  assert.equal((await prisma.chauffeur.findUniqueOrThrow({where:{id:f.driver.id}})).fleetVehicleId,f.vehicle.id);
+  assert.equal((await prisma.ride.findUniqueOrThrow({where:{id:f.ride.id}})).driverId,f.driver.id);
   assert.equal(f.intent.amount_received,9775);assert.equal(f.charges(),1);
   await f.service.transition(f.token,"COMPLETED");
   await f.capture(f.booking.bookingRequestId!);

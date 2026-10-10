@@ -916,8 +916,32 @@ export async function deleteService(id: string) {
   const index = services.findIndex(item => item.id === id); if (index < 0) return null; return services.splice(index, 1)[0];
 }
 export async function createFleet(data: Omit<FleetVehicle, "id">) {
-  if (databaseConfigured) return prisma.fleetVehicle.create({ data: { ...data, sortOrder: await prisma.fleetVehicle.count() } });
-  const item = { ...data, id: `fleet-${crypto.randomUUID().slice(0, 8)}` }; fleet.push(item); return item;
+  const driverName = data.defaultDriverName?.trim() || null;
+  const driverPhone = data.defaultDriverPhone?.trim() || null;
+  if (Boolean(driverName) !== Boolean(driverPhone)) throw new Error("Enter both the chauffeur's name and phone number to pair them with this vehicle.");
+  if (driverName && driverName.length < 2) throw new Error("Enter the chauffeur's full name.");
+  const vehicleData = { ...data, defaultDriverName: driverName, defaultDriverPhone: driverPhone };
+  if (databaseConfigured) {
+    try {
+      return await prisma.$transaction(async tx => {
+        if (driverPhone && await tx.chauffeur.findUnique({ where: { phone: driverPhone } })) {
+          throw new Error("This chauffeur already exists. Use the dispatch chauffeur setup to manage their vehicle pairing.");
+        }
+        const vehicle = await tx.fleetVehicle.create({ data: { ...vehicleData, sortOrder: await tx.fleetVehicle.count() } });
+        if (driverName && driverPhone) {
+          await tx.chauffeur.create({ data: { name: driverName, phone: driverPhone, fleetVehicleId: vehicle.id } });
+        }
+        return vehicle;
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new Error("This chauffeur already exists. Use the dispatch chauffeur setup to manage their vehicle pairing.");
+      }
+      throw error;
+    }
+  }
+  if (driverName) throw new Error("A database connection is required to save a chauffeur and their permanent vehicle pairing.");
+  const item = { ...vehicleData, id: `fleet-${crypto.randomUUID().slice(0, 8)}` }; fleet.push(item); return item;
 }
 export async function deleteFleet(id: string) {
   if (databaseConfigured) return prisma.fleetVehicle.delete({ where: { id } });
